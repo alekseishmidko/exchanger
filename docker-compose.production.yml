@@ -1,0 +1,10 @@
+services:
+  backend:
+    build:
+      context: .
+      target: production
+    env_file:
+      - .env.production
+    ports:
+      - "5000:5000"
+    restart: unless-stopped
