@@ -1,0 +1,20 @@
+services:
+  backend:
+    build:
+      context: .
+      target: development
+    env_file:
+      - .env.development
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./apps/backend:/workspace/apps/backend
+      - ./packages/contracts:/workspace/packages/contracts
+      - backend-node-modules:/workspace/apps/backend/node_modules
+      - contracts-node-modules:/workspace/packages/contracts/node_modules
+      - workspace-node-modules:/workspace/node_modules
+
+volumes:
+  backend-node-modules:
+  contracts-node-modules:
+  workspace-node-modules:

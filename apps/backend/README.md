@@ -38,7 +38,7 @@ pnpm --filter @exchange/backend start:dev
 Проверка:
 
 ```bash
-curl http://localhost:3000/health
+curl http://localhost:5000/health
 ```
 
 ## Проверки

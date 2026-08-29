@@ -1,6 +1,7 @@
 # Правила и стандарты проекта
 
-Статус: обязательный стандарт проекта, версия 1.0.
+Статус: accepted, обязательный стандарт проекта, версия 1.2.
+Дата: 2026-08-30
 
 Документ определяет правила разработки, тестирования, документирования и принятия решений для тренировочной биржи.
 
@@ -39,16 +40,16 @@ Docs   -> обновить документацию и примеры
 
 ## 3. Обязательные уровни тестирования
 
-| Уровень | Область | Требование |
-|---|---|---|
-| Unit | value objects, policies, matching engine | каждый branch и инвариант |
-| Property-based | order book, price-time priority, money, ledger | генерация широкого набора комбинаций |
-| Contract | commands/events, REST, WebSocket | совместимость producer/consumer и API |
-| Integration | PostgreSQL, Redpanda, snapshots, projections | реальные контейнеры через Testcontainers |
-| E2E | пользовательские бизнес-потоки | полный сценарий от команды до read-модели |
-| Failure | retry, duplicate, timeout, crash, replay | проверка безопасного восстановления |
-| Load | order flow, market data fan-out, recovery | проверка p50/p95/p99 и lag |
-| Security | auth, roles, rate limits, isolation | позитивные и негативные сценарии |
+| Уровень        | Область                                        | Требование                                |
+| -------------- | ---------------------------------------------- | ----------------------------------------- |
+| Unit           | value objects, policies, matching engine       | каждый branch и инвариант                 |
+| Property-based | order book, price-time priority, money, ledger | генерация широкого набора комбинаций      |
+| Contract       | commands/events, REST, WebSocket               | совместимость producer/consumer и API     |
+| Integration    | PostgreSQL, Redpanda, snapshots, projections   | реальные контейнеры через Testcontainers  |
+| E2E            | пользовательские бизнес-потоки                 | полный сценарий от команды до read-модели |
+| Failure        | retry, duplicate, timeout, crash, replay       | проверка безопасного восстановления       |
+| Load           | order flow, market data fan-out, recovery      | проверка p50/p95/p99 и lag                |
+| Security       | auth, roles, rate limits, isolation            | позитивные и негативные сценарии          |
 
 Покрытие строк само по себе недостаточно. Критерий качества — покрытие требований, состояний, переходов и отказов. Для финансового ядра должны быть тесты инвариантов, например: баланс не создаётся из воздуха, встречные заявки исполняются корректно, повтор команды не создаёт вторую операцию.
 
@@ -108,10 +109,15 @@ module-name/
 Дата: YYYY-MM-DD
 
 ## Контекст
+
 ## Решение
+
 ## Рассмотренные альтернативы
+
 ## Обоснование и trade-offs
+
 ## Последствия
+
 ## Тесты и критерии проверки
 ```
 
@@ -137,6 +143,7 @@ module-name/
 - Controller принимает/возвращает DTO; доменная модель не публикуется напрямую наружу.
 - NestJS-модули являются адаптерами и composition root, а не местом размещения бизнес-правил.
 - Любая ошибка имеет определённый тип, код и ожидаемую стратегию retry/отказа.
+- Публичные классы, функции, методы, типы и интеграционные границы сопровождаются JSDoc-комментариями на русском языке. Комментарий объясняет назначение и существенное поведение кода, а не пересказывает имя метода.
 
 ## 9. Definition of Done
 
@@ -168,3 +175,26 @@ module-name/
 
 Невыполненный обязательный тест блокирует merge. Исключение допускается только с временным ADR или issue с ответственным и сроком устранения.
 
+## 11. Локальный запуск и gate этапа 0
+
+Требуется Node.js версии из `engines` и pnpm версии из `packageManager` в корневом `package.json`. Из чистого checkout выполняются:
+
+```bash
+pnpm install --frozen-lockfile
+pnpm security:check
+pnpm format:check
+pnpm lint
+pnpm typecheck
+pnpm test
+pnpm build
+```
+
+Для разработки backend запускается командой `pnpm dev`, после чего liveness проверяется запросом `curl http://localhost:5000/health`. Сборочные артефакты, coverage и файлы окружения игнорируются Git и дополнительно запрещены проверкой `pnpm security:check` в tracked-файлах. Межмодульные контракты импортируются только через публичный entrypoint пакета; импорты во внутренние `src` другого пакета запрещены.
+
+Definition of Done этапа 0 выполнен, когда все команды выше проходят на чистом checkout, smoke E2E проверяет `/health`, CI запускает тот же набор проверок, а документация и ADR conventions доступны в репозитории.
+
+## 12. Конфигурация окружений
+
+Для разработки используется `.env.development`, для production — `.env.production`. Docker Compose-файлы `docker-compose.development.yml` и `docker-compose.production.yml` являются воспроизводимыми точками входа и запускаются командами `pnpm docker:development` и `pnpm docker:production` соответственно.
+
+В NestJS используется `@nestjs/config` через глобальный `ConfigModule`. Обязательные параметры читаются только через `ConfigService.getOrThrow<T>()`. `ConfigService.get<T>(key, fallback)` допускается только для параметров с безопасным и документированным значением по умолчанию, например `PORT` и `HOST`. Секреты не коммитятся в env-файлы и передаются deployment-средой.

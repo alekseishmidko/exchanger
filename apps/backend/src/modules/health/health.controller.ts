@@ -1,13 +1,28 @@
-import { Controller, Get } from '@nestjs/common';
+import { Controller, Get, HttpCode, ServiceUnavailableException } from '@nestjs/common';
+import { HealthService, LivenessResponse, ReadinessResponse } from './health.service';
 
-type HealthResponse = {
-  readonly status: 'ok';
-};
-
+/** Публикует технические health-контракты для оркестратора и мониторинга. */
 @Controller('health')
 export class HealthController {
-  @Get()
-  getHealth(): HealthResponse {
-    return { status: 'ok' };
+  constructor(private readonly healthService: HealthService) {}
+
+  /** Отвечает о живости процесса без проверки базы данных или брокера. */
+  @Get(['', 'live'])
+  getLiveness(): LivenessResponse {
+    return this.healthService.getLiveness();
+  }
+
+  /** Возвращает 503, если хотя бы одна критичная зависимость недоступна. */
+  @Get('ready')
+  @HttpCode(200)
+  async getReadiness(): Promise<ReadinessResponse> {
+    const result = await this.healthService.getReadiness();
+    if (result.status === 'unavailable') {
+      throw new ServiceUnavailableException({
+        status: result.status,
+        checks: result.checks,
+      });
+    }
+    return result;
   }
 }

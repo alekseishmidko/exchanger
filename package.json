@@ -10,10 +10,14 @@
   "scripts": {
     "build": "pnpm -r build",
     "dev": "pnpm --filter @exchange/backend start:dev",
+    "docker:development": "docker compose -f docker-compose.development.yml up --build",
+    "docker:production": "docker compose -f docker-compose.production.yml up --build -d",
     "test": "pnpm -r test",
     "test:cov": "pnpm -r test:cov",
     "lint": "pnpm -r lint",
     "typecheck": "pnpm -r typecheck",
-    "format": "pnpm -r format"
+    "format": "pnpm -r format",
+    "format:check": "pnpm --filter @exchange/backend format:check",
+    "security:check": "node scripts/check-repository.mjs"
   }
 }
