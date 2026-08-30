@@ -7,6 +7,7 @@
 - [Технологический стек](technology-stack.md)
 - [Правила и стандарты](project-standards.md)
 - [Чеклист разработки](development-checklist.md)
+- [Каталог контрактных сообщений](events/README.md)
 
 ## Архитектурные решения
 
