@@ -195,10 +195,10 @@
 
 ## 10. Порядок развития проекта
 
-1. [ ] Репозиторий, CI, стандарты и документация.
-2. [ ] `packages/contracts`: envelope, commands, events и compatibility tests.
-3. [ ] `health` и infrastructure readiness.
-4. [ ] `ledger`: accounts, money, postings, reservation и invariants.
+1. [x] Репозиторий, CI, стандарты и документация.
+2. [x] `packages/contracts`: envelope, commands, events и compatibility tests.
+3. [x] `health` и infrastructure readiness.
+4. [x] `ledger`: accounts, money, postings, reservation и invariants.
 5. [ ] `trading/matching-engine`: order book, price-time priority и execution rules.
 6. [ ] `trading/sequencer`: partition ordering, idempotency и replay.
 7. [ ] `trading/settlement`: atomic trade settlement и fees.
@@ -255,28 +255,28 @@
 
 Объекты:
 
-- [ ] message envelope;
-- [ ] `PlaceOrder`, `CancelOrder`;
-- [ ] `OrderAccepted`, `OrderRejected`, `OrderCancelled`;
-- [ ] `TradeExecuted`, `SettlementApplied`;
-- [ ] общие `Side`, `OrderType`, `TimeInForce`, decimal values.
+- [x] message envelope;
+- [x] `PlaceOrder`, `CancelOrder`;
+- [x] `OrderAccepted`, `OrderRejected`, `OrderCancelled`;
+- [x] `TradeExecuted`, `SettlementApplied`;
+- [x] общие `Side`, `OrderType`, `TimeInForce`, decimal values.
 
 TDD и проверки:
 
-- [ ] valid payload tests;
-- [ ] invalid payload tests;
-- [ ] unknown optional fields;
-- [ ] old message version compatibility;
-- [ ] duplicate message metadata;
-- [ ] decimal strings и запрет floating point;
-- [ ] contract package typecheck/build.
+- [x] valid payload tests;
+- [x] invalid payload tests;
+- [x] unknown optional fields;
+- [x] old message version compatibility;
+- [x] duplicate message metadata;
+- [x] decimal strings и запрет floating point;
+- [x] contract package typecheck/build.
 
 Документация:
 
-- [ ] `packages/contracts/README.md`;
-- [ ] `docs/adr/0002-contract-layer.md`;
-- [ ] `docs/events/README.md` с каталогом сообщений;
-- [ ] для каждого сообщения описаны producer, consumers, payload и compatibility policy.
+- [x] `packages/contracts/README.md`;
+- [x] `docs/adr/0002-contract-layer.md`;
+- [x] `docs/events/README.md` с каталогом сообщений;
+- [x] для каждого сообщения описаны producer, consumers, payload и compatibility policy.
 
 **Gate:** все consumers могут валидировать контракты, а breaking change обнаруживается тестом.
 
@@ -310,27 +310,27 @@ TDD и проверки:
 
 Сначала реализовать:
 
-- [ ] typed IDs;
-- [ ] decimal/money value object;
-- [ ] asset и account;
-- [ ] available/reserved balance;
-- [ ] debit/credit posting;
-- [ ] reservation и release;
-- [ ] idempotency record.
+- [x] typed IDs;
+- [x] decimal/money value object;
+- [x] asset и account;
+- [x] available/reserved balance;
+- [x] debit/credit posting;
+- [x] reservation и release;
+- [x] idempotency record.
 
 Инварианты:
 
-- [ ] сумма проводок сбалансирована;
-- [ ] доступный баланс не становится отрицательным;
-- [ ] reserved не превышает общий баланс;
-- [ ] повтор операции не создаёт второе списание;
-- [ ] компенсация не удаляет исходную запись;
-- [ ] округление детерминировано.
+- [x] сумма проводок сбалансирована;
+- [x] доступный баланс не становится отрицательным;
+- [x] reserved не превышает общий баланс;
+- [x] повтор операции не создаёт второе списание;
+- [x] компенсация не удаляет исходную запись;
+- [x] округление детерминировано.
 
 Тесты:
 
-- [ ] unit tests value objects и policies;
-- [ ] property-based tests для сумм и проводок;
+- [x] unit tests value objects и policies;
+- [x] property-based tests для сумм и проводок;
 - [ ] concurrency tests reservation;
 - [ ] duplicate/retry tests;
 - [ ] PostgreSQL integration tests;
@@ -339,9 +339,9 @@ TDD и проверки:
 
 Документация:
 
-- [ ] `src/modules/ledger/README.md`;
-- [ ] `invariants.md` с формулами балансов;
-- [ ] `flows.md` для reserve/release/posting;
+- [x] `src/modules/ledger/README.md`;
+- [x] `invariants.md` с формулами балансов;
+- [x] `flows.md` для reserve/release/posting;
 - [ ] описание схемы ledger и retention audit records;
 - [ ] ADR для выбора модели двойной записи.
 
