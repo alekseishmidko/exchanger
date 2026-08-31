@@ -351,28 +351,28 @@ TDD и проверки:
 
 **Модуль:** `market` внутри trading domain или отдельный `instruments`.
 
-- [ ] instrument и trading pair;
-- [ ] base/quote assets;
-- [ ] tick size, lot size, min/max quantity;
-- [ ] active/paused status;
-- [ ] fee policy version;
-- [ ] price bands и trading limits.
+- [x] instrument и trading pair;
+- [x] base/quote assets;
+- [x] tick size, lot size, min/max quantity;
+- [x] active/paused status;
+- [x] fee policy version;
+- [x] price bands и trading limits.
 
 Тесты:
 
-- [ ] точность цены и количества;
-- [ ] invalid tick/lot values;
-- [ ] instrument lifecycle;
-- [ ] paused instrument;
-- [ ] versioned rule effective time;
-- [ ] invalid configuration cannot enter trading state.
+- [x] точность цены и количества;
+- [x] invalid tick/lot values;
+- [x] instrument lifecycle;
+- [x] paused instrument;
+- [x] versioned rule effective time;
+- [x] invalid configuration cannot enter trading state.
 
 Документация:
 
-- [ ] README модуля;
-- [ ] каталог правил инструмента;
-- [ ] state diagram lifecycle;
-- [ ] admin change audit requirements.
+- [x] README модуля;
+- [x] каталог правил инструмента;
+- [x] state diagram lifecycle;
+- [x] admin change audit requirements.
 
 **Gate:** любая заявка может быть проверена относительно неизменяемой версии правил инструмента.
 

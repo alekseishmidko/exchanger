@@ -38,6 +38,13 @@ export class Decimal {
     return this.add(other.negate());
   }
 
+  /** Умножает два точных десятичных значения без перехода к number. */
+  multiply(other: Decimal): Decimal {
+    return Decimal.normalize(
+      new Decimal(this.coefficient * other.coefficient, this.scale + other.scale),
+    );
+  }
+
   /** Меняет знак числа. */
   negate(): Decimal {
     return new Decimal(-this.coefficient, this.scale);
@@ -47,6 +54,15 @@ export class Decimal {
   compare(other: Decimal): -1 | 0 | 1 {
     const [left, right] = Decimal.align(this, other);
     return left < right ? -1 : left > right ? 1 : 0;
+  }
+
+  /** Проверяет, делится ли значение без остатка на заданный шаг. */
+  isMultipleOf(step: Decimal): boolean {
+    if (step.isNegative() || step.isZero() || this.isNegative()) {
+      return false;
+    }
+    const [value, divisor, scale] = Decimal.align(this, step);
+    return value % divisor === 0n && scale >= 0;
   }
 
   /** Возвращает true для отрицательного значения. */
