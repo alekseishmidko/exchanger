@@ -77,6 +77,33 @@ describe('Ledger', () => {
     expect(ledger.getBalance(accountA, assetId).reserved.toString()).toBe('5');
   });
 
+  it('serializes concurrent reservations and never overspends available balance', async () => {
+    const ledger = createLedger();
+    ledger.credit(
+      createId<'OperationId'>('credit-concurrent'),
+      accountA,
+      assetId,
+      Decimal.from('10'),
+    );
+    const results = await Promise.allSettled(
+      Array.from({ length: 4 }, (_, index) =>
+        Promise.resolve().then(() =>
+          ledger.reserve(
+            createId<'OperationId'>(`reserve-concurrent-${index}`),
+            accountA,
+            assetId,
+            Decimal.from('3'),
+          ),
+        ),
+      ),
+    );
+
+    expect(results.filter(({ status }) => status === 'fulfilled')).toHaveLength(3);
+    expect(results.filter(({ status }) => status === 'rejected')).toHaveLength(1);
+    expect(ledger.getBalance(accountA, assetId).available.toString()).toBe('1');
+    expect(ledger.getBalance(accountA, assetId).reserved.toString()).toBe('9');
+  });
+
   it('compensates with reverse postings without deleting the original', () => {
     const ledger = createLedger();
     ledger.credit(createId<'OperationId'>('credit-5'), accountA, assetId, Decimal.from('10'));
@@ -88,5 +115,24 @@ describe('Ledger', () => {
     expect(ledger.getBalance(accountB, assetId).available.toString()).toBe('0');
     expect(ledger.getPostings()).toHaveLength(6);
     expect(ledger.getPostings().some(({ operationId }) => operationId === originalId)).toBe(true);
+  });
+
+  it('reconciles every operation by asset', () => {
+    const ledger = createLedger();
+    ledger.credit(
+      createId<'OperationId'>('credit-reconcile'),
+      accountA,
+      assetId,
+      Decimal.from('10'),
+    );
+    ledger.transfer(
+      createId<'OperationId'>('transfer-reconcile'),
+      accountA,
+      accountB,
+      assetId,
+      Decimal.from('4'),
+    );
+
+    expect(() => ledger.reconcile()).not.toThrow();
   });
 });

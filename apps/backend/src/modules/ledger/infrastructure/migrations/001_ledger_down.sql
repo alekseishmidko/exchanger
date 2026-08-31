@@ -1,0 +1,5 @@
+DROP TABLE IF EXISTS idempotency_records;
+DROP TABLE IF EXISTS postings;
+DROP TABLE IF EXISTS balances;
+DROP TABLE IF EXISTS accounts;
+DROP TABLE IF EXISTS assets;
