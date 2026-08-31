@@ -331,19 +331,19 @@ TDD и проверки:
 
 - [x] unit tests value objects и policies;
 - [x] property-based tests для сумм и проводок;
-- [ ] concurrency tests reservation;
-- [ ] duplicate/retry tests;
-- [ ] PostgreSQL integration tests;
-- [ ] migration up/down tests;
-- [ ] reconciliation tests.
+- [x] concurrency tests reservation;
+- [x] duplicate/retry tests;
+- [x] PostgreSQL integration tests;
+- [x] migration up/down tests;
+- [x] reconciliation tests.
 
 Документация:
 
 - [x] `src/modules/ledger/README.md`;
 - [x] `invariants.md` с формулами балансов;
 - [x] `flows.md` для reserve/release/posting;
-- [ ] описание схемы ledger и retention audit records;
-- [ ] ADR для выбора модели двойной записи.
+- [x] описание схемы ledger и retention audit records;
+- [x] ADR для выбора модели двойной записи.
 
 **Gate:** ledger не создаёт и не теряет стоимость при любых протестированных повторах и отказах.
 

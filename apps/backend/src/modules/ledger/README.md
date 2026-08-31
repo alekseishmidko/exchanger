@@ -17,6 +17,8 @@
 - `Posting` и `assertBalancedPostings` — double-entry журнал;
 - `IdempotencyRecord` — связь operation ID с уже применённым результатом.
 
+Схема PostgreSQL и retention policy описаны в [`infrastructure/schema.md`](infrastructure/schema.md), migration up/down находятся в `infrastructure/migrations/`, а решение о double-entry зафиксировано в [ADR 0003](../../../../docs/adr/0003-double-entry-ledger.md).
+
 ## Инварианты
 
 - available и reserved неотрицательны;

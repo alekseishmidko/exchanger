@@ -178,6 +178,19 @@ export class Ledger {
     return [...this.postings];
   }
 
+  /** Проверяет, что каждая операция журнала остаётся сбалансированной по asset. */
+  reconcile(): void {
+    const byOperation = new Map<OperationId, Posting[]>();
+    for (const posting of this.postings) {
+      const operationPostings = byOperation.get(posting.operationId) ?? [];
+      operationPostings.push(posting);
+      byOperation.set(posting.operationId, operationPostings);
+    }
+    for (const operationPostings of byOperation.values()) {
+      assertBalancedPostings(operationPostings);
+    }
+  }
+
   private readonly assets = new Map<AssetId, Asset>();
   private readonly accounts = new Map<AccountId, Account>();
   private readonly systemAccount = createId<'AccountId'>('system');
