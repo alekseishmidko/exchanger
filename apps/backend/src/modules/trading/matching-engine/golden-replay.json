@@ -1,0 +1,26 @@
+{
+  "name": "single-price-cross",
+  "commands": [
+    {
+      "type": "PLACE",
+      "orderId": "ask-1",
+      "userId": "maker",
+      "side": "SELL",
+      "orderType": "LIMIT",
+      "price": "100",
+      "quantity": "2",
+      "timeInForce": "GTC"
+    },
+    {
+      "type": "PLACE",
+      "orderId": "bid-1",
+      "userId": "taker",
+      "side": "BUY",
+      "orderType": "LIMIT",
+      "price": "100",
+      "quantity": "1",
+      "timeInForce": "GTC"
+    }
+  ],
+  "expected": ["ORDER_ACCEPTED", "ORDER_ACCEPTED", "TRADE_EXECUTED"]
+}
