@@ -382,46 +382,46 @@ TDD и проверки:
 
 Состояние:
 
-- [ ] bids/asks price levels;
-- [ ] FIFO queue внутри price level;
-- [ ] active orders;
-- [ ] order status и remaining quantity;
-- [ ] sequence последнего применения.
+- [x] bids/asks price levels;
+- [x] FIFO queue внутри price level;
+- [x] active orders;
+- [x] order status и remaining quantity;
+- [x] sequence последнего применения.
 
 Правила:
 
-- [ ] price-time priority;
-- [ ] passive order price;
-- [ ] partial fills;
-- [ ] limit/market;
-- [ ] GTC/IOC/FOK;
-- [ ] cancel;
-- [ ] self-trade prevention;
-- [ ] deterministic result независимо от запуска.
+- [x] price-time priority;
+- [x] passive order price;
+- [x] partial fills;
+- [x] limit/market;
+- [x] GTC/IOC/FOK;
+- [x] cancel;
+- [x] self-trade prevention;
+- [x] deterministic result независимо от запуска.
 
 Тесты:
 
-- [ ] каждый сценарий из правил исполнения;
-- [ ] empty book и single-level book;
-- [ ] multi-level match;
-- [ ] exact/partial/full fill;
-- [ ] market остаток;
-- [ ] IOC/FOK;
-- [ ] cancel before/after match;
-- [ ] same-price FIFO;
-- [ ] self-trade prevention;
-- [ ] property-based random order sequences;
-- [ ] golden replay fixtures;
-- [ ] benchmark без сетевых и DB вызовов.
+- [x] каждый сценарий из правил исполнения;
+- [x] empty book и single-level book;
+- [x] multi-level match;
+- [x] exact/partial/full fill;
+- [x] market остаток;
+- [x] IOC/FOK;
+- [x] cancel before/after match;
+- [x] same-price FIFO;
+- [x] self-trade prevention;
+- [x] property-based random order sequences;
+- [x] golden replay fixtures;
+- [x] benchmark без сетевых и DB вызовов.
 
 Документация:
 
-- [ ] README модуля;
-- [ ] формальная таблица state transitions;
-- [ ] Mermaid sequence diagrams;
-- [ ] описание алгоритма и его сложности;
-- [ ] каталог rejection codes;
-- [ ] ADR о порядке price-time.
+- [x] README модуля;
+- [x] формальная таблица state transitions;
+- [x] Mermaid sequence diagrams;
+- [x] описание алгоритма и его сложности;
+- [x] каталог rejection codes;
+- [x] ADR о порядке price-time.
 
 **Gate:** одинаковая последовательность команд всегда создаёт одинаковые events и итоговый order book.
 
