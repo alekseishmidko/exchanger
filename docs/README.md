@@ -8,6 +8,7 @@
 - [Правила и стандарты](project-standards.md)
 - [Чеклист разработки](development-checklist.md)
 - [Каталог контрактных сообщений](events/README.md)
+- [Trading state machine и sequencer](trading-state-machine.md)
 
 ## Архитектурные решения
 
