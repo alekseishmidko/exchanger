@@ -429,32 +429,32 @@ TDD и проверки:
 
 **Модули:** `trading/sequencer`, `trading/state-machine`.
 
-- [ ] partition ownership по `instrument_id`;
-- [ ] monotonic sequence;
-- [ ] command admission;
-- [ ] deduplication по command/idempotency key;
-- [ ] deterministic clock policy;
-- [ ] pause/resume instrument;
-- [ ] snapshot boundary.
+- [x] partition ownership по `instrument_id`;
+- [x] monotonic sequence;
+- [x] command admission;
+- [x] deduplication по command/idempotency key;
+- [x] deterministic clock policy;
+- [x] pause/resume instrument;
+- [x] snapshot boundary.
 
 Тесты:
 
-- [ ] две команды одного инструмента обрабатываются по порядку;
-- [ ] разные инструменты могут обрабатываться независимо;
-- [ ] повтор команды возвращает прежний результат;
-- [ ] gap sequence обнаруживается;
-- [ ] crash/restart восстанавливает sequence;
-- [ ] pause блокирует новые команды по политике;
-- [ ] replay даёт идентичное состояние;
-- [ ] partition ownership failure tests.
+- [x] две команды одного инструмента обрабатываются по порядку;
+- [x] разные инструменты могут обрабатываться независимо;
+- [x] повтор команды возвращает прежний результат;
+- [x] gap sequence обнаруживается;
+- [x] crash/restart восстанавливает sequence;
+- [x] pause блокирует новые команды по политике;
+- [x] replay даёт идентичное состояние;
+- [x] partition ownership failure tests.
 
 Документация:
 
-- [ ] README и state diagram;
-- [ ] правила sequence и ordering;
-- [ ] recovery/replay runbook;
-- [ ] latency budget критического пути;
-- [ ] описание backpressure.
+- [x] README и state diagram;
+- [x] правила sequence и ordering;
+- [x] recovery/replay runbook;
+- [x] latency budget критического пути;
+- [x] описание backpressure.
 
 **Gate:** нет двойного исполнения, нарушения порядка или потери принятой команды.
 
