@@ -9,11 +9,13 @@
 - [Чеклист разработки](development-checklist.md)
 - [Каталог контрактных сообщений](events/README.md)
 - [Trading state machine и sequencer](trading-state-machine.md)
+- [Settlement и event log](settlement.md)
 
 ## Архитектурные решения
 
 - [ADR 0001: Модульный монолит](adr/0001-modular-monolith.md)
 - [ADR 0002: Единый слой контрактов](adr/0002-contract-layer.md)
+- [ADR 0003: Log-first для settlement](adr/0003-settlement-log-first.md)
 
 ## Правило размещения
 
