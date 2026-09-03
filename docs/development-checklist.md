@@ -201,7 +201,7 @@
 4. [x] `ledger`: accounts, money, postings, reservation и invariants.
 5. [ ] `trading/matching-engine`: order book, price-time priority и execution rules.
 6. [ ] `trading/sequencer`: partition ordering, idempotency и replay.
-7. [ ] `trading/settlement`: atomic trade settlement и fees.
+7. [x] `trading/settlement`: atomic trade settlement и fees.
 8. [ ] `gateway`: authentication, validation, rate limits и command API.
 9. [ ] `projections`: orders, trades и balances read-models.
 10. [ ] `market-data`: public/private streams, snapshots и gap recovery.
@@ -462,33 +462,33 @@ TDD и проверки:
 
 **Модули:** `trading/settlement`, event-log adapter.
 
-- [ ] reserve до размещения;
-- [ ] settlement после match;
-- [ ] maker/taker fees;
-- [ ] `TradeExecuted` и `SettlementApplied`;
-- [ ] durable append;
-- [ ] consumer offset;
-- [ ] retry и dead-letter policy.
+- [x] reserve до размещения;
+- [x] settlement после match;
+- [x] maker/taker fees;
+- [x] `TradeExecuted` и `SettlementApplied`;
+- [x] durable append;
+- [x] consumer offset;
+- [x] retry и dead-letter policy.
 
 Тесты:
 
-- [ ] buy/sell settlement;
-- [ ] maker/taker fee calculation;
-- [ ] multi-fill settlement;
-- [ ] insufficient balance;
-- [ ] duplicate event;
-- [ ] event log timeout;
-- [ ] consumer crash before/after commit;
-- [ ] ledger/event reconciliation;
-- [ ] exactly-once business effect through idempotency.
+- [x] buy/sell settlement;
+- [x] maker/taker fee calculation;
+- [x] multi-fill settlement;
+- [x] insufficient balance;
+- [x] duplicate event;
+- [x] event log timeout;
+- [x] consumer crash before/after commit;
+- [x] ledger/event reconciliation;
+- [x] exactly-once business effect through idempotency.
 
 Документация:
 
-- [ ] settlement flow;
-- [ ] posting matrix для каждой сделки;
-- [ ] event log retention;
-- [ ] outbox/log-first decision ADR;
-- [ ] reconciliation и incident runbook.
+- [x] settlement flow;
+- [x] posting matrix для каждой сделки;
+- [x] event log retention;
+- [x] outbox/log-first decision ADR;
+- [x] reconciliation и incident runbook.
 
 **Gate:** каждая сделка даёт полный и проверяемый набор проводок и событий.
 

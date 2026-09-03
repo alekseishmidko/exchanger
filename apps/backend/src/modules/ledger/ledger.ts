@@ -113,6 +113,36 @@ export class Ledger {
     return result;
   }
 
+  /** Переводит средства из reserved источника в available получателя. */
+  settleReservedTransfer(
+    operationId: OperationId,
+    debitAccountId: AccountId,
+    creditAccountId: AccountId,
+    assetId: AssetId,
+    amount: Decimal,
+  ): OperationResult {
+    const previous = this.operations.get(operationId);
+    if (previous) return previous;
+    if (amount.isNegative() || amount.isZero()) throw new Error('Amount must be positive');
+    const debit = this.getBalance(debitAccountId, assetId).debitReserved(amount);
+    const credit = this.getBalance(creditAccountId, assetId).credit(amount);
+    const debitPosting = this.createPosting(operationId, debitAccountId, assetId, amount, 'DEBIT');
+    const creditPosting = this.createPosting(
+      operationId,
+      creditAccountId,
+      assetId,
+      amount,
+      'CREDIT',
+    );
+    assertBalancedPostings([debitPosting, creditPosting]);
+    this.balances.set(this.key(debitAccountId, assetId), debit);
+    this.balances.set(this.key(creditAccountId, assetId), credit);
+    this.postings.push(debitPosting, creditPosting);
+    const result = { operationId, postingIds: [debitPosting.id, creditPosting.id] } as const;
+    this.operations.set(operationId, result);
+    return result;
+  }
+
   /** Резервирует available, повтор operationId возвращает прежний результат. */
   reserve(
     operationId: OperationId,
