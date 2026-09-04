@@ -10,6 +10,7 @@
 - [Каталог контрактных сообщений](events/README.md)
 - [Trading state machine и sequencer](trading-state-machine.md)
 - [Settlement и event log](settlement.md)
+- [Gateway и command API](gateway.md)
 
 ## Архитектурные решения
 

@@ -202,7 +202,7 @@
 5. [ ] `trading/matching-engine`: order book, price-time priority и execution rules.
 6. [ ] `trading/sequencer`: partition ordering, idempotency и replay.
 7. [x] `trading/settlement`: atomic trade settlement и fees.
-8. [ ] `gateway`: authentication, validation, rate limits и command API.
+8. [x] `gateway`: authentication, validation, rate limits и command API.
 9. [ ] `projections`: orders, trades и balances read-models.
 10. [ ] `market-data`: public/private streams, snapshots и gap recovery.
 11. [ ] `admin`: instrument configuration, limits, circuit breaker и audit.
@@ -496,36 +496,36 @@ TDD и проверки:
 
 **Модуль:** `gateway`.
 
-- [ ] auth и API keys;
-- [ ] DTO validation;
-- [ ] command mapping;
-- [ ] idempotency headers;
-- [ ] rate limits;
-- [ ] pagination и limits;
-- [ ] безопасные error responses;
-- [ ] REST endpoint для place/cancel.
+- [x] auth и API keys;
+- [x] DTO validation;
+- [x] command mapping;
+- [x] idempotency headers;
+- [x] rate limits;
+- [x] pagination и limits;
+- [x] безопасные error responses;
+- [x] REST endpoint для place/cancel.
 
 Тесты:
 
-- [ ] valid/invalid auth;
-- [ ] role/object authorization;
-- [ ] malformed payload;
-- [ ] oversized payload;
-- [ ] duplicate idempotency key;
-- [ ] rate limit;
-- [ ] timeout and retry;
-- [ ] no sensitive data in errors;
-- [ ] OpenAPI contract tests;
-- [ ] API e2e до trading core.
+- [x] valid/invalid auth;
+- [x] role/object authorization;
+- [x] malformed payload;
+- [x] oversized payload;
+- [x] duplicate idempotency key;
+- [x] rate limit;
+- [x] timeout and retry;
+- [x] no sensitive data in errors;
+- [x] OpenAPI contract tests;
+- [x] API e2e до trading core.
 
 Документация:
 
-- [ ] OpenAPI;
-- [ ] auth and API key guide;
-- [ ] error code catalog;
-- [ ] rate limit policy;
-- [ ] request/response examples;
-- [ ] security threat model Gateway.
+- [x] OpenAPI;
+- [x] auth and API key guide;
+- [x] error code catalog;
+- [x] rate limit policy;
+- [x] request/response examples;
+- [x] security threat model Gateway.
 
 **Gate:** внешний клиент не может обойти валидацию, авторизацию или idempotency.
 
