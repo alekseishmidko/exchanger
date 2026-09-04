@@ -3,6 +3,7 @@ import { ConfigModule } from '@nestjs/config';
 import { resolve } from 'node:path';
 import { validateEnvironment } from './config/environment';
 import { HealthModule } from './modules/health/health.module';
+import { GatewayModule } from './modules/gateway/gateway.module';
 
 /** Корневой composition root приложения и глобальной конфигурации. */
 @Module({
@@ -17,6 +18,7 @@ import { HealthModule } from './modules/health/health.module';
       validate: validateEnvironment,
     }),
     HealthModule,
+    GatewayModule,
   ],
 })
 export class AppModule {}

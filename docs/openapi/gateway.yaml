@@ -1,0 +1,67 @@
+openapi: 3.0.3
+info:
+  title: Exchange Gateway API
+  version: 0.1.0
+paths:
+  /api/v1/orders:
+    post:
+      security: [{ ApiKeyAuth: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PlaceOrder' }
+      responses:
+        '201': { description: Command accepted }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+    get:
+      security: [{ ApiKeyAuth: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/Limit' }
+        - { $ref: '#/components/parameters/Cursor' }
+      responses:
+        '200': { description: Bounded order page }
+  /api/v1/orders/{orderId}/cancel:
+    post:
+      security: [{ ApiKeyAuth: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/OrderId' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+      responses:
+        '201': { description: Cancel command accepted }
+components:
+  securitySchemes:
+    ApiKeyAuth: { type: apiKey, in: header, name: x-api-key }
+  parameters:
+    IdempotencyKey: { name: Idempotency-Key, in: header, required: true, schema: { type: string, maxLength: 128 } }
+    OrderId: { name: orderId, in: path, required: true, schema: { type: string } }
+    Limit: { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 50 } }
+    Cursor: { name: cursor, in: query, schema: { type: string } }
+  schemas:
+    PlaceOrder:
+      type: object
+      required: [commandId, orderId, accountId, instrumentId, clientOrderId, side, orderType, quantity, timeInForce]
+      additionalProperties: false
+      properties:
+        commandId: { type: string }
+        orderId: { type: string }
+        accountId: { type: string }
+        instrumentId: { type: string }
+        clientOrderId: { type: string }
+        side: { type: string, enum: [BUY, SELL] }
+        orderType: { type: string, enum: [LIMIT, MARKET] }
+        quantity: { type: string, pattern: '^(0|[1-9][0-9]*)(\.[0-9]+)?$' }
+        limitPrice: { type: string, nullable: true }
+        timeInForce: { type: string, enum: [GTC, IOC, FOK] }
+  responses:
+    BadRequest: { description: Safe validation error }
+    Unauthorized: { description: Invalid API key }
+    Forbidden: { description: Object authorization failure }
+    Conflict: { description: Idempotency conflict }
+    RateLimited: { description: Rate limit exceeded }
