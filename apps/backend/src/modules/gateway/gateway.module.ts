@@ -41,5 +41,6 @@ import { InMemoryTradingCommandPort } from './gateway.types';
     RateLimitService,
     { provide: 'TRADING_COMMAND_PORT', useClass: InMemoryTradingCommandPort },
   ],
+  exports: [ApiKeyGuard, ApiKeyRegistry],
 })
 export class GatewayModule {}
