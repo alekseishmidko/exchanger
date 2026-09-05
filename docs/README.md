@@ -11,6 +11,7 @@
 - [Trading state machine и sequencer](trading-state-machine.md)
 - [Settlement и event log](settlement.md)
 - [Gateway и command API](gateway.md)
+- [Projections и query API](projections.md)
 
 ## Архитектурные решения
 

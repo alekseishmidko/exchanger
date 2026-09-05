@@ -533,31 +533,31 @@ TDD и проверки:
 
 **Модули:** `projections`.
 
-- [ ] order history;
-- [ ] trade history;
-- [ ] balance projection;
-- [ ] cursor pagination;
-- [ ] rebuild from event log;
-- [ ] projection version.
+- [x] order history;
+- [x] trade history;
+- [x] balance projection;
+- [x] cursor pagination;
+- [x] rebuild from event log;
+- [x] projection version.
 
 Тесты:
 
-- [ ] projection каждого события;
-- [ ] duplicate delivery;
-- [ ] out-of-order/gap detection;
-- [ ] rebuild equals live projection;
-- [ ] pagination consistency;
-- [ ] authorization data isolation;
-- [ ] schema migration;
-- [ ] lag metrics.
+- [x] projection каждого события;
+- [x] duplicate delivery;
+- [x] out-of-order/gap detection;
+- [x] rebuild equals live projection;
+- [x] pagination consistency;
+- [x] authorization data isolation;
+- [x] schema migration;
+- [x] lag metrics.
 
 Документация:
 
-- [ ] source event → projection mapping;
-- [ ] read consistency policy;
-- [ ] rebuild runbook;
-- [ ] retention and indexing;
-- [ ] query API contract.
+- [x] source event → projection mapping;
+- [x] read consistency policy;
+- [x] rebuild runbook;
+- [x] retention and indexing;
+- [x] query API contract.
 
 **Gate:** проекции восстанавливаются из журнала и не показывают данные другого пользователя.
 

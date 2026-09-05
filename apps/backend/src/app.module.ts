@@ -4,6 +4,7 @@ import { resolve } from 'node:path';
 import { validateEnvironment } from './config/environment';
 import { HealthModule } from './modules/health/health.module';
 import { GatewayModule } from './modules/gateway/gateway.module';
+import { ProjectionsModule } from './modules/projections/projections.module';
 
 /** Корневой composition root приложения и глобальной конфигурации. */
 @Module({
@@ -19,6 +20,7 @@ import { GatewayModule } from './modules/gateway/gateway.module';
     }),
     HealthModule,
     GatewayModule,
+    ProjectionsModule,
   ],
 })
 export class AppModule {}
