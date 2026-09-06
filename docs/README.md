@@ -12,6 +12,7 @@
 - [Settlement и event log](settlement.md)
 - [Gateway и command API](gateway.md)
 - [Projections и query API](projections.md)
+- [Market data и WebSocket](market-data.md)
 
 ## Архитектурные решения
 
