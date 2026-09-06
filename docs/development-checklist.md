@@ -203,8 +203,8 @@
 6. [ ] `trading/sequencer`: partition ordering, idempotency и replay.
 7. [x] `trading/settlement`: atomic trade settlement и fees.
 8. [x] `gateway`: authentication, validation, rate limits и command API.
-9. [ ] `projections`: orders, trades и balances read-models.
-10. [ ] `market-data`: public/private streams, snapshots и gap recovery.
+9. [x] `projections`: orders, trades и balances read-models.
+10. [x] `market-data`: public/private streams, snapshots и gap recovery.
 11. [ ] `admin`: instrument configuration, limits, circuit breaker и audit.
 12. [ ] нагрузочное, failure, security и recovery тестирование всей системы.
 
@@ -565,32 +565,32 @@ TDD и проверки:
 
 **Модуль:** `market-data`.
 
-- [ ] public order book snapshot;
-- [ ] incremental updates;
-- [ ] trades/ticker;
-- [ ] private user stream;
-- [ ] sequence/gap recovery;
-- [ ] subscription authorization;
-- [ ] fan-out limits.
+- [x] public order book snapshot;
+- [x] incremental updates;
+- [x] trades/ticker;
+- [x] private user stream;
+- [x] sequence/gap recovery;
+- [x] subscription authorization;
+- [x] fan-out limits.
 
 Тесты:
 
-- [ ] snapshot consistency;
-- [ ] ordered increments;
-- [ ] gap detection and resync;
-- [ ] unauthorized private subscription;
-- [ ] disconnect/reconnect;
-- [ ] slow consumer/backpressure;
-- [ ] burst fan-out;
-- [ ] no private event leakage.
+- [x] snapshot consistency;
+- [x] ordered increments;
+- [x] gap detection and resync;
+- [x] unauthorized private subscription;
+- [x] disconnect/reconnect;
+- [x] slow consumer/backpressure;
+- [x] burst fan-out;
+- [x] no private event leakage.
 
 Документация:
 
-- [ ] public/private channel catalog;
-- [ ] WebSocket protocol;
-- [ ] snapshot and replay algorithm;
-- [ ] backpressure policy;
-- [ ] client reconnection guide.
+- [x] public/private channel catalog;
+- [x] WebSocket protocol;
+- [x] snapshot and replay algorithm;
+- [x] backpressure policy;
+- [x] client reconnection guide.
 
 **Gate:** клиент может восстановить актуальный стакан после разрыва, не получая чужих данных.
 

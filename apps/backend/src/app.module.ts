@@ -5,6 +5,7 @@ import { validateEnvironment } from './config/environment';
 import { HealthModule } from './modules/health/health.module';
 import { GatewayModule } from './modules/gateway/gateway.module';
 import { ProjectionsModule } from './modules/projections/projections.module';
+import { MarketDataModule } from './modules/market-data/market-data.module';
 
 /** Корневой composition root приложения и глобальной конфигурации. */
 @Module({
@@ -21,6 +22,7 @@ import { ProjectionsModule } from './modules/projections/projections.module';
     HealthModule,
     GatewayModule,
     ProjectionsModule,
+    MarketDataModule,
   ],
 })
 export class AppModule {}
