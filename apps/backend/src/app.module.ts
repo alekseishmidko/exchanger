@@ -6,6 +6,7 @@ import { HealthModule } from './modules/health/health.module';
 import { GatewayModule } from './modules/gateway/gateway.module';
 import { ProjectionsModule } from './modules/projections/projections.module';
 import { MarketDataModule } from './modules/market-data/market-data.module';
+import { AdminModule } from './modules/admin';
 
 /** Корневой composition root приложения и глобальной конфигурации. */
 @Module({
@@ -23,6 +24,7 @@ import { MarketDataModule } from './modules/market-data/market-data.module';
     GatewayModule,
     ProjectionsModule,
     MarketDataModule,
+    AdminModule,
   ],
 })
 export class AppModule {}
