@@ -4,6 +4,19 @@
 
 Base path: `/api/v1`. Машинный контракт опубликован в [gateway.yaml](openapi/gateway.yaml). Все command endpoints требуют `x-api-key` и уникальный `Idempotency-Key`.
 
+При локальном запуске NestJS также генерирует актуальный контракт из controller
+и DTO metadata. Swagger UI доступен по `/docs`, JSON — по
+`/docs/openapi.json`, YAML — по `/docs/openapi.yaml`. Статический
+`docs/openapi/gateway.yaml` остаётся версионируемым клиентским контрактом, а
+runtime-документ позволяет проверить фактически запущенную сборку. Расхождение
+между ними считается дефектом контракта.
+
+Путь задаётся `SWAGGER_PATH` без начального `/`. `SWAGGER_ENABLED=true|false`
+явно управляет публикацией; если флаг не указан, документация включается только
+в development. Авторизация, введённая в Swagger UI, не сохраняется после
+перезагрузки страницы (`persistAuthorization=false`), чтобы API-ключ не оставался
+в browser storage.
+
 `POST /orders` принимает typed decimal strings, `LIMIT` требует `limitPrice`, `MARKET` запрещает его. `POST /orders/{orderId}/cancel` отменяет заявку после проверки владельца объекта. Ответ содержит только `commandId`, `orderId` и безопасный status.
 
 Пример:
@@ -36,7 +49,7 @@ API keys передаются только в заголовке и не поп�
 
 ## Error catalog and limits
 
-Безопасные коды: `AUTH_INVALID_API_KEY`, `AUTH_OBJECT_FORBIDDEN`, `REQUEST_MALFORMED`, `IDEMPOTENCY_KEY_REQUIRED`, `IDEMPOTENCY_KEY_REUSED`, `RATE_LIMIT_EXCEEDED`. Payload ограничен 16 KiB. Fixed window rate limit по API key: 60 command requests в минуту в reference implementation.
+Безопасные коды: `AUTH_INVALID_API_KEY`, `AUTH_OBJECT_FORBIDDEN`, `REQUEST_MALFORMED`, `ORDER_ID_MISMATCH`, `IDEMPOTENCY_KEY_REQUIRED`, `IDEMPOTENCY_KEY_REUSED`, `RATE_LIMIT_EXCEEDED`. `ORDER_ID_MISMATCH` означает, что `orderId` в URL и теле cancel-команды различаются. Payload ограничен 16 KiB. Fixed window rate limit по API key: 60 command requests в минуту в reference implementation.
 
 При timeout trading core клиент повторяет тот же request с тем же idempotency key. Повтор возвращает исходный результат; тот же key с другим payload получает `409`.
 

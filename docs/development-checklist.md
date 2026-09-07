@@ -207,6 +207,7 @@
 10. [x] `market-data`: public/private streams, snapshots и gap recovery.
 11. [x] `admin`: instrument configuration, limits, circuit breaker и audit.
 12. [ ] нагрузочное, failure, security и recovery тестирование всей системы.
+13. [ ] полнота transport API: REST/OpenAPI для внешних сценариев и AsyncAPI для WebSocket.
 
 ## 11. Пошаговая модульная декомпозиция
 
@@ -630,17 +631,79 @@ TDD и проверки:
 
 ### Этап 12. Системная проверка
 
-- [ ] полный E2E: account → balance → order → match → settlement → history;
-- [ ] повтор всей команды не создаёт повторный эффект;
-- [ ] restart/replay для trading core;
+- [x] полный E2E: account → balance → order → match → settlement → history;
+- [x] повтор всей команды не создаёт повторный эффект;
+- [x] restart/replay для trading core;
 - [ ] PostgreSQL backup/restore;
-- [ ] event log retention/archive/restore;
-- [ ] failure matrix для всех критичных зависимостей;
-- [ ] security review и threat model update;
-- [ ] нагрузочный тест Pilot profile;
-- [ ] WebSocket fan-out test;
-- [ ] p50/p95/p99 и consumer lag зафиксированы;
+- [x] event log retention/archive/restore;
+- [x] failure matrix для всех критичных зависимостей;
+- [x] security review и threat model update;
+- [x] нагрузочный тест Pilot profile;
+- [x] WebSocket fan-out test;
+- [x] p50/p95/p99 и consumer lag зафиксированы;
 - [ ] RTO/RPO проверены практически;
 - [ ] все runbooks проверены человеком, не только написаны.
 
 **Финальный gate:** требования, инварианты, тесты, документация и эксплуатационные процедуры согласованы; известные исключения оформлены ADR/issue с ответственным и сроком.
+
+### Этап 13. Полнота transport API и документации
+
+**Модули:** `gateway`, `projections`, `trading/instruments`, `ledger`, `admin`, `market-data`.
+
+Цель этапа — опубликовать уже реализованные application-сценарии через явные
+transport boundaries. REST-контроллеры не должны открывать прямой доступ к
+внутренним aggregate, проводкам или matching engine: каждый endpoint вызывает
+application port, выполняет authentication/authorization и возвращает только
+версионированный публичный DTO.
+
+REST API:
+
+- [x] Swagger подключён к NestJS и конфигурация вынесена в `src/config/swagger.ts`;
+- [x] Gateway place/cancel endpoints описаны Swagger metadata и публичными DTO;
+- [ ] для `instruments` добавлены read endpoints каталога и защищённые admin-команды изменения lifecycle/rules;
+- [ ] для `accounts/balances` добавлены endpoints создания/получения аккаунта и просмотра доступного/зарезервированного баланса;
+- [ ] операции изменения баланса доступны только через авторизованный application command, а не через прямое редактирование ledger;
+- [ ] endpoints `projections` снабжены отдельными request/response DTO, pagination schema, error responses и Swagger decorators;
+- [ ] для `admin` добавлены endpoints freeze/unfreeze, circuit breaker, policy changes, dual-control approval и reconciliation status;
+- [ ] все write endpoints требуют idempotency key, object-level authorization и audit metadata;
+- [ ] DTO не экспортируют внутренние domain entities и не принимают неизвестные поля;
+- [ ] decimal values во всех HTTP-контрактах передаются строками;
+- [ ] production-публикация Swagger управляется конфигурацией и по умолчанию отключена.
+
+WebSocket и AsyncAPI:
+
+- [ ] реализован настоящий NestJS WebSocket gateway для public и private subscriptions;
+- [ ] создан версионируемый `docs/asyncapi/market-data.yaml`;
+- [ ] описаны handshake/authentication, subscribe/unsubscribe, snapshot, increment, trade, ticker и private user events;
+- [ ] для каждого сообщения заданы schema, sequence, correlation metadata и примеры;
+- [ ] описаны protocol errors, disconnect reasons, heartbeat и reconnect/resync flow;
+- [ ] AsyncAPI отражает fan-out limits, backpressure и запрет утечки private events;
+- [ ] WebSocket schema использует публичные contracts и не раскрывает внутреннее состояние order book или ledger.
+
+Тесты и автоматические проверки:
+
+- [ ] OpenAPI smoke-тест проверяет наличие всех обязательных REST operations;
+- [ ] generated OpenAPI и версионируемые файлы в `docs/openapi/` проверяются на расхождения;
+- [ ] OpenAPI и AsyncAPI проходят schema validation в CI;
+- [ ] для каждого endpoint есть positive, validation, authentication, authorization и idempotency contract tests;
+- [ ] проверены status codes, error codes, pagination limits и отсутствие чувствительных данных;
+- [ ] API E2E проходит через controller → application port → domain → projection без прямого обхода boundaries;
+- [ ] WebSocket integration tests проверяют authentication, subscriptions, reconnect, gap recovery и private data isolation;
+- [ ] contract tests подтверждают обратную совместимость опубликованных REST и WebSocket схем;
+- [ ] undocumented controller route и документированный, но отсутствующий route блокируют CI.
+
+Документация:
+
+- [ ] обновлён каталог REST endpoints с назначением, ролями и ownership rules;
+- [ ] для всех DTO приведены безопасные request/response examples;
+- [ ] описаны правила версионирования и deprecation REST API;
+- [ ] описаны правила версионирования и compatibility AsyncAPI messages;
+- [ ] добавлен клиентский guide: API key, idempotency, pagination, WebSocket reconnect и gap recovery;
+- [ ] зафиксировано, какие возможности являются public, private, admin и internal-only;
+- [ ] README соответствующих модулей ссылаются на OpenAPI/AsyncAPI и application ports;
+- [ ] все новые публичные интерфейсы, DTO, контроллеры и методы сопровождаются подробным JSDoc на русском языке с принципом работы и примерами.
+
+**Gate:** Swagger содержит все поддерживаемые REST-сценарии, AsyncAPI полностью
+описывает WebSocket-протокол, а автоматическая проверка доказывает соответствие
+документации фактически запущенному приложению без обхода авторизации,
+идемпотентности и domain boundaries.

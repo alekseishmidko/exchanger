@@ -16,6 +16,13 @@
 - [Admin, risk и audit](admin-risk-audit.md)
 - [Emergency stop runbook](runbooks/emergency-stop.md)
 - [Administrative incident runbook](runbooks/admin-incident-response.md)
+- [Системная проверка](system-verification.md)
+- [Failure matrix](testing/failure-matrix.md)
+- [Security review](security-review.md)
+- [Pilot performance baseline](testing/pilot-performance.md)
+- [PostgreSQL backup/restore runbook](runbooks/postgres-backup-restore.md)
+- [Event-log archive/restore runbook](runbooks/event-log-archive-restore.md)
+- [Runbook verification log](runbooks/verification-log.md)
 
 ## Архитектурные решения
 

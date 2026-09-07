@@ -33,20 +33,48 @@ paths:
       parameters:
         - { $ref: '#/components/parameters/OrderId' }
         - { $ref: '#/components/parameters/IdempotencyKey' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CancelOrder' }
       responses:
         '201': { description: Cancel command accepted }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '429': { $ref: '#/components/responses/RateLimited' }
 components:
   securitySchemes:
     ApiKeyAuth: { type: apiKey, in: header, name: x-api-key }
   parameters:
-    IdempotencyKey: { name: Idempotency-Key, in: header, required: true, schema: { type: string, maxLength: 128 } }
+    IdempotencyKey:
+      {
+        name: Idempotency-Key,
+        in: header,
+        required: true,
+        schema: { type: string, maxLength: 128 },
+      }
     OrderId: { name: orderId, in: path, required: true, schema: { type: string } }
-    Limit: { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 50 } }
+    Limit:
+      { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 50 } }
     Cursor: { name: cursor, in: query, schema: { type: string } }
   schemas:
     PlaceOrder:
       type: object
-      required: [commandId, orderId, accountId, instrumentId, clientOrderId, side, orderType, quantity, timeInForce]
+      required:
+        [
+          commandId,
+          orderId,
+          accountId,
+          instrumentId,
+          clientOrderId,
+          side,
+          orderType,
+          quantity,
+          timeInForce,
+        ]
       additionalProperties: false
       properties:
         commandId: { type: string }
@@ -59,6 +87,15 @@ components:
         quantity: { type: string, pattern: '^(0|[1-9][0-9]*)(\.[0-9]+)?$' }
         limitPrice: { type: string, nullable: true }
         timeInForce: { type: string, enum: [GTC, IOC, FOK] }
+    CancelOrder:
+      type: object
+      required: [commandId, orderId, accountId, instrumentId]
+      additionalProperties: false
+      properties:
+        commandId: { type: string }
+        orderId: { type: string, description: Must match the path orderId }
+        accountId: { type: string }
+        instrumentId: { type: string }
   responses:
     BadRequest: { description: Safe validation error }
     Unauthorized: { description: Invalid API key }
