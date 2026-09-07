@@ -205,7 +205,7 @@
 8. [x] `gateway`: authentication, validation, rate limits и command API.
 9. [x] `projections`: orders, trades и balances read-models.
 10. [x] `market-data`: public/private streams, snapshots и gap recovery.
-11. [ ] `admin`: instrument configuration, limits, circuit breaker и audit.
+11. [x] `admin`: instrument configuration, limits, circuit breaker и audit.
 12. [ ] нагрузочное, failure, security и recovery тестирование всей системы.
 
 ## 11. Пошаговая модульная декомпозиция
@@ -598,33 +598,33 @@ TDD и проверки:
 
 **Модули:** `admin`, `audit`.
 
-- [ ] instrument configuration;
-- [ ] fee/risk policy changes;
-- [ ] user/account freeze;
-- [ ] circuit breaker;
-- [ ] audit events;
-- [ ] dual control для критичных операций;
-- [ ] reconciliation dashboard.
+- [x] instrument configuration;
+- [x] fee/risk policy changes;
+- [x] user/account freeze;
+- [x] circuit breaker;
+- [x] audit events;
+- [x] dual control для критичных операций;
+- [x] reconciliation dashboard.
 
 Тесты:
 
-- [ ] role matrix;
-- [ ] forbidden admin actions;
-- [ ] freeze behavior;
-- [ ] emergency stop;
-- [ ] audit completeness;
-- [ ] tamper detection;
-- [ ] policy version effective time;
-- [ ] administrative idempotency.
+- [x] role matrix;
+- [x] forbidden admin actions;
+- [x] freeze behavior;
+- [x] emergency stop;
+- [x] audit completeness;
+- [x] tamper detection;
+- [x] policy version effective time;
+- [x] administrative idempotency.
 
 Документация:
 
-- [ ] admin permission matrix;
-- [ ] audit field catalog;
-- [ ] emergency stop runbook;
-- [ ] incident response runbook;
-- [ ] risk policy and limits;
-- [ ] retention policy.
+- [x] admin permission matrix;
+- [x] audit field catalog;
+- [x] emergency stop runbook;
+- [x] incident response runbook;
+- [x] risk policy and limits;
+- [x] retention policy.
 
 **Gate:** критичные действия контролируются, аудируются и обратимы только компенсирующей операцией.
 

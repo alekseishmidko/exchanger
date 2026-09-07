@@ -13,6 +13,9 @@
 - [Gateway и command API](gateway.md)
 - [Projections и query API](projections.md)
 - [Market data и WebSocket](market-data.md)
+- [Admin, risk и audit](admin-risk-audit.md)
+- [Emergency stop runbook](runbooks/emergency-stop.md)
+- [Administrative incident runbook](runbooks/admin-incident-response.md)
 
 ## Архитектурные решения
 
