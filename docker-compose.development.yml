@@ -6,7 +6,16 @@ services:
     env_file:
       - .env.development
     ports:
-      - "5000:5000"
+      # В контейнере backend слушает PORT=5000, а host-порт можно переопределить:
+      # BACKEND_HOST_PORT=5010 pnpm docker:development
+      - "${BACKEND_HOST_PORT:-5001}:5000"
+    # Именованные node_modules volumes ускоряют повторные запуски, но переживают
+    # пересборку image. Install синхронизирует их с актуальным pnpm-lock.yaml до
+    # старта watcher, поэтому новые зависимости сразу видны TypeScript и NestJS.
+    command:
+      - sh
+      - -c
+      - pnpm install --frozen-lockfile && exec pnpm --filter @exchange/backend start:dev
     volumes:
       - ./apps/backend:/workspace/apps/backend
       - ./packages/contracts:/workspace/packages/contracts

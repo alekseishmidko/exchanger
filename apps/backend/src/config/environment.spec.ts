@@ -16,4 +16,26 @@ describe('environment validation', () => {
       'SERVICE_NAME is required',
     );
   });
+
+  it('rejects an invalid Swagger flag', () => {
+    expect(() =>
+      validateEnvironment({
+        NODE_ENV: 'development',
+        PORT: '5000',
+        SERVICE_NAME: 'exchange-backend',
+        SWAGGER_ENABLED: 'sometimes',
+      }),
+    ).toThrow('SWAGGER_ENABLED must be true, false, 1, or 0');
+  });
+
+  it('rejects an unsafe Swagger path', () => {
+    expect(() =>
+      validateEnvironment({
+        NODE_ENV: 'development',
+        PORT: '5000',
+        SERVICE_NAME: 'exchange-backend',
+        SWAGGER_PATH: '../docs',
+      }),
+    ).toThrow('SWAGGER_PATH must be a safe relative URL path');
+  });
 });

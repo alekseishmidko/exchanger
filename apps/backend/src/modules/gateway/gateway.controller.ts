@@ -5,12 +5,28 @@ import {
   Get,
   Headers,
   Inject,
+  Param,
   Post,
   Query,
   Req,
   UseGuards,
-  UsePipes,
 } from '@nestjs/common';
+import {
+  ApiBadRequestResponse,
+  ApiBody,
+  ApiConflictResponse,
+  ApiCreatedResponse,
+  ApiForbiddenResponse,
+  ApiHeader,
+  ApiOkResponse,
+  ApiOperation,
+  ApiParam,
+  ApiQuery,
+  ApiSecurity,
+  ApiTags,
+  ApiTooManyRequestsResponse,
+  ApiUnauthorizedResponse,
+} from '@nestjs/swagger';
 import { z } from 'zod';
 import { ApiKeyGuard, ApiKeyPrincipal, assertObjectAccess } from './gateway.auth';
 import {
@@ -21,6 +37,12 @@ import {
 import { cancelOrderDtoSchema, placeOrderDtoSchema, ZodValidationPipe } from './gateway.validation';
 import { IdempotencyStore } from './gateway.idempotency';
 import { RateLimitService } from './gateway.rate-limit';
+import {
+  CancelOrderRequestDto,
+  GatewayCommandResponseDto,
+  GatewayOrderPageResponseDto,
+  PlaceOrderRequestDto,
+} from './gateway.dto';
 
 /** Минимальная форма request после выполнения ApiKeyGuard. */
 type GatewayRequest = { principal: ApiKeyPrincipal };
@@ -34,6 +56,10 @@ type GatewayRequest = { principal: ApiKeyPrincipal };
  */
 @Controller('api/v1')
 @UseGuards(ApiKeyGuard)
+@ApiTags('Gateway')
+@ApiSecurity('ApiKeyAuth')
+@ApiUnauthorizedResponse({ description: 'API-ключ отсутствует или недействителен.' })
+@ApiForbiddenResponse({ description: 'Ключ не даёт доступа к указанному аккаунту.' })
 export class GatewayController {
   constructor(
     @Inject('TRADING_COMMAND_PORT')
@@ -44,11 +70,22 @@ export class GatewayController {
 
   /** Валидирует, авторизует и направляет place command в trading core. */
   @Post('orders')
-  @UsePipes(new ZodValidationPipe(placeOrderDtoSchema))
+  @ApiOperation({ summary: 'Разместить заявку' })
+  @ApiHeader({
+    name: 'Idempotency-Key',
+    required: true,
+    description: 'Уникальный ключ повтора длиной до 128 символов.',
+  })
+  @ApiBody({ type: PlaceOrderRequestDto })
+  @ApiCreatedResponse({ type: GatewayCommandResponseDto })
+  @ApiBadRequestResponse({ description: 'Некорректный body или Idempotency-Key.' })
+  @ApiConflictResponse({ description: 'Ключ идемпотентности уже связан с другой командой.' })
+  @ApiTooManyRequestsResponse({ description: 'Превышен лимит запросов API-ключа.' })
   async placeOrder(
     @Req() request: GatewayRequest,
     @Headers('idempotency-key') idempotencyKey: string | undefined,
-    @Body() body: z.infer<typeof placeOrderDtoSchema>,
+    @Body(new ZodValidationPipe(placeOrderDtoSchema))
+    body: z.infer<typeof placeOrderDtoSchema>,
   ): Promise<unknown> {
     const key = this.requireIdempotencyKey(idempotencyKey);
     this.rateLimit.check(request.principal.keyId);
@@ -64,12 +101,27 @@ export class GatewayController {
 
   /** Валидирует, авторизует и направляет cancel command в trading core. */
   @Post('orders/:orderId/cancel')
-  @UsePipes(new ZodValidationPipe(cancelOrderDtoSchema))
+  @ApiOperation({ summary: 'Отменить активную заявку' })
+  @ApiParam({ name: 'orderId', example: 'order-1' })
+  @ApiHeader({ name: 'Idempotency-Key', required: true })
+  @ApiBody({ type: CancelOrderRequestDto })
+  @ApiCreatedResponse({ type: GatewayCommandResponseDto })
+  @ApiBadRequestResponse({ description: 'Некорректный body, path или Idempotency-Key.' })
+  @ApiConflictResponse({ description: 'Ключ идемпотентности уже связан с другой командой.' })
+  @ApiTooManyRequestsResponse({ description: 'Превышен лимит запросов API-ключа.' })
   async cancelOrder(
     @Req() request: GatewayRequest,
+    @Param('orderId') orderId: string,
     @Headers('idempotency-key') idempotencyKey: string | undefined,
-    @Body() body: z.infer<typeof cancelOrderDtoSchema>,
+    @Body(new ZodValidationPipe(cancelOrderDtoSchema))
+    body: z.infer<typeof cancelOrderDtoSchema>,
   ): Promise<unknown> {
+    if (orderId !== body.orderId) {
+      throw new BadRequestException({
+        code: 'ORDER_ID_MISMATCH',
+        message: 'Path and body orderId must match',
+      });
+    }
     const key = this.requireIdempotencyKey(idempotencyKey);
     this.rateLimit.check(request.principal.keyId);
     assertObjectAccess(request.principal, body.accountId);
@@ -95,6 +147,12 @@ export class GatewayController {
 
   /** Возвращает ограниченную страницу заявок без обхода authorization boundary. */
   @Get('orders')
+  @ApiOperation({ summary: 'Получить страницу заявок доступного аккаунта' })
+  @ApiQuery({ name: 'limit', required: false, example: 50, schema: { minimum: 1, maximum: 100 } })
+  @ApiQuery({ name: 'cursor', required: false, example: '50' })
+  @ApiOkResponse({ type: GatewayOrderPageResponseDto })
+  @ApiBadRequestResponse({ description: 'Некорректный limit или cursor.' })
+  @ApiTooManyRequestsResponse({ description: 'Превышен лимит запросов API-ключа.' })
   listOrders(
     @Req() request: GatewayRequest,
     @Query('limit') limitValue?: string,

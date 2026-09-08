@@ -158,6 +158,19 @@ export class ProjectionStore {
     };
   }
 
+  /**
+   * Обновляет high watermark источника без изменения read model.
+   *
+   * Consumer вызывает метод после чтения broker/end offset. Разница между этим
+   * значением и `appliedSequence` образует observable consumer lag.
+   */
+  observeSourceSequence(sequence: number): void {
+    if (!Number.isInteger(sequence) || sequence < this.appliedSequence) {
+      throw new Error('Invalid projection source sequence');
+    }
+    this.sourceSequence = Math.max(this.sourceSequence, sequence);
+  }
+
   /** Выполняет migration hook для будущих версий схемы read-моделей. */
   migrate(targetVersion: number): void {
     if (targetVersion !== ProjectionStore.schemaVersion)

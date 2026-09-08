@@ -1,5 +1,22 @@
+import { createHash } from 'node:crypto';
+
 /** Минимальное immutable событие для durable event log adapter. */
 export type LogEvent = Readonly<{ eventId: string; eventType: string; payload: unknown }>;
+
+/**
+ * Переносимый архив append-only журнала.
+ *
+ * `checksum` вычисляется от версии, времени, offset и полного массива событий.
+ * Restore отклоняет архив при любом изменении этих полей. Payload архива остаётся
+ * JSON-совместимым и может храниться в object storage с retention/object lock.
+ */
+export type EventLogArchive = Readonly<{
+  formatVersion: 1;
+  createdAt: string;
+  committedOffset: number;
+  events: readonly LogEvent[];
+  checksum: string;
+}>;
 
 /** Ошибка временной недоступности event log. */
 export class EventLogTimeout extends Error {
@@ -63,5 +80,64 @@ export class EventLog {
   /** Возвращает append-only события для reconciliation/replay. */
   getEvents(): readonly LogEvent[] {
     return [...this.events];
+  }
+
+  /**
+   * Создаёт полный архив журнала с checksum, не изменяя live log.
+   *
+   * @param createdAt Контролируемое время создания архива.
+   * @returns Immutable archive, пригодный для сериализации в JSON.
+   */
+  createArchive(createdAt: Date = new Date()): EventLogArchive {
+    const body = {
+      formatVersion: 1 as const,
+      createdAt: createdAt.toISOString(),
+      committedOffset: this.offset,
+      events: this.getEvents(),
+    };
+    return { ...body, checksum: EventLog.checksum(body) };
+  }
+
+  /**
+   * Удаляет старые live events после успешного внешнего архивирования.
+   *
+   * Метод сохраняет только последние `maxEvents` и корректирует consumer offset.
+   * Вызывать его до durable сохранения результата `createArchive` запрещено
+   * операционным runbook, поскольку удалённые события восстановить будет неоткуда.
+   */
+  retainLatest(maxEvents: number): void {
+    if (!Number.isInteger(maxEvents) || maxEvents < 0) throw new Error('Invalid retention limit');
+    const removeCount = Math.max(0, this.events.length - maxEvents);
+    if (removeCount === 0) return;
+    this.events.splice(0, removeCount);
+    this.offset = Math.max(0, this.offset - removeCount);
+  }
+
+  /**
+   * Восстанавливает новый EventLog из проверенного архива.
+   *
+   * @throws Error Если format version, offset или checksum повреждены.
+   */
+  static restore(archive: EventLogArchive): EventLog {
+    const { checksum, ...body } = archive;
+    if (
+      archive.formatVersion !== 1 ||
+      archive.committedOffset < 0 ||
+      archive.committedOffset > archive.events.length ||
+      checksum !== EventLog.checksum(body)
+    ) {
+      throw new Error('Invalid event log archive');
+    }
+    const log = new EventLog();
+    log.events.push(...archive.events);
+    log.offset = archive.committedOffset;
+    return log;
+  }
+
+  private static checksum(value: object): string {
+    const serialized = JSON.stringify(value, (_key: string, field: unknown): unknown =>
+      typeof field === 'bigint' ? field.toString() : field,
+    );
+    return createHash('sha256').update(serialized).digest('hex');
   }
 }

@@ -31,5 +31,24 @@ export function validateEnvironment(config: EnvironmentConfig): EnvironmentConfi
     throw new Error('SERVICE_NAME is required');
   }
 
+  const swaggerEnabled = config['SWAGGER_ENABLED'];
+  if (
+    swaggerEnabled !== undefined &&
+    swaggerEnabled !== 'true' &&
+    swaggerEnabled !== 'false' &&
+    swaggerEnabled !== '1' &&
+    swaggerEnabled !== '0'
+  ) {
+    throw new Error('SWAGGER_ENABLED must be true, false, 1, or 0');
+  }
+
+  const swaggerPath = config['SWAGGER_PATH'];
+  if (
+    swaggerPath !== undefined &&
+    (typeof swaggerPath !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9/_-]*$/.test(swaggerPath))
+  ) {
+    throw new Error('SWAGGER_PATH must be a safe relative URL path');
+  }
+
   return config;
 }

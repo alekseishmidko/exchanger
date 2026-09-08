@@ -41,6 +41,29 @@ pnpm --filter @exchange/backend start:dev
 curl http://localhost:5000/health
 ```
 
+Интерактивная документация command API: `http://localhost:5000/docs`.
+OpenAPI можно получить без UI по `/docs/openapi.json` или `/docs/openapi.yaml`.
+
+При запуске через Docker Compose backend доступен на host-порту `5001`, при этом
+внутри контейнера продолжает слушать `5000`:
+
+```bash
+pnpm docker:development
+curl http://localhost:5001/health
+```
+
+В Docker development Swagger доступен по `http://localhost:5001/docs`.
+
+Параметры `SWAGGER_ENABLED` и `SWAGGER_PATH` задаются в environment-файле.
+Для production Swagger по умолчанию выключен; включать его следует только во
+внутреннем защищённом контуре.
+
+Другой свободный host-порт задаётся переменной `BACKEND_HOST_PORT`, например:
+
+```bash
+BACKEND_HOST_PORT=5010 pnpm docker:development
+```
+
 ## Проверки
 
 ```bash
@@ -56,4 +79,5 @@ pnpm --filter @exchange/backend build
 - `jest.config.ts` — конфигурация тестов;
 - локальная документация модуля хранится рядом с ним.
 
-Следующий доменный модуль — `matching-engine`. Он будет добавляться через тесты инвариантов order book, а не через NestJS controller.
+Системные проверки и состояние этапов описаны в
+[development checklist](../../docs/development-checklist.md).
