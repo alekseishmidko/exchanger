@@ -56,3 +56,20 @@ API keys передаются только в заголовке и не поп�
 ## Threat model
 
 Основные угрозы: утечка API key, credential stuffing, oversized JSON, обход object authorization, replay команд и внутренние stack traces. Меры: secret-free logs/errors, bounded body, key registry, role/object checks, DTO allow-list, idempotency fingerprint и rate limit. Production boundary дополнительно требует TLS, key rotation, persistent idempotency store и distributed rate limiter.
+
+## Каталог REST boundaries
+
+Runtime Swagger дополнительно содержит следующие группы:
+
+- `Instruments` — каталог торговых пар и immutable rules history;
+- `Accounts and balances` — создание аккаунта, owner-scoped чтение и admin-only
+  balance commands;
+- `Projections` — order/trade history, balance read models и lag metrics;
+- `Admin` — instrument lifecycle/rules, freeze, circuit breaker, fee/risk policy,
+  dual-control approval и reconciliation status.
+
+Версия API является частью URL (`/api/v1`). Все request DTO проходят strict
+runtime validation: неизвестное поле приводит к `REQUEST_MALFORMED`. Decimal
+price, quantity, amount, available и reserved передаются только строками. Все
+write endpoints требуют `Idempotency-Key`; identity и audit actor берутся из
+API key, а не из пользовательского payload.

@@ -29,3 +29,20 @@ control: инициатор получает `PENDING_APPROVAL`, а примен
 обычный dual-control flow.
 
 Публичные типы и методы сопровождаются подробными русскими JSDoc-комментариями.
+
+## REST API и роли
+
+Admin transport boundary опубликован под `/api/v1/admin` и содержит отдельные
+write endpoints для instruments, fee/risk policies, freeze state, circuit
+breaker и approval, а также read-only reconciliation status. Actor всегда
+строится из API-key principal и не принимается из body.
+
+Поддерживаются роли `admin`, `risk_manager`, `auditor`, `support`. Они
+преобразуются в `ADMIN`, `RISK_MANAGER`, `AUDITOR`, `SUPPORT` без повышения
+привилегий, после чего `AdminService` применяет детальную role matrix. Критические
+операции возвращают `PENDING_APPROVAL`; второй actor подтверждает их через
+`POST /api/v1/admin/approvals/{commandId}`.
+
+Все административные write-запросы используют strict DTO,
+`Idempotency-Key`, rate limit и tamper-evident audit log. Ошибка domain policy
+преобразуется в безопасный код без stack trace и внутренних aggregate данных.

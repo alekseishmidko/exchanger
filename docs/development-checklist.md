@@ -660,15 +660,15 @@ REST API:
 
 - [x] Swagger подключён к NestJS и конфигурация вынесена в `src/config/swagger.ts`;
 - [x] Gateway place/cancel endpoints описаны Swagger metadata и публичными DTO;
-- [ ] для `instruments` добавлены read endpoints каталога и защищённые admin-команды изменения lifecycle/rules;
-- [ ] для `accounts/balances` добавлены endpoints создания/получения аккаунта и просмотра доступного/зарезервированного баланса;
-- [ ] операции изменения баланса доступны только через авторизованный application command, а не через прямое редактирование ledger;
-- [ ] endpoints `projections` снабжены отдельными request/response DTO, pagination schema, error responses и Swagger decorators;
-- [ ] для `admin` добавлены endpoints freeze/unfreeze, circuit breaker, policy changes, dual-control approval и reconciliation status;
-- [ ] все write endpoints требуют idempotency key, object-level authorization и audit metadata;
-- [ ] DTO не экспортируют внутренние domain entities и не принимают неизвестные поля;
-- [ ] decimal values во всех HTTP-контрактах передаются строками;
-- [ ] production-публикация Swagger управляется конфигурацией и по умолчанию отключена.
+- [x] для `instruments` добавлены read endpoints каталога и защищённые admin-команды изменения lifecycle/rules;
+- [x] для `accounts/balances` добавлены endpoints создания/получения аккаунта и просмотра доступного/зарезервированного баланса;
+- [x] операции изменения баланса доступны только через авторизованный application command, а не через прямое редактирование ledger;
+- [x] endpoints `projections` снабжены отдельными request/response DTO, pagination schema, error responses и Swagger decorators;
+- [x] для `admin` добавлены endpoints freeze/unfreeze, circuit breaker, policy changes, dual-control approval и reconciliation status;
+- [x] все write endpoints требуют idempotency key, object-level authorization и audit metadata;
+- [x] DTO не экспортируют внутренние domain entities и не принимают неизвестные поля;
+- [x] decimal values во всех HTTP-контрактах передаются строками;
+- [x] production-публикация Swagger управляется конфигурацией и по умолчанию отключена.
 
 WebSocket и AsyncAPI:
 
@@ -682,7 +682,7 @@ WebSocket и AsyncAPI:
 
 Тесты и автоматические проверки:
 
-- [ ] OpenAPI smoke-тест проверяет наличие всех обязательных REST operations;
+- [x] OpenAPI smoke-тест проверяет наличие всех обязательных REST operations;
 - [ ] generated OpenAPI и версионируемые файлы в `docs/openapi/` проверяются на расхождения;
 - [ ] OpenAPI и AsyncAPI проходят schema validation в CI;
 - [ ] для каждого endpoint есть positive, validation, authentication, authorization и idempotency contract tests;

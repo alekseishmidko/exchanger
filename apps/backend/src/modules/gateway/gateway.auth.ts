@@ -13,7 +13,10 @@ import {
  * API key в principal не сохраняется. `userId` применяется для object authorization,
  * а `admin` получает расширенный доступ согласно политике Gateway.
  */
-export type ApiKeyPrincipal = Readonly<{ keyId: string; role: 'trader' | 'admin'; userId: string }>;
+export type ApiKeyRole = 'trader' | 'admin' | 'risk_manager' | 'auditor' | 'support';
+
+/** Principal не хранит секрет API key и фиксирует роль на момент запроса. */
+export type ApiKeyPrincipal = Readonly<{ keyId: string; role: ApiKeyRole; userId: string }>;
 
 /**
  * Registry API keys для development/reference deployment.
@@ -79,6 +82,37 @@ export function assertObjectAccess(principal: ApiKeyPrincipal, resourceUserId: s
     throw new ForbiddenException({
       code: 'AUTH_OBJECT_FORBIDDEN',
       message: 'Resource access denied',
+    });
+  }
+}
+
+/**
+ * Проверяет доступ к административному transport boundary.
+ *
+ * Проверка выполняется до mapping DTO в доменную команду, поэтому trader не
+ * может инициировать изменение policy, lifecycle или ledger даже при знании URL.
+ */
+export function assertAdminAccess(principal: ApiKeyPrincipal): void {
+  if (principal.role !== 'admin') {
+    throw new ForbiddenException({
+      code: 'AUTH_ADMIN_REQUIRED',
+      message: 'Administrative access is required',
+    });
+  }
+}
+
+/**
+ * Пропускает identity административного контура к детальной domain role matrix.
+ *
+ * Итоговое разрешение операции остаётся за `AdminService`: auditor может читать
+ * reconciliation, risk manager — менять risk policy, а support получает
+ * аудируемый отказ. Trader отсекается до построения административной команды.
+ */
+export function assertAdministrativeAccess(principal: ApiKeyPrincipal): void {
+  if (principal.role === 'trader') {
+    throw new ForbiddenException({
+      code: 'AUTH_ADMINISTRATIVE_IDENTITY_REQUIRED',
+      message: 'Administrative identity is required',
     });
   }
 }

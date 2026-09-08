@@ -26,6 +26,7 @@ export const placeOrderDtoSchema = z
       .optional(),
     timeInForce: z.enum(['GTC', 'IOC', 'FOK']),
   })
+  .strict()
   .superRefine((value, context) => {
     if (value.orderType === 'LIMIT' && !value.limitPrice)
       context.addIssue({
@@ -47,12 +48,14 @@ export const placeOrderDtoSchema = z
  * Она оставляет только необходимые для routing поля и не позволяет передать
  * внутренние параметры matching engine напрямую.
  */
-export const cancelOrderDtoSchema = z.object({
-  commandId: z.string().min(1).max(128),
-  orderId: z.string().min(1).max(128),
-  accountId: z.string().min(1).max(128),
-  instrumentId: z.string().min(1).max(128),
-});
+export const cancelOrderDtoSchema = z
+  .object({
+    commandId: z.string().min(1).max(128),
+    orderId: z.string().min(1).max(128),
+    accountId: z.string().min(1).max(128),
+    instrumentId: z.string().min(1).max(128),
+  })
+  .strict();
 
 /**
  * Nest pipe, превращающий неизвестный JSON body в типизированный DTO.

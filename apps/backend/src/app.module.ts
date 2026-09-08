@@ -7,6 +7,8 @@ import { GatewayModule } from './modules/gateway/gateway.module';
 import { ProjectionsModule } from './modules/projections/projections.module';
 import { MarketDataModule } from './modules/market-data/market-data.module';
 import { AdminModule } from './modules/admin';
+import { InstrumentsModule } from './modules/trading/instruments';
+import { LedgerModule } from './modules/ledger';
 
 /** Корневой composition root приложения и глобальной конфигурации. */
 @Module({
@@ -24,6 +26,8 @@ import { AdminModule } from './modules/admin';
     GatewayModule,
     ProjectionsModule,
     MarketDataModule,
+    InstrumentsModule,
+    LedgerModule,
     AdminModule,
   ],
 })

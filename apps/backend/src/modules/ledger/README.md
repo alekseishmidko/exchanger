@@ -31,3 +31,18 @@
 ## Ошибки и запуск
 
 Некорректные IDs, assets, счета, отрицательные суммы, overdraft и несбалансированные postings отклоняются с typed domain errors в следующем этапе; сейчас используются безопасные сообщения `Error`. Тесты запускаются командой `pnpm --filter @exchange/backend test`.
+
+## REST application boundary
+
+- `POST /api/v1/accounts` создаёт принадлежащий authenticated principal аккаунт
+  и нулевые balances;
+- `GET /api/v1/accounts/{accountId}` возвращает account metadata только владельцу;
+- `GET /api/v1/accounts/{accountId}/balances` и endpoint конкретного asset
+  возвращают available/reserved как decimal strings;
+- `POST /api/v1/accounts/{accountId}/balances/{assetId}/commands` выполняет
+  admin-only `CREDIT`, `DEBIT`, `RESERVE` или `RELEASE`.
+
+Последний endpoint не предоставляет прямого доступа к `Ledger`: DTO проходит
+strict runtime validation, затем application service создаёт typed IDs и
+`Decimal`, вызывает domain policy и записывает audit event. Каждый write требует
+`Idempotency-Key`; повтор не создаёт вторую проводку.

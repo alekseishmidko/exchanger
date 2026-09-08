@@ -1,6 +1,5 @@
 import { ConflictException, Injectable } from '@nestjs/common';
 import { createHash } from 'node:crypto';
-import { GatewayCommandResult } from './gateway.types';
 
 /**
  * Неизменяемая запись результата команды, сохранённая по ключу идемпотентности.
@@ -18,7 +17,7 @@ import { GatewayCommandResult } from './gateway.types';
  * }
  * ```
  */
-type IdempotencyRecord = Readonly<{ fingerprint: string; result: GatewayCommandResult }>;
+type IdempotencyRecord = Readonly<{ fingerprint: string; result: unknown }>;
 
 /**
  * In-memory хранилище идемпотентности для command API.
@@ -76,11 +75,7 @@ export class IdempotencyStore {
    * повторить запрос с тем же ключом: операция будет запущена снова, что позволяет
    * безопасно переживать timeout до момента успешной фиксации результата.
    */
-  execute(
-    key: string,
-    request: unknown,
-    operation: () => Promise<GatewayCommandResult>,
-  ): Promise<GatewayCommandResult> {
+  execute<T>(key: string, request: unknown, operation: () => Promise<T>): Promise<T> {
     const fingerprint = createHash('sha256').update(JSON.stringify(request)).digest('hex');
     const previous = this.records.get(key);
     if (previous) {
@@ -89,7 +84,7 @@ export class IdempotencyStore {
           code: 'IDEMPOTENCY_KEY_REUSED',
           message: 'Idempotency key was reused with another request',
         });
-      return Promise.resolve(previous.result);
+      return Promise.resolve(previous.result as T);
     }
     return operation().then((result) => {
       this.records.set(key, { fingerprint, result });
