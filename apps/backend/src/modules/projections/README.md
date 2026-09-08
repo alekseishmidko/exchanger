@@ -12,3 +12,8 @@ Query endpoints:
 Все endpoints используют Gateway API key и фильтруют данные по `principal.userId` до cursor pagination. Запрос не может указать чужой user/account ID.
 
 Все публичные интерфейсы и методы имеют подробные русские JSDoc-комментарии.
+
+Каждый endpoint описан отдельным Swagger response DTO. Query parameters
+`limit/cursor`, ошибки pagination, API-key security и decimal-string поля входят
+в generated OpenAPI. DTO содержат только read-model snapshots и не экспортируют
+`ProjectionStore` либо внутренние event payload.

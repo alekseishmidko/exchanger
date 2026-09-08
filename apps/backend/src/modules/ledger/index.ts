@@ -3,3 +3,5 @@ export * from './asset-account';
 export * from './balance';
 export * from './ledger';
 export * from './posting';
+export * from './ledger-application.service';
+export * from './ledger.module';

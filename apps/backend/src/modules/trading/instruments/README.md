@@ -27,3 +27,14 @@
 Изменение status или добавление rules version является административным действием и должно записываться в audit log вместе с actor, instrument ID, old/new status, rules version, effectiveAt, correlation ID и причиной. Старые версии не изменяются и не удаляются.
 
 Подробный каталог полей, lifecycle diagram и policy размещены в [`docs/instrument-rules.md`](../../../../docs/instrument-rules.md).
+
+## REST boundary
+
+`GET /api/v1/instruments` возвращает bounded страницу торговых пар, а
+`GET /api/v1/instruments/{instrumentId}` — detached snapshot и immutable историю
+правил. Оба endpoint требуют API key. REST adapter никогда не возвращает объект
+`Instrument` и сериализует `Decimal` только строками.
+
+Создание пары, добавление rules version и изменение ACTIVE/PAUSED выполняются
+через `/api/v1/admin/instruments`. Команды требуют admin identity,
+`Idempotency-Key`, audit metadata и подтверждение второго независимого actor.

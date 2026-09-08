@@ -96,7 +96,9 @@ export class GatewayController {
       userId: request.principal.userId,
       limitPrice: body.limitPrice ?? null,
     };
-    return this.idempotency.execute(key, command, () => this.trading.placeOrder(command));
+    return this.idempotency.execute(`${request.principal.keyId}:${key}`, command, () =>
+      this.trading.placeOrder(command),
+    );
   }
 
   /** Валидирует, авторизует и направляет cancel command в trading core. */
@@ -131,7 +133,9 @@ export class GatewayController {
       idempotencyKey: key,
       userId: request.principal.userId,
     };
-    return this.idempotency.execute(key, command, () => this.trading.cancelOrder(command));
+    return this.idempotency.execute(`${request.principal.keyId}:${key}`, command, () =>
+      this.trading.cancelOrder(command),
+    );
   }
 
   /** Проверяет формат обязательного Idempotency-Key до обращения к core. */

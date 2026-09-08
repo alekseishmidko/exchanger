@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { ApiKeyGuard, ApiKeyRegistry } from './gateway.auth';
+import { ApiKeyGuard, ApiKeyRegistry, ApiKeyRole } from './gateway.auth';
 import { GatewayController } from './gateway.controller';
 import { IdempotencyStore } from './gateway.idempotency';
 import { RateLimitService } from './gateway.rate-limit';
@@ -27,9 +27,16 @@ import { InMemoryTradingCommandPort } from './gateway.types';
           .filter(Boolean)
           .map((item) => {
             const [keyId, role = 'trader', userId = keyId] = item.split(':');
+            const supportedRoles: readonly ApiKeyRole[] = [
+              'trader',
+              'admin',
+              'risk_manager',
+              'auditor',
+              'support',
+            ];
             return {
               keyId: keyId ?? '',
-              role: role === 'admin' ? 'admin' : 'trader',
+              role: supportedRoles.includes(role as ApiKeyRole) ? (role as ApiKeyRole) : 'trader',
               userId: userId ?? keyId ?? '',
             } as const;
           });
@@ -41,6 +48,6 @@ import { InMemoryTradingCommandPort } from './gateway.types';
     RateLimitService,
     { provide: 'TRADING_COMMAND_PORT', useClass: InMemoryTradingCommandPort },
   ],
-  exports: [ApiKeyGuard, ApiKeyRegistry],
+  exports: [ApiKeyGuard, ApiKeyRegistry, IdempotencyStore, RateLimitService],
 })
 export class GatewayModule {}

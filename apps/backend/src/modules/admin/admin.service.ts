@@ -1,7 +1,7 @@
 import { ForbiddenException, Injectable } from '@nestjs/common';
 import { AuditActor, AuditLog, AdministrativeRole } from '../audit';
 import { Decimal } from '../shared-kernel';
-import { Instrument, InstrumentRules } from '../trading/instruments';
+import { Instrument, InstrumentCatalogService, InstrumentRules } from '../trading/instruments';
 
 /** Версионированная комиссия maker/taker, вступающая в силу в заданный момент. */
 export type FeePolicy = Readonly<{
@@ -24,7 +24,7 @@ export type AdminCommand =
       commandId: string;
       type: 'CONFIGURE_INSTRUMENT';
       targetId: string;
-      instrument: Instrument;
+      instrument?: Instrument;
       rules?: InstrumentRules;
     }>
   | Readonly<{ commandId: string; type: 'CHANGE_FEE_POLICY'; targetId: string; policy: FeePolicy }>
@@ -39,7 +39,12 @@ export type AdminCommand =
       type: 'FREEZE_USER' | 'UNFREEZE_USER' | 'FREEZE_ACCOUNT' | 'UNFREEZE_ACCOUNT';
       targetId: string;
     }>
-  | Readonly<{ commandId: string; type: 'EMERGENCY_STOP' | 'RESUME_TRADING'; targetId: string }>;
+  | Readonly<{ commandId: string; type: 'EMERGENCY_STOP' | 'RESUME_TRADING'; targetId: string }>
+  | Readonly<{
+      commandId: string;
+      type: 'ACTIVATE_INSTRUMENT' | 'PAUSE_INSTRUMENT';
+      targetId: string;
+    }>;
 
 /** Результат request/approval, безопасный для административного API. */
 export type AdminResult = Readonly<{
@@ -85,14 +90,16 @@ export class AdminService {
   private readonly pending = new Map<string, PendingAction>();
   private readonly results = new Map<string, AdminResult>();
   private readonly commands = new Map<string, AdminCommand>();
-  private readonly instruments = new Map<string, Instrument>();
   private readonly feePolicies: FeePolicy[] = [];
   private readonly riskPolicies: RiskPolicy[] = [];
   private readonly frozenUsers = new Set<string>();
   private readonly frozenAccounts = new Set<string>();
   private readonly stoppedTargets = new Set<string>();
 
-  constructor(private readonly audit: AuditLog) {}
+  constructor(
+    private readonly audit: AuditLog,
+    private readonly instruments: InstrumentCatalogService = new InstrumentCatalogService(),
+  ) {}
 
   /**
    * Запрашивает административное действие.
@@ -253,9 +260,9 @@ export class AdminService {
       frozenUsers: this.frozenUsers.size,
       frozenAccounts: this.frozenAccounts.size,
       stoppedTargets: [...this.stoppedTargets],
-      instrumentStatuses: [...this.instruments.entries()].map(([instrumentId, instrument]) => ({
-        instrumentId,
-        status: instrument.getStatus(),
+      instrumentStatuses: this.instruments.list().map((instrument) => ({
+        instrumentId: instrument.id,
+        status: instrument.status,
       })),
       feePolicyVersions: this.feePolicies.map(({ version }) => version),
       riskPolicyVersions: this.riskPolicies.map(({ version }) => version),
@@ -275,8 +282,15 @@ export class AdminService {
   private apply(command: AdminCommand): void {
     switch (command.type) {
       case 'CONFIGURE_INSTRUMENT':
-        if (command.rules) command.instrument.addRules(command.rules);
-        else this.instruments.set(command.targetId, command.instrument);
+        if (command.rules) this.instruments.addRules(command.targetId, command.rules);
+        else if (command.instrument) this.instruments.register(command.instrument);
+        else throw new Error('Instrument or rules are required');
+        break;
+      case 'ACTIVATE_INSTRUMENT':
+        this.instruments.setStatus(command.targetId, 'ACTIVE');
+        break;
+      case 'PAUSE_INSTRUMENT':
+        this.instruments.setStatus(command.targetId, 'PAUSED');
         break;
       case 'CHANGE_FEE_POLICY':
         this.assertFee(command.policy);
@@ -316,6 +330,8 @@ export class AdminService {
     const allowed: Record<AdminCommand['type'] | 'RECONCILIATION', readonly AdministrativeRole[]> =
       {
         CONFIGURE_INSTRUMENT: ['ADMIN', 'RISK_MANAGER'],
+        ACTIVATE_INSTRUMENT: ['ADMIN', 'RISK_MANAGER'],
+        PAUSE_INSTRUMENT: ['ADMIN', 'RISK_MANAGER'],
         CHANGE_FEE_POLICY: ['ADMIN', 'RISK_MANAGER'],
         CHANGE_RISK_POLICY: ['RISK_MANAGER'],
         FREEZE_USER: ['ADMIN', 'RISK_MANAGER'],
@@ -340,6 +356,8 @@ export class AdminService {
   private requiresDualControl(type: AdminCommand['type']): boolean {
     return [
       'CONFIGURE_INSTRUMENT',
+      'ACTIVATE_INSTRUMENT',
+      'PAUSE_INSTRUMENT',
       'CHANGE_FEE_POLICY',
       'CHANGE_RISK_POLICY',
       'EMERGENCY_STOP',
@@ -399,6 +417,8 @@ export class AdminService {
       UNFREEZE_ACCOUNT: 'FREEZE_ACCOUNT',
       EMERGENCY_STOP: 'RESUME_TRADING',
       RESUME_TRADING: 'EMERGENCY_STOP',
+      ACTIVATE_INSTRUMENT: 'PAUSE_INSTRUMENT',
+      PAUSE_INSTRUMENT: 'ACTIVATE_INSTRUMENT',
     };
     const result = reverse[type];
     if (!result) throw new Error('Action requires a new version instead of direct compensation');
