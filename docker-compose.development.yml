@@ -5,6 +5,9 @@ services:
       target: development
     env_file:
       - .env.development
+    environment:
+      # В startup-логах показываем адрес хоста, а не внутренний container port.
+      APPLICATION_PUBLIC_URL: "http://localhost:${BACKEND_HOST_PORT:-5001}"
     ports:
       # В контейнере backend слушает PORT=5000, а host-порт можно переопределить:
       # BACKEND_HOST_PORT=5010 pnpm docker:development

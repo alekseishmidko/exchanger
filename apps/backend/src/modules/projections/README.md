@@ -17,3 +17,6 @@ Query endpoints:
 `limit/cursor`, ошибки pagination, API-key security и decimal-string поля входят
 в generated OpenAPI. DTO содержат только read-model snapshots и не экспортируют
 `ProjectionStore` либо внутренние event payload.
+
+Версионируемый реестр routes и клиентские правила: [OpenAPI](../../../../../docs/openapi/application.yaml)
+и [client guide](../../../../../docs/api-client-guide.md).

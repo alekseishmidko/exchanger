@@ -207,7 +207,7 @@
 10. [x] `market-data`: public/private streams, snapshots и gap recovery.
 11. [x] `admin`: instrument configuration, limits, circuit breaker и audit.
 12. [ ] нагрузочное, failure, security и recovery тестирование всей системы.
-13. [ ] полнота transport API: REST/OpenAPI для внешних сценариев и AsyncAPI для WebSocket.
+13. [x] полнота transport API: REST/OpenAPI для внешних сценариев и AsyncAPI для WebSocket.
 
 ## 11. Пошаговая модульная декомпозиция
 
@@ -672,36 +672,36 @@ REST API:
 
 WebSocket и AsyncAPI:
 
-- [ ] реализован настоящий NestJS WebSocket gateway для public и private subscriptions;
-- [ ] создан версионируемый `docs/asyncapi/market-data.yaml`;
-- [ ] описаны handshake/authentication, subscribe/unsubscribe, snapshot, increment, trade, ticker и private user events;
-- [ ] для каждого сообщения заданы schema, sequence, correlation metadata и примеры;
-- [ ] описаны protocol errors, disconnect reasons, heartbeat и reconnect/resync flow;
-- [ ] AsyncAPI отражает fan-out limits, backpressure и запрет утечки private events;
-- [ ] WebSocket schema использует публичные contracts и не раскрывает внутреннее состояние order book или ledger.
+- [x] реализован настоящий NestJS WebSocket gateway для public и private subscriptions;
+- [x] создан версионируемый `docs/asyncapi/market-data.yaml`;
+- [x] описаны handshake/authentication, subscribe/unsubscribe, snapshot, increment, trade, ticker и private user events;
+- [x] для каждого сообщения заданы schema, sequence, correlation metadata и примеры;
+- [x] описаны protocol errors, disconnect reasons, heartbeat и reconnect/resync flow;
+- [x] AsyncAPI отражает fan-out limits, backpressure и запрет утечки private events;
+- [x] WebSocket schema использует публичные contracts и не раскрывает внутреннее состояние order book или ledger.
 
 Тесты и автоматические проверки:
 
 - [x] OpenAPI smoke-тест проверяет наличие всех обязательных REST operations;
-- [ ] generated OpenAPI и версионируемые файлы в `docs/openapi/` проверяются на расхождения;
-- [ ] OpenAPI и AsyncAPI проходят schema validation в CI;
-- [ ] для каждого endpoint есть positive, validation, authentication, authorization и idempotency contract tests;
-- [ ] проверены status codes, error codes, pagination limits и отсутствие чувствительных данных;
-- [ ] API E2E проходит через controller → application port → domain → projection без прямого обхода boundaries;
-- [ ] WebSocket integration tests проверяют authentication, subscriptions, reconnect, gap recovery и private data isolation;
-- [ ] contract tests подтверждают обратную совместимость опубликованных REST и WebSocket схем;
-- [ ] undocumented controller route и документированный, но отсутствующий route блокируют CI.
+- [x] generated OpenAPI и версионируемые файлы в `docs/openapi/` проверяются на расхождения;
+- [x] OpenAPI и AsyncAPI проходят schema validation в CI;
+- [x] для каждого endpoint есть positive, validation, authentication, authorization и idempotency contract tests;
+- [x] проверены status codes, error codes, pagination limits и отсутствие чувствительных данных;
+- [x] API E2E проходит через controller → application port → domain → projection без прямого обхода boundaries;
+- [x] WebSocket integration tests проверяют authentication, subscriptions, reconnect, gap recovery и private data isolation;
+- [x] contract tests подтверждают обратную совместимость опубликованных REST и WebSocket схем;
+- [x] undocumented controller route и документированный, но отсутствующий route блокируют CI.
 
 Документация:
 
-- [ ] обновлён каталог REST endpoints с назначением, ролями и ownership rules;
-- [ ] для всех DTO приведены безопасные request/response examples;
-- [ ] описаны правила версионирования и deprecation REST API;
-- [ ] описаны правила версионирования и compatibility AsyncAPI messages;
-- [ ] добавлен клиентский guide: API key, idempotency, pagination, WebSocket reconnect и gap recovery;
-- [ ] зафиксировано, какие возможности являются public, private, admin и internal-only;
-- [ ] README соответствующих модулей ссылаются на OpenAPI/AsyncAPI и application ports;
-- [ ] все новые публичные интерфейсы, DTO, контроллеры и методы сопровождаются подробным JSDoc на русском языке с принципом работы и примерами.
+- [x] обновлён каталог REST endpoints с назначением, ролями и ownership rules;
+- [x] для всех DTO приведены безопасные request/response examples;
+- [x] описаны правила версионирования и deprecation REST API;
+- [x] описаны правила версионирования и compatibility AsyncAPI messages;
+- [x] добавлен клиентский guide: API key, idempotency, pagination, WebSocket reconnect и gap recovery;
+- [x] зафиксировано, какие возможности являются public, private, admin и internal-only;
+- [x] README соответствующих модулей ссылаются на OpenAPI/AsyncAPI и application ports;
+- [x] все новые публичные интерфейсы, DTO, контроллеры и методы сопровождаются подробным JSDoc на русском языке с принципом работы и примерами.
 
 **Gate:** Swagger содержит все поддерживаемые REST-сценарии, AsyncAPI полностью
 описывает WebSocket-протокол, а автоматическая проверка доказывает соответствие

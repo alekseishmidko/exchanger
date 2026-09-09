@@ -38,4 +38,47 @@ describe('environment validation', () => {
       }),
     ).toThrow('SWAGGER_PATH must be a safe relative URL path');
   });
+
+  /** Не допускает вывода управляемой строки или небезопасной схемы в startup URL. */
+  it.each(['localhost:5000', 'javascript:alert(1)', 'file:///tmp/docs'])(
+    'rejects an unsafe public URL: %s',
+    (publicUrl) => {
+      expect(() =>
+        validateEnvironment({
+          NODE_ENV: 'development',
+          PORT: '5000',
+          SERVICE_NAME: 'exchange-backend',
+          APPLICATION_PUBLIC_URL: publicUrl,
+        }),
+      ).toThrow('APPLICATION_PUBLIC_URL must be an absolute HTTP(S) URL');
+    },
+  );
+
+  /**
+   * Защищает bounded-buffer контракт WebSocket gateway: нулевое либо дробное
+   * значение фактически отключило бы ограничение или сделало поведение очереди
+   * неоднозначным.
+   */
+  it.each(['0', '-1', '1.5', 'many'])('rejects invalid WebSocket limits: %s', (value) => {
+    expect(() =>
+      validateEnvironment({
+        NODE_ENV: 'development',
+        PORT: '5000',
+        SERVICE_NAME: 'exchange-backend',
+        WEBSOCKET_MAX_PENDING: value,
+      }),
+    ).toThrow('WEBSOCKET_MAX_PENDING must be a positive integer');
+  });
+
+  /** Не позволяет случайно открыть WebSocket для любого Origin пустой настройкой. */
+  it('rejects an empty WebSocket origin allow-list', () => {
+    expect(() =>
+      validateEnvironment({
+        NODE_ENV: 'production',
+        PORT: '5000',
+        SERVICE_NAME: 'exchange-backend',
+        WEBSOCKET_ALLOWED_ORIGINS: '   ',
+      }),
+    ).toThrow('WEBSOCKET_ALLOWED_ORIGINS must be a non-empty comma-separated list');
+  });
 });

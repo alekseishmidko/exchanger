@@ -25,7 +25,8 @@ provider.
 - in-memory idempotency, projections, audit и event log необходимо заменить
   durable shared stores;
 - API keys должны храниться в виде хешей с rotation/revocation;
-- WebSocket transport требует TLS, origin policy и heartbeat timeout;
+- WebSocket transport имеет origin allow-list, heartbeat и bounded buffer; для
+  production всё ещё требуются TLS termination и инфраструктурный idle timeout;
 - audit archive требует WORM/object lock;
 - distributed rate limiting и per-tenant quotas пока не подключены;
 - PostgreSQL backup/restore и infrastructure RTO/RPO ещё не подтверждены.

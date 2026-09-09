@@ -43,6 +43,9 @@ curl http://localhost:5000/health
 
 Интерактивная документация command API: `http://localhost:5000/docs`.
 OpenAPI можно получить без UI по `/docs/openapi.json` или `/docs/openapi.yaml`.
+Socket.IO market-data namespace: `http://localhost:5000/market-data`; его
+handshake, события и схемы опубликованы в
+[AsyncAPI](../../docs/asyncapi/market-data.yaml).
 
 При запуске через Docker Compose backend доступен на host-порту `5001`, при этом
 внутри контейнера продолжает слушать `5000`:
@@ -69,6 +72,7 @@ BACKEND_HOST_PORT=5010 pnpm docker:development
 ```bash
 pnpm --filter @exchange/backend test
 pnpm --filter @exchange/backend typecheck
+pnpm --filter @exchange/backend contracts:check
 pnpm --filter @exchange/backend build
 ```
 

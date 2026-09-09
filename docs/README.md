@@ -11,6 +11,7 @@
 - [Trading state machine и sequencer](trading-state-machine.md)
 - [Settlement и event log](settlement.md)
 - [Gateway и command API](gateway.md)
+- [REST и WebSocket client guide](api-client-guide.md)
 - [Projections и query API](projections.md)
 - [Market data и WebSocket](market-data.md)
 - [Admin, risk и audit](admin-risk-audit.md)

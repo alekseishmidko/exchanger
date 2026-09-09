@@ -26,7 +26,7 @@
 
 Изменение status или добавление rules version является административным действием и должно записываться в audit log вместе с actor, instrument ID, old/new status, rules version, effectiveAt, correlation ID и причиной. Старые версии не изменяются и не удаляются.
 
-Подробный каталог полей, lifecycle diagram и policy размещены в [`docs/instrument-rules.md`](../../../../docs/instrument-rules.md).
+Подробный каталог полей, lifecycle diagram и policy размещены в [`docs/instrument-rules.md`](../../../../../../docs/instrument-rules.md).
 
 ## REST boundary
 
@@ -38,3 +38,7 @@
 Создание пары, добавление rules version и изменение ACTIVE/PAUSED выполняются
 через `/api/v1/admin/instruments`. Команды требуют admin identity,
 `Idempotency-Key`, audit metadata и подтверждение второго независимого actor.
+
+Transport contract и DTO examples опубликованы в
+[`docs/openapi/application.yaml`](../../../../../../docs/openapi/application.yaml) и
+[`docs/api-client-guide.md`](../../../../../../docs/api-client-guide.md).

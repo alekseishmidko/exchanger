@@ -5,11 +5,28 @@ import request from 'supertest';
 import { AppModule } from '../src/app.module';
 import { configureSwagger } from '../src/config/swagger';
 import { ApiKeyRegistry } from '../src/modules/gateway/gateway.auth';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { parse } from 'yaml';
 
 /** Минимальный OpenAPI shape для проверки обязательных transport operations. */
 type TransportOpenApiDocument = {
   paths: Record<string, Record<string, unknown>>;
 };
+
+/** HTTP methods, участвующие в проверке generated-versus-versioned drift. */
+const httpMethods = new Set(['get', 'post', 'put', 'patch', 'delete', 'head', 'options']);
+
+/** Преобразует OpenAPI paths в сортированный набор `METHOD path`. */
+function operations(document: TransportOpenApiDocument): readonly string[] {
+  return Object.entries(document.paths)
+    .flatMap(([path, item]) =>
+      Object.keys(item)
+        .filter((method) => httpMethods.has(method))
+        .map((method) => `${method.toUpperCase()} ${path}`),
+    )
+    .sort();
+}
 
 /** Валидная начальная версия правил для admin/instrument E2E flow. */
 const rules = {
@@ -75,6 +92,11 @@ describe('Transport API completeness', () => {
     expect(document.paths['/api/v1/projections/trades']?.['get']).toBeDefined();
     expect(document.paths['/api/v1/projections/balances']?.['get']).toBeDefined();
     expect(document.paths['/api/v1/projections/metrics']?.['get']).toBeDefined();
+
+    const versioned = parse(
+      readFileSync(resolve(process.cwd(), '../../docs/openapi/application.yaml'), 'utf8'),
+    ) as TransportOpenApiDocument;
+    expect(operations(document)).toEqual(operations(versioned));
   });
 
   it('creates an isolated account and rejects unknown DTO fields', async () => {
@@ -107,6 +129,18 @@ describe('Transport API completeness', () => {
       .get('/api/v1/accounts/account-1')
       .set('x-api-key', 'trader-2-key')
       .expect(403);
+
+    await request(app.getHttpServer())
+      .get('/api/v1/accounts/account-1')
+      .set('x-api-key', 'trader-1-key')
+      .expect(200)
+      .expect({ accountId: 'account-1', ownerId: 'user-1' });
+
+    await request(app.getHttpServer())
+      .get('/api/v1/accounts/account-1/balances')
+      .set('x-api-key', 'trader-1-key')
+      .expect(200)
+      .expect(({ body }) => expect((body as { items: unknown[] }).items).toHaveLength(1));
   });
 
   it('changes a balance only through an idempotent admin application command', async () => {
@@ -182,6 +216,16 @@ describe('Transport API completeness', () => {
         expect(instrument.status).toBe('ACTIVE');
         expect(instrument.rules[0]?.tickSize).toBe('0.5');
       });
+
+    await request(app.getHttpServer())
+      .get('/api/v1/instruments')
+      .set('x-api-key', 'trader-1-key')
+      .expect(200)
+      .expect(({ body }) =>
+        expect((body as { items: Array<{ id: string }> }).items).toEqual(
+          expect.arrayContaining([expect.objectContaining({ id: 'BTC-USD' })]),
+        ),
+      );
   });
 
   it('protects admin operations and documents bounded projection queries', async () => {
@@ -263,5 +307,126 @@ describe('Transport API completeness', () => {
         takerRate: '0.002',
       })
       .expect(403);
+  });
+
+  /**
+   * Вызывает все projection query handlers через настоящий HTTP boundary. Пустые
+   * страницы являются корректным positive-result: тест проверяет transport,
+   * authentication, bounded pagination и owner-фильтр application store.
+   */
+  it('serves every projection query through the authenticated read boundary', async () => {
+    for (const path of ['orders', 'trades', 'balances']) {
+      await request(app.getHttpServer())
+        .get(`/api/v1/projections/${path}?limit=10`)
+        .set('x-api-key', 'trader-1-key')
+        .expect(200)
+        .expect(({ body }) => {
+          expect(body).toHaveProperty('items');
+          expect(body).toHaveProperty('nextCursor');
+        });
+    }
+
+    await request(app.getHttpServer())
+      .get('/api/v1/projections/metrics')
+      .set('x-api-key', 'trader-1-key')
+      .expect(200)
+      .expect(({ body }) => expect(body).toHaveProperty('schemaVersion', 1));
+  });
+
+  /**
+   * Доказывает dual-control и административную идемпотентность для оставшихся
+   * публичных команд: повтор HTTP-запроса возвращает тот же application result,
+   * а изменение начинает действовать только после approval другого principal.
+   */
+  it('applies fee policy and circuit breaker through idempotent dual control', async () => {
+    const feePolicy = {
+      commandId: 'fee-policy-1',
+      version: 'fee-v1',
+      effectiveAt: '2026-02-01T00:00:00.000Z',
+      makerRate: '0.001',
+      takerRate: '0.002',
+    };
+    const first = await request(app.getHttpServer())
+      .post('/api/v1/admin/fee-policies')
+      .set('x-api-key', 'admin-1-key')
+      .set('idempotency-key', 'fee-policy-idem')
+      .send(feePolicy)
+      .expect(201);
+    const retry = await request(app.getHttpServer())
+      .post('/api/v1/admin/fee-policies')
+      .set('x-api-key', 'admin-1-key')
+      .set('idempotency-key', 'fee-policy-idem')
+      .send(feePolicy)
+      .expect(201);
+    expect(retry.body).toEqual(first.body);
+
+    await request(app.getHttpServer())
+      .post('/api/v1/admin/approvals/fee-policy-1')
+      .set('x-api-key', 'admin-2-key')
+      .set('idempotency-key', 'fee-policy-approval')
+      .expect(201);
+
+    await request(app.getHttpServer())
+      .post('/api/v1/admin/circuit-breakers')
+      .set('x-api-key', 'admin-1-key')
+      .send({ commandId: 'stop-1', action: 'STOP', targetId: 'BTC-USD' })
+      .expect(400)
+      .expect(({ body }) =>
+        expect((body as { code: string }).code).toBe('IDEMPOTENCY_KEY_REQUIRED'),
+      );
+
+    await request(app.getHttpServer())
+      .post('/api/v1/admin/circuit-breakers')
+      .set('x-api-key', 'admin-1-key')
+      .set('idempotency-key', 'stop-idem')
+      .send({ commandId: 'stop-1', action: 'STOP', targetId: 'BTC-USD' })
+      .expect(201)
+      .expect(({ body }) => expect((body as { status: string }).status).toBe('PENDING_APPROVAL'));
+    await request(app.getHttpServer())
+      .post('/api/v1/admin/approvals/stop-1')
+      .set('x-api-key', 'admin-2-key')
+      .set('idempotency-key', 'stop-approval')
+      .expect(201);
+  });
+
+  /**
+   * Проверяет общий authentication invariant для каждого защищённого REST route.
+   * Guard должен завершить запрос до DTO parsing и application port, поэтому для
+   * write routes допустим пустой body: ожидаемый результат всегда 401.
+   */
+  it('rejects unauthenticated access to every protected REST operation', async () => {
+    const getPaths = [
+      '/api/v1/orders',
+      '/api/v1/instruments',
+      '/api/v1/instruments/BTC-USD',
+      '/api/v1/accounts/account-1',
+      '/api/v1/accounts/account-1/balances',
+      '/api/v1/accounts/account-1/balances/USD',
+      '/api/v1/projections/orders',
+      '/api/v1/projections/trades',
+      '/api/v1/projections/balances',
+      '/api/v1/projections/metrics',
+      '/api/v1/admin/reconciliation',
+    ];
+    for (const path of getPaths) {
+      await request(app.getHttpServer()).get(path).expect(401);
+    }
+
+    const postPaths = [
+      '/api/v1/orders',
+      '/api/v1/orders/order-1/cancel',
+      '/api/v1/accounts',
+      '/api/v1/accounts/account-1/balances/USD/commands',
+      '/api/v1/admin/instruments',
+      '/api/v1/admin/instruments/BTC-USD/status',
+      '/api/v1/admin/freezes',
+      '/api/v1/admin/circuit-breakers',
+      '/api/v1/admin/fee-policies',
+      '/api/v1/admin/risk-policies',
+      '/api/v1/admin/approvals/command-1',
+    ];
+    for (const path of postPaths) {
+      await request(app.getHttpServer()).post(path).send({}).expect(401);
+    }
   });
 });

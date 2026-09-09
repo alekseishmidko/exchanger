@@ -23,6 +23,10 @@ macOS часто занят Control Center/AirPlay. При необходимо�
 BACKEND_HOST_PORT=5010 pnpm docker:development
 ```
 
+После успешного запуска backend выводит в structured logs адрес сервера и, если
+Swagger включён, строку `Документация доступна по адресу: ...`. Для запуска за
+reverse proxy внешний адрес можно задать через `APPLICATION_PUBLIC_URL`.
+
 Production-образ собирается и запускается в фоне одной командой:
 
 ```bash
@@ -39,6 +43,9 @@ curl http://localhost:5000/health
 
 Swagger UI в development доступен по `http://localhost:5000/docs`, а
 машиночитаемый контракт — по `/docs/openapi.json` и `/docs/openapi.yaml`.
+WebSocket market-data использует Socket.IO namespace
+`http://localhost:5000/market-data`; версионируемый протокол описан в
+[AsyncAPI](docs/asyncapi/market-data.yaml).
 
 Проверка Docker development окружения:
 
@@ -47,11 +54,12 @@ curl http://localhost:5001/health
 ```
 
 Для Docker development Swagger UI открыт по `http://localhost:5001/docs`.
+WebSocket namespace доступен по `http://localhost:5001/market-data`.
 
 Перед отправкой изменений запускается полный gate:
 
 ```bash
-pnpm security:check && pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm build
+pnpm security:check && pnpm format:check && pnpm lint && pnpm typecheck && pnpm contracts:check && pnpm test && pnpm build
 ```
 
 Правила разработки и Definition of Done описаны в [project standards](docs/project-standards.md), рабочий checklist — в [development checklist](docs/development-checklist.md).
