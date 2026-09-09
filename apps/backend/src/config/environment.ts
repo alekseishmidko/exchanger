@@ -50,5 +50,41 @@ export function validateEnvironment(config: EnvironmentConfig): EnvironmentConfi
     throw new Error('SWAGGER_PATH must be a safe relative URL path');
   }
 
+  const publicUrl = config['APPLICATION_PUBLIC_URL'];
+  if (publicUrl !== undefined) {
+    if (typeof publicUrl !== 'string') {
+      throw new Error('APPLICATION_PUBLIC_URL must be an absolute HTTP(S) URL');
+    }
+    try {
+      const parsed = new URL(publicUrl);
+      if ((parsed.protocol !== 'http:' && parsed.protocol !== 'https:') || !parsed.host) {
+        throw new Error('unsafe protocol');
+      }
+    } catch {
+      throw new Error('APPLICATION_PUBLIC_URL must be an absolute HTTP(S) URL');
+    }
+  }
+
+  for (const key of ['WEBSOCKET_MAX_SUBSCRIBERS', 'WEBSOCKET_MAX_PENDING'] as const) {
+    const value = config[key];
+    if (
+      value !== undefined &&
+      ((typeof value !== 'string' && typeof value !== 'number') || !/^\d+$/.test(`${value}`))
+    ) {
+      throw new Error(`${key} must be a positive integer`);
+    }
+    if (value !== undefined && Number(value) < 1) {
+      throw new Error(`${key} must be a positive integer`);
+    }
+  }
+
+  const allowedOrigins = config['WEBSOCKET_ALLOWED_ORIGINS'];
+  if (
+    allowedOrigins !== undefined &&
+    (typeof allowedOrigins !== 'string' || !allowedOrigins.trim())
+  ) {
+    throw new Error('WEBSOCKET_ALLOWED_ORIGINS must be a non-empty comma-separated list');
+  }
+
   return config;
 }

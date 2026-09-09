@@ -19,6 +19,7 @@
     "format": "pnpm -r format",
     "format:check": "pnpm --filter @exchange/backend format:check",
     "security:check": "node scripts/check-repository.mjs",
+    "contracts:check": "pnpm --filter @exchange/backend contracts:check",
     "postgres:backup-restore": "node scripts/verify-postgres-backup-restore.mjs"
   }
 }

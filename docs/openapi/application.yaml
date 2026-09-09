@@ -1,0 +1,176 @@
+openapi: 3.0.3
+info:
+  title: Exchange Application HTTP API
+  version: 1.0.0
+  description: Реестр всех HTTP operations, используемый для проверки Swagger drift.
+paths:
+  /health:
+    get:
+      operationId: getLiveness
+      responses:
+        '200': { description: Process is alive }
+  /health/live:
+    get:
+      operationId: getLivenessAlias
+      responses:
+        '200': { description: Process is alive }
+  /health/ready:
+    get:
+      operationId: getReadiness
+      responses:
+        '200': { description: Critical dependencies are ready }
+        '503': { description: Critical dependency is unavailable }
+  /api/v1/orders:
+    get:
+      operationId: listOrders
+      responses:
+        '200': { description: Order page }
+    post:
+      operationId: placeOrder
+      responses:
+        '201': { description: Order command accepted }
+  /api/v1/orders/{orderId}/cancel:
+    parameters:
+      - $ref: '#/components/parameters/OrderId'
+    post:
+      operationId: cancelOrder
+      responses:
+        '201': { description: Cancel command accepted }
+  /api/v1/projections/orders:
+    get:
+      operationId: getOrderHistory
+      responses:
+        '200': { description: User order history }
+  /api/v1/projections/trades:
+    get:
+      operationId: getTradeHistory
+      responses:
+        '200': { description: User trade history }
+  /api/v1/projections/balances:
+    get:
+      operationId: getBalanceProjection
+      responses:
+        '200': { description: User balance projections }
+  /api/v1/projections/metrics:
+    get:
+      operationId: getProjectionMetrics
+      responses:
+        '200': { description: Projection lag metrics }
+  /api/v1/instruments:
+    get:
+      operationId: listInstruments
+      responses:
+        '200': { description: Instrument catalog }
+  /api/v1/instruments/{instrumentId}:
+    parameters:
+      - $ref: '#/components/parameters/InstrumentId'
+    get:
+      operationId: getInstrument
+      responses:
+        '200': { description: Instrument rules history }
+  /api/v1/accounts:
+    post:
+      operationId: createAccount
+      responses:
+        '201': { description: Account created }
+  /api/v1/accounts/{accountId}:
+    parameters:
+      - $ref: '#/components/parameters/AccountId'
+    get:
+      operationId: getAccount
+      responses:
+        '200': { description: Account metadata }
+  /api/v1/accounts/{accountId}/balances:
+    parameters:
+      - $ref: '#/components/parameters/AccountId'
+    get:
+      operationId: getBalances
+      responses:
+        '200': { description: Account balances }
+  /api/v1/accounts/{accountId}/balances/{assetId}:
+    parameters:
+      - $ref: '#/components/parameters/AccountId'
+      - $ref: '#/components/parameters/AssetId'
+    get:
+      operationId: getBalance
+      responses:
+        '200': { description: Asset balance }
+  /api/v1/accounts/{accountId}/balances/{assetId}/commands:
+    parameters:
+      - $ref: '#/components/parameters/AccountId'
+      - $ref: '#/components/parameters/AssetId'
+    post:
+      operationId: changeBalance
+      responses:
+        '201': { description: Balance command applied }
+  /api/v1/admin/instruments:
+    post:
+      operationId: configureInstrument
+      responses:
+        '201': { description: Instrument configuration requested }
+  /api/v1/admin/instruments/{instrumentId}/status:
+    parameters:
+      - $ref: '#/components/parameters/InstrumentId'
+    post:
+      operationId: changeInstrumentStatus
+      responses:
+        '201': { description: Instrument lifecycle change requested }
+  /api/v1/admin/freezes:
+    post:
+      operationId: changeFreeze
+      responses:
+        '201': { description: Freeze state changed }
+  /api/v1/admin/circuit-breakers:
+    post:
+      operationId: changeCircuitBreaker
+      responses:
+        '201': { description: Circuit breaker change requested }
+  /api/v1/admin/fee-policies:
+    post:
+      operationId: changeFeePolicy
+      responses:
+        '201': { description: Fee policy requested }
+  /api/v1/admin/risk-policies:
+    post:
+      operationId: changeRiskPolicy
+      responses:
+        '201': { description: Risk policy requested }
+  /api/v1/admin/approvals/{commandId}:
+    parameters:
+      - $ref: '#/components/parameters/CommandId'
+    post:
+      operationId: approveAdministrativeCommand
+      responses:
+        '201': { description: Administrative command approved }
+  /api/v1/admin/reconciliation:
+    get:
+      operationId: getReconciliation
+      responses:
+        '200': { description: Reconciliation status }
+components:
+  parameters:
+    OrderId:
+      name: orderId
+      in: path
+      required: true
+      schema: { type: string, minLength: 1, maxLength: 128 }
+    InstrumentId:
+      name: instrumentId
+      in: path
+      required: true
+      schema: { type: string, minLength: 1, maxLength: 128 }
+    AccountId:
+      name: accountId
+      in: path
+      required: true
+      schema: { type: string, minLength: 1, maxLength: 128 }
+    AssetId:
+      name: assetId
+      in: path
+      required: true
+      schema: { type: string, minLength: 1, maxLength: 128 }
+    CommandId:
+      name: commandId
+      in: path
+      required: true
+      schema: { type: string, minLength: 1, maxLength: 128 }

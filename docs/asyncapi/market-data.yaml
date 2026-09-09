@@ -1,0 +1,445 @@
+asyncapi: 3.0.0
+id: urn:exchange:market-data:websocket:v1
+info:
+  title: Exchange Market Data WebSocket API
+  version: 1.0.0
+  description: >-
+    Версионируемый Socket.IO-протокол public market data и private user stream.
+    Клиент подключается к namespace /market-data только через WebSocket transport.
+    Control envelopes имеют sequence=0; market.data переносит sequence payload.
+defaultContentType: application/json
+servers:
+  development:
+    host: localhost:5001
+    pathname: /socket.io
+    protocol: ws
+    description: Docker development environment
+  production:
+    host: exchange.example.com
+    pathname: /socket.io
+    protocol: wss
+    description: Placeholder production endpoint; host заменяется deployment configuration
+channels:
+  marketSubscribe:
+    address: market.subscribe
+    description: Создание public или private подписки
+    messages:
+      subscribeRequest:
+        $ref: '#/components/messages/SubscribeRequest'
+  marketUnsubscribe:
+    address: market.unsubscribe
+    description: Идемпотентное удаление одной подписки
+    messages:
+      unsubscribeRequest:
+        $ref: '#/components/messages/UnsubscribeRequest'
+  marketResync:
+    address: market.resync
+    description: Запрос snapshot/replay после reconnect или sequence gap
+    messages:
+      resyncRequest:
+        $ref: '#/components/messages/ResyncRequest'
+  heartbeat:
+    address: heartbeat
+    description: Проверка живости WebSocket transport
+    messages:
+      heartbeatRequest:
+        $ref: '#/components/messages/HeartbeatRequest'
+  marketData:
+    address: market.data
+    description: Snapshot, increment, trade, ticker или private user event
+    messages:
+      marketDataEnvelope:
+        $ref: '#/components/messages/MarketDataEnvelope'
+  marketAck:
+    address: market.ack
+    description: Подтверждение subscribe/unsubscribe
+    messages:
+      subscriptionAck:
+        $ref: '#/components/messages/SubscriptionAck'
+  marketError:
+    address: market.error
+    description: Безопасная protocol error без внутренних exception details
+    messages:
+      protocolError:
+        $ref: '#/components/messages/ProtocolError'
+  heartbeatAck:
+    address: heartbeat.ack
+    description: Ответ transport heartbeat
+    messages:
+      heartbeatResponse:
+        $ref: '#/components/messages/HeartbeatResponse'
+operations:
+  receiveSubscription:
+    action: receive
+    channel:
+      $ref: '#/channels/marketSubscribe'
+    summary: Принять команду подписки от клиента
+    messages:
+      - $ref: '#/channels/marketSubscribe/messages/subscribeRequest'
+  receiveUnsubscribe:
+    action: receive
+    channel:
+      $ref: '#/channels/marketUnsubscribe'
+    summary: Принять команду удаления подписки
+    messages:
+      - $ref: '#/channels/marketUnsubscribe/messages/unsubscribeRequest'
+  receiveResync:
+    action: receive
+    channel:
+      $ref: '#/channels/marketResync'
+    summary: Принять запрос восстановления sequence
+    messages:
+      - $ref: '#/channels/marketResync/messages/resyncRequest'
+  receiveHeartbeat:
+    action: receive
+    channel:
+      $ref: '#/channels/heartbeat'
+    summary: Принять heartbeat
+    messages:
+      - $ref: '#/channels/heartbeat/messages/heartbeatRequest'
+  sendMarketData:
+    action: send
+    channel:
+      $ref: '#/channels/marketData'
+    summary: Отправить market/private data подписчику
+    messages:
+      - $ref: '#/channels/marketData/messages/marketDataEnvelope'
+  sendSubscriptionAck:
+    action: send
+    channel:
+      $ref: '#/channels/marketAck'
+    summary: Подтвердить изменение подписки
+    messages:
+      - $ref: '#/channels/marketAck/messages/subscriptionAck'
+  sendProtocolError:
+    action: send
+    channel:
+      $ref: '#/channels/marketError'
+    summary: Сообщить безопасную protocol error
+    messages:
+      - $ref: '#/channels/marketError/messages/protocolError'
+  sendHeartbeatAck:
+    action: send
+    channel:
+      $ref: '#/channels/heartbeatAck'
+    summary: Подтвердить живость transport
+    messages:
+      - $ref: '#/channels/heartbeatAck/messages/heartbeatResponse'
+components:
+  securitySchemes:
+    apiKey:
+      type: httpApiKey
+      name: x-api-key
+      in: header
+      description: >-
+        Обязателен только для private user stream. Socket.IO client также может
+        передать то же значение в handshake auth.apiKey. Значение не логируется.
+  correlationIds:
+    requestCorrelation:
+      description: requestId клиентской команды
+      location: $message.payload#/requestId
+    envelopeCorrelation:
+      description: correlationId server envelope
+      location: $message.payload#/correlationId
+  messages:
+    SubscribeRequest:
+      name: SubscribeRequest
+      title: Subscribe command
+      correlationId:
+        $ref: '#/components/correlationIds/requestCorrelation'
+      payload:
+        $ref: '#/components/schemas/SubscribeRequest'
+      examples:
+        - name: publicBook
+          payload:
+            requestId: req-book-1
+            channel: book
+            instrumentId: BTC-USD
+        - name: privateUser
+          payload:
+            requestId: req-user-1
+            channel: user
+            userId: user-1
+    UnsubscribeRequest:
+      name: UnsubscribeRequest
+      correlationId:
+        $ref: '#/components/correlationIds/requestCorrelation'
+      payload:
+        $ref: '#/components/schemas/SubscribeRequest'
+      examples:
+        - payload:
+            requestId: req-unsubscribe-1
+            channel: ticker
+            instrumentId: BTC-USD
+    ResyncRequest:
+      name: ResyncRequest
+      correlationId:
+        $ref: '#/components/correlationIds/requestCorrelation'
+      payload:
+        $ref: '#/components/schemas/ResyncRequest'
+      examples:
+        - payload:
+            requestId: req-resync-1
+            instrumentId: BTC-USD
+            lastSequence: 41
+    HeartbeatRequest:
+      name: HeartbeatRequest
+      correlationId:
+        $ref: '#/components/correlationIds/requestCorrelation'
+      payload:
+        $ref: '#/components/schemas/HeartbeatRequest'
+      examples:
+        - payload:
+            requestId: req-heartbeat-1
+            sentAt: '2026-09-09T00:00:00.000Z'
+    MarketDataEnvelope:
+      name: MarketDataEnvelope
+      correlationId:
+        $ref: '#/components/correlationIds/envelopeCorrelation'
+      payload:
+        $ref: '#/components/schemas/MarketDataEnvelope'
+      examples:
+        - name: snapshot
+          payload:
+            messageVersion: '1.0'
+            correlationId: req-book-1
+            emittedAt: '2026-09-09T00:00:00.000Z'
+            sequence: 42
+            data:
+              channel: book
+              instrumentId: BTC-USD
+              sequence: 42
+              bids:
+                - { price: '60000', quantity: '1.25' }
+              asks:
+                - { price: '60000.5', quantity: '0.5' }
+        - name: trade
+          payload:
+            messageVersion: '1.0'
+            correlationId: req-trade-1
+            emittedAt: '2026-09-09T00:00:00.000Z'
+            sequence: 43
+            data:
+              channel: trades
+              instrumentId: BTC-USD
+              sequence: 43
+              price: '60000.5'
+              quantity: '0.25'
+        - name: privateEvent
+          payload:
+            messageVersion: '1.0'
+            correlationId: req-user-1
+            emittedAt: '2026-09-09T00:00:00.000Z'
+            sequence: 7
+            data:
+              channel: user
+              userId: user-1
+              sequence: 7
+              type: ORDER_UPDATED
+              payload:
+                orderId: order-1
+                status: FILLED
+    SubscriptionAck:
+      name: SubscriptionAck
+      correlationId:
+        $ref: '#/components/correlationIds/envelopeCorrelation'
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/EnvelopeMetadata'
+          - type: object
+            required: [data]
+            properties:
+              data:
+                $ref: '#/components/schemas/SubscriptionAck'
+      examples:
+        - payload:
+            messageVersion: '1.0'
+            correlationId: req-book-1
+            emittedAt: '2026-09-09T00:00:00.000Z'
+            sequence: 0
+            data:
+              action: subscribed
+              subscription: book:BTC-USD
+    ProtocolError:
+      name: ProtocolError
+      correlationId:
+        $ref: '#/components/correlationIds/envelopeCorrelation'
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/EnvelopeMetadata'
+          - type: object
+            required: [data]
+            properties:
+              data:
+                $ref: '#/components/schemas/ProtocolError'
+      examples:
+        - payload:
+            messageVersion: '1.0'
+            correlationId: req-user-1
+            emittedAt: '2026-09-09T00:00:00.000Z'
+            sequence: 0
+            data:
+              code: PRIVATE_STREAM_FORBIDDEN
+              message: Private stream access denied
+              recoverable: true
+    HeartbeatResponse:
+      name: HeartbeatResponse
+      correlationId:
+        $ref: '#/components/correlationIds/envelopeCorrelation'
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/EnvelopeMetadata'
+          - type: object
+            required: [data]
+            properties:
+              data:
+                $ref: '#/components/schemas/HeartbeatResponse'
+      examples:
+        - payload:
+            messageVersion: '1.0'
+            correlationId: req-heartbeat-1
+            emittedAt: '2026-09-09T00:00:00.010Z'
+            sequence: 0
+            data:
+              receivedAt: '2026-09-09T00:00:00.010Z'
+              sentAt: '2026-09-09T00:00:00.000Z'
+  schemas:
+    Identifier:
+      type: string
+      minLength: 1
+      maxLength: 128
+      pattern: '^[A-Za-z0-9._:-]+$'
+    DecimalString:
+      type: string
+      pattern: '^(0|[1-9][0-9]*)(\.[0-9]+)?$'
+    SubscribeRequest:
+      oneOf:
+        - type: object
+          additionalProperties: false
+          required: [requestId, channel, instrumentId]
+          properties:
+            requestId: { $ref: '#/components/schemas/Identifier' }
+            channel: { type: string, enum: [book, trades, ticker] }
+            instrumentId: { $ref: '#/components/schemas/Identifier' }
+        - type: object
+          additionalProperties: false
+          required: [requestId, channel, userId]
+          properties:
+            requestId: { $ref: '#/components/schemas/Identifier' }
+            channel: { type: string, const: user }
+            userId: { $ref: '#/components/schemas/Identifier' }
+    ResyncRequest:
+      type: object
+      additionalProperties: false
+      required: [requestId, instrumentId, lastSequence]
+      properties:
+        requestId: { $ref: '#/components/schemas/Identifier' }
+        instrumentId: { $ref: '#/components/schemas/Identifier' }
+        lastSequence: { type: integer, minimum: 0 }
+    HeartbeatRequest:
+      type: object
+      additionalProperties: false
+      required: [requestId]
+      properties:
+        requestId: { $ref: '#/components/schemas/Identifier' }
+        sentAt: { type: string, format: date-time }
+    EnvelopeMetadata:
+      type: object
+      required: [messageVersion, correlationId, emittedAt, sequence]
+      properties:
+        messageVersion: { type: string, const: '1.0' }
+        correlationId: { $ref: '#/components/schemas/Identifier' }
+        emittedAt: { type: string, format: date-time }
+        sequence: { type: integer, minimum: 0 }
+    MarketDataEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/EnvelopeMetadata'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              oneOf:
+                - $ref: '#/components/schemas/OrderBookSnapshot'
+                - $ref: '#/components/schemas/OrderBookIncrement'
+                - $ref: '#/components/schemas/MarketTick'
+                - $ref: '#/components/schemas/PrivateUserEvent'
+    BookLevel:
+      type: object
+      additionalProperties: false
+      required: [price, quantity]
+      properties:
+        price: { $ref: '#/components/schemas/DecimalString' }
+        quantity: { $ref: '#/components/schemas/DecimalString' }
+    OrderBookSnapshot:
+      type: object
+      additionalProperties: false
+      required: [channel, instrumentId, sequence, bids, asks]
+      properties:
+        channel: { type: string, const: book }
+        instrumentId: { $ref: '#/components/schemas/Identifier' }
+        sequence: { type: integer, minimum: 0 }
+        bids:
+          type: array
+          items: { $ref: '#/components/schemas/BookLevel' }
+        asks:
+          type: array
+          items: { $ref: '#/components/schemas/BookLevel' }
+    OrderBookIncrement:
+      type: object
+      additionalProperties: false
+      required: [channel, instrumentId, sequence, bids, asks]
+      properties:
+        channel: { type: string, const: book_update }
+        instrumentId: { $ref: '#/components/schemas/Identifier' }
+        sequence: { type: integer, minimum: 1 }
+        bids:
+          type: array
+          items: { $ref: '#/components/schemas/BookLevel' }
+        asks:
+          type: array
+          items: { $ref: '#/components/schemas/BookLevel' }
+    MarketTick:
+      type: object
+      additionalProperties: false
+      required: [channel, instrumentId, sequence, price, quantity]
+      properties:
+        channel: { type: string, enum: [trades, ticker] }
+        instrumentId: { $ref: '#/components/schemas/Identifier' }
+        sequence: { type: integer, minimum: 1 }
+        price: { $ref: '#/components/schemas/DecimalString' }
+        quantity: { $ref: '#/components/schemas/DecimalString' }
+    PrivateUserEvent:
+      type: object
+      additionalProperties: false
+      required: [channel, userId, sequence, type, payload]
+      properties:
+        channel: { type: string, const: user }
+        userId: { $ref: '#/components/schemas/Identifier' }
+        sequence: { type: integer, minimum: 1 }
+        type: { type: string, minLength: 1, maxLength: 128 }
+        payload:
+          type: object
+          description: Allow-listed public user-event payload; never contains ledger postings.
+          additionalProperties: true
+    SubscriptionAck:
+      type: object
+      additionalProperties: false
+      required: [action, subscription]
+      properties:
+        action: { type: string, enum: [subscribed, unsubscribed] }
+        subscription: { type: string, minLength: 1, maxLength: 300 }
+    ProtocolError:
+      type: object
+      additionalProperties: false
+      required: [code, message, recoverable]
+      properties:
+        code: { type: string, minLength: 1, maxLength: 128 }
+        message: { type: string, minLength: 1, maxLength: 256 }
+        recoverable: { type: boolean }
+    HeartbeatResponse:
+      type: object
+      additionalProperties: false
+      required: [receivedAt]
+      properties:
+        receivedAt: { type: string, format: date-time }
+        sentAt: { type: string, format: date-time }

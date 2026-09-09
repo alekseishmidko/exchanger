@@ -17,7 +17,7 @@
 - `Posting` и `assertBalancedPostings` — double-entry журнал;
 - `IdempotencyRecord` — связь operation ID с уже применённым результатом.
 
-Схема PostgreSQL и retention policy описаны в [`infrastructure/schema.md`](infrastructure/schema.md), migration up/down находятся в `infrastructure/migrations/`, а решение о double-entry зафиксировано в [ADR 0003](../../../../docs/adr/0003-double-entry-ledger.md).
+Схема PostgreSQL и retention policy описаны в [`infrastructure/schema.md`](infrastructure/schema.md), migration up/down находятся в `infrastructure/migrations/`, а решение о double-entry зафиксировано в [ADR 0003](../../../../../docs/adr/0003-double-entry-ledger.md).
 
 ## Инварианты
 
@@ -46,3 +46,7 @@
 strict runtime validation, затем application service создаёт typed IDs и
 `Decimal`, вызывает domain policy и записывает audit event. Каждый write требует
 `Idempotency-Key`; повтор не создаёт вторую проводку.
+
+Публичные DTO examples и ownership matrix находятся в
+[`docs/api-client-guide.md`](../../../../../docs/api-client-guide.md), реестр routes —
+в [`docs/openapi/application.yaml`](../../../../../docs/openapi/application.yaml).

@@ -46,3 +46,7 @@ breaker и approval, а также read-only reconciliation status. Actor все
 Все административные write-запросы используют strict DTO,
 `Idempotency-Key`, rate limit и tamper-evident audit log. Ошибка domain policy
 преобразуется в безопасный код без stack trace и внутренних aggregate данных.
+
+Полный реестр transport operations, ownership и безопасные DTO examples:
+[`docs/api-client-guide.md`](../../../../../docs/api-client-guide.md) и
+[`docs/openapi/application.yaml`](../../../../../docs/openapi/application.yaml).

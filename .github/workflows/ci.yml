@@ -53,6 +53,9 @@ jobs:
       - name: Typecheck
         run: pnpm typecheck
 
+      - name: API contract validation and drift checks
+        run: pnpm contracts:check
+
       - name: Tests
         run: pnpm test
 
