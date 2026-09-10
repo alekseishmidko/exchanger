@@ -7,23 +7,56 @@
 Gateway command contract — в [`openapi/gateway.yaml`](openapi/gateway.yaml),
 runtime Swagger — `/docs` в development.
 
-| Группа | Endpoints | Доступ и ownership |
-| --- | --- | --- |
-| Health | `/health`, `/health/live`, `/health/ready` | public, без business data |
-| Orders | `/api/v1/orders`, cancel | authenticated trader, только свой account; admin elevated |
-| Instruments | `/api/v1/instruments` | authenticated read-only catalog |
-| Accounts | `/api/v1/accounts/**` | владелец account; balance commands только admin |
-| Projections | `/api/v1/projections/**` | фильтрация по principal userId |
-| Admin | `/api/v1/admin/**` | role matrix и dual control |
-| WebSocket public | book/trades/ticker | public subscription |
-| WebSocket private | user | API key и exact userId match |
-| Internal-only | matching, sequencer, settlement, postings | transport endpoint отсутствует |
+| Группа            | Endpoints                                     | Доступ и ownership                                        |
+| ----------------- | --------------------------------------------- | --------------------------------------------------------- |
+| Health            | `/health`, `/health/live`, `/health/ready`    | public, без business data                                 |
+| Authentication    | `/api/v1/auth/me`, `/api/v1/auth/api-keys/**` | проверка identity; admin-only issue/list/rotate/revoke    |
+| Orders            | `/api/v1/orders`, cancel                      | authenticated trader, только свой account; admin elevated |
+| Instruments       | `/api/v1/instruments`                         | authenticated read-only catalog                           |
+| Accounts          | `/api/v1/accounts/**`                         | владелец account; balance commands только admin           |
+| Projections       | `/api/v1/projections/**`                      | фильтрация по principal userId                            |
+| Admin             | `/api/v1/admin/**`                            | role matrix и dual control                                |
+| WebSocket public  | book/trades/ticker                            | public subscription                                       |
+| WebSocket private | user                                          | API key и exact userId match                              |
+| Internal-only     | matching, sequencer, settlement, postings     | transport endpoint отсутствует                            |
 
 ## API key, idempotency и pagination
 
 REST key передаётся только в `x-api-key`. Write requests дополнительно требуют
 `Idempotency-Key` до 128 символов. Retry использует тот же ключ и тот же body;
 другой body с прежним ключом получает `409`. Ключ scoped по API-key principal.
+
+В Swagger необходимо нажать `Authorize`, выбрать `ApiKeyAuth` и ввести значение
+ключа без префикса `Bearer`. После этого `GET /api/v1/auth/me` подтверждает
+identity:
+
+```json
+{
+  "authenticated": true,
+  "authenticationScheme": "API_KEY",
+  "subjectId": "user-1",
+  "role": "trader"
+}
+```
+
+API-key lifecycle не создаёт login session:
+
+- `POST /api/v1/auth/api-keys` выпускает secret и возвращает его один раз;
+- `GET /api/v1/auth/api-keys` возвращает только metadata;
+- `POST /api/v1/auth/api-keys/{keyId}/rotate` немедленно инвалидирует старый secret;
+- `POST /api/v1/auth/api-keys/{keyId}/revoke` отзывает credential, сохраняя metadata/audit.
+
+Все lifecycle-команды доступны только роли `admin`, требуют `Idempotency-Key` и
+создают audit event. Текущий credential не может rotate/revoke сам себя: для
+операции нужен другой admin key, чтобы timeout не лишил оператора recovery access.
+
+Для ручной проверки административного контура используйте
+`GET /api/v1/admin/audit-events?limit=50&cursor=0`. Endpoint доступен только
+ролям `admin` и `auditor`, возвращает события в порядке `sequence` и не включает
+API-key secrets. Поля `previousHash`/`hash` позволяют сопоставить выгрузку с
+проверкой целостности из `GET /api/v1/admin/reconciliation`.
+Для локальной ручной проверки доступны `dev-key` (`trader`) и `dev-admin-key`
+(`admin`). В production default credentials отсутствуют.
 
 Cursor является opaque string. `limit` находится в диапазоне 1–100; клиент не
 вычисляет cursor самостоятельно и использует `nextCursor` предыдущего ответа.
@@ -33,7 +66,18 @@ Cursor является opaque string. `limit` находится в диапа�
 Gateway place/cancel:
 
 ```json
-{ "commandId": "cmd-1", "orderId": "order-1", "accountId": "user-1", "instrumentId": "BTC-USD", "clientOrderId": "client-1", "side": "BUY", "orderType": "LIMIT", "quantity": "0.25", "limitPrice": "60000", "timeInForce": "GTC" }
+{
+  "commandId": "cmd-1",
+  "orderId": "order-1",
+  "accountId": "user-1",
+  "instrumentId": "BTC-USD",
+  "clientOrderId": "client-1",
+  "side": "BUY",
+  "orderType": "LIMIT",
+  "quantity": "0.25",
+  "limitPrice": "60000",
+  "timeInForce": "GTC"
+}
 ```
 
 ```json
@@ -43,7 +87,12 @@ Gateway place/cancel:
 Account create и balance command:
 
 ```json
-{ "commandId": "account-cmd-1", "accountId": "account-1", "ownerId": "user-1", "balances": [{ "assetId": "USD", "code": "USD", "scale": 2 }] }
+{
+  "commandId": "account-cmd-1",
+  "accountId": "account-1",
+  "ownerId": "user-1",
+  "balances": [{ "assetId": "USD", "code": "USD", "scale": 2 }]
+}
 ```
 
 ```json
@@ -53,7 +102,27 @@ Account create и balance command:
 Admin instrument/lifecycle:
 
 ```json
-{ "commandId": "instrument-cmd-1", "mode": "CREATE", "instrumentId": "BTC-USD", "baseAssetId": "BTC", "quoteAssetId": "USD", "rules": { "version": "rules-v1", "effectiveAt": "2026-01-01T00:00:00.000Z", "tickSize": "0.5", "lotSize": "0.001", "minQuantity": "0.001", "maxQuantity": "10", "minPrice": "100", "maxPrice": "100000", "feePolicyVersion": "fees-v1", "maxOrderQuantity": "10", "maxOpenOrders": 100, "maxNotional": "1000000" } }
+{
+  "commandId": "instrument-cmd-1",
+  "mode": "CREATE",
+  "instrumentId": "BTC-USD",
+  "baseAssetId": "BTC",
+  "quoteAssetId": "USD",
+  "rules": {
+    "version": "rules-v1",
+    "effectiveAt": "2026-01-01T00:00:00.000Z",
+    "tickSize": "0.5",
+    "lotSize": "0.001",
+    "minQuantity": "0.001",
+    "maxQuantity": "10",
+    "minPrice": "100",
+    "maxPrice": "100000",
+    "feePolicyVersion": "fees-v1",
+    "maxOrderQuantity": "10",
+    "maxOpenOrders": 100,
+    "maxNotional": "1000000"
+  }
+}
 ```
 
 ```json
@@ -63,7 +132,12 @@ Admin instrument/lifecycle:
 Admin freeze, circuit breaker, fee/risk policies:
 
 ```json
-{ "commandId": "freeze-cmd-1", "targetType": "ACCOUNT", "targetId": "account-1", "action": "FREEZE" }
+{
+  "commandId": "freeze-cmd-1",
+  "targetType": "ACCOUNT",
+  "targetId": "account-1",
+  "action": "FREEZE"
+}
 ```
 
 ```json
@@ -71,11 +145,23 @@ Admin freeze, circuit breaker, fee/risk policies:
 ```
 
 ```json
-{ "commandId": "fee-cmd-1", "version": "fee-v2", "effectiveAt": "2026-02-01T00:00:00.000Z", "makerRate": "0.001", "takerRate": "0.002" }
+{
+  "commandId": "fee-cmd-1",
+  "version": "fee-v2",
+  "effectiveAt": "2026-02-01T00:00:00.000Z",
+  "makerRate": "0.001",
+  "takerRate": "0.002"
+}
 ```
 
 ```json
-{ "commandId": "risk-cmd-1", "version": "risk-v2", "effectiveAt": "2026-02-01T00:00:00.000Z", "maxOrderNotional": "100000", "maxOpenOrders": 100 }
+{
+  "commandId": "risk-cmd-1",
+  "version": "risk-v2",
+  "effectiveAt": "2026-02-01T00:00:00.000Z",
+  "maxOrderNotional": "100000",
+  "maxOpenOrders": 100
+}
 ```
 
 Response DTO examples и все поля доступны в Swagger schemas. Decimal money,

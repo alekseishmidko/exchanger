@@ -2,6 +2,7 @@ import { Test } from '@nestjs/testing';
 import { FastifyAdapter, NestFastifyApplication } from '@nestjs/platform-fastify';
 import request from 'supertest';
 import { AppModule } from '../../app.module';
+import { ApiKeyRegistry } from './gateway.auth';
 
 /**
  * E2E-проверки внешнего Gateway-контракта.
@@ -14,7 +15,15 @@ describe('Gateway command API', () => {
   let app: NestFastifyApplication;
 
   beforeAll(async () => {
-    const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
+    const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
+      .overrideProvider(ApiKeyRegistry)
+      .useValue(
+        new ApiKeyRegistry([
+          { keyId: 'dev-key', role: 'trader', userId: 'dev-user' },
+          { keyId: 'admin-key', role: 'admin', userId: 'admin-user' },
+        ]),
+      )
+      .compile();
     app = moduleRef.createNestApplication<NestFastifyApplication>(new FastifyAdapter());
     await app.init();
     await (
@@ -37,6 +46,108 @@ describe('Gateway command API', () => {
     limitPrice: '100',
     timeInForce: 'GTC',
   };
+
+  it('publishes a safe authentication endpoint for Swagger clients', async () => {
+    const authenticated = await request(app.getHttpServer())
+      .get('/api/v1/auth/me')
+      .set('x-api-key', 'dev-key')
+      .expect(200)
+      .expect({
+        authenticated: true,
+        authenticationScheme: 'API_KEY',
+        subjectId: 'dev-user',
+        role: 'trader',
+      });
+
+    expect(JSON.stringify(authenticated.body)).not.toContain('dev-key');
+    await request(app.getHttpServer()).get('/api/v1/auth/me').expect(401);
+  });
+
+  /** Проверяет полный lifecycle API key без утечки secrets через list/revoke. */
+  it('issues, lists, rotates and revokes an API key through admin-only endpoints', async () => {
+    const issueBody = {
+      commandId: 'issue-key-1',
+      userId: 'managed-user',
+      role: 'trader',
+      label: 'manual-testing',
+    };
+    const first = await request(app.getHttpServer())
+      .post('/api/v1/auth/api-keys')
+      .set('x-api-key', 'admin-key')
+      .set('idempotency-key', 'issue-key-idem-1')
+      .send(issueBody)
+      .expect(201);
+    const retry = await request(app.getHttpServer())
+      .post('/api/v1/auth/api-keys')
+      .set('x-api-key', 'admin-key')
+      .set('idempotency-key', 'issue-key-idem-1')
+      .send(issueBody)
+      .expect(201);
+    expect(retry.body).toEqual(first.body);
+
+    const issued = first.body as { apiKey: string; metadata: { keyId: string } };
+    expect(issued.apiKey).toMatch(/^ex_/);
+    await request(app.getHttpServer())
+      .get('/api/v1/auth/me')
+      .set('x-api-key', issued.apiKey)
+      .expect(200)
+      .expect(({ body }) => expect((body as { subjectId: string }).subjectId).toBe('managed-user'));
+
+    const listed = await request(app.getHttpServer())
+      .get('/api/v1/auth/api-keys')
+      .set('x-api-key', 'admin-key')
+      .expect(200);
+    expect(JSON.stringify(listed.body)).not.toContain(issued.apiKey);
+    expect(JSON.stringify(listed.body)).not.toContain('admin-key');
+    const ownKeyId = (
+      listed.body as { items: Array<{ keyId: string; userId: string }> }
+    ).items.find(({ userId }) => userId === 'admin-user')?.keyId;
+    await request(app.getHttpServer())
+      .post(`/api/v1/auth/api-keys/${ownKeyId}/revoke`)
+      .set('x-api-key', 'admin-key')
+      .set('idempotency-key', 'self-revoke-idem')
+      .send({ commandId: 'self-revoke-command' })
+      .expect(403)
+      .expect(({ body }) =>
+        expect((body as { code: string }).code).toBe('API_KEY_SELF_MUTATION_FORBIDDEN'),
+      );
+
+    const rotated = await request(app.getHttpServer())
+      .post(`/api/v1/auth/api-keys/${issued.metadata.keyId}/rotate`)
+      .set('x-api-key', 'admin-key')
+      .set('idempotency-key', 'rotate-key-idem-1')
+      .send({ commandId: 'rotate-key-1' })
+      .expect(201);
+    const rotatedApiKey = (rotated.body as { apiKey: string }).apiKey;
+    expect(rotatedApiKey).not.toBe(issued.apiKey);
+    await request(app.getHttpServer())
+      .get('/api/v1/auth/me')
+      .set('x-api-key', issued.apiKey)
+      .expect(401);
+    await request(app.getHttpServer())
+      .get('/api/v1/auth/me')
+      .set('x-api-key', rotatedApiKey)
+      .expect(200);
+
+    await request(app.getHttpServer())
+      .post(`/api/v1/auth/api-keys/${issued.metadata.keyId}/revoke`)
+      .set('x-api-key', 'admin-key')
+      .set('idempotency-key', 'revoke-key-idem-1')
+      .send({ commandId: 'revoke-key-1' })
+      .expect(201)
+      .expect(({ body }) => expect((body as { status: string }).status).toBe('REVOKED'));
+    await request(app.getHttpServer())
+      .get('/api/v1/auth/me')
+      .set('x-api-key', rotatedApiKey)
+      .expect(401);
+
+    await request(app.getHttpServer())
+      .post('/api/v1/auth/api-keys')
+      .set('x-api-key', 'dev-key')
+      .set('idempotency-key', 'trader-issue-forbidden')
+      .send(issueBody)
+      .expect(403);
+  });
 
   it('authenticates, validates and maps place command to trading core', async () => {
     await request(app.getHttpServer())

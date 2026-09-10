@@ -8,18 +8,20 @@
     "pnpm": ">=9"
   },
   "scripts": {
-    "build": "pnpm -r build",
-    "dev": "pnpm --filter @exchange/backend start:dev",
+    "build": "corepack pnpm -r build",
+    "dev": "corepack pnpm --filter @exchange/backend start:dev",
     "docker:development": "docker compose -f docker-compose.development.yml up --build",
     "docker:production": "docker compose -f docker-compose.production.yml up --build -d",
-    "test": "pnpm -r test",
-    "test:cov": "pnpm -r test:cov",
-    "lint": "pnpm -r lint",
-    "typecheck": "pnpm -r typecheck",
-    "format": "pnpm -r format",
-    "format:check": "pnpm --filter @exchange/backend format:check",
+    "test": "corepack pnpm -r test",
+    "test:cov": "corepack pnpm -r test:cov",
+    "lint": "corepack pnpm -r lint",
+    "typecheck": "corepack pnpm -r typecheck",
+    "format": "corepack pnpm -r format",
+    "format:check": "corepack pnpm --filter @exchange/backend format:check",
     "security:check": "node scripts/check-repository.mjs",
-    "contracts:check": "pnpm --filter @exchange/backend contracts:check",
+    "contracts:check": "corepack pnpm --filter @exchange/backend contracts:check",
+    "api:flows": "node scripts/run-api-flows.mjs",
+    "api:flows:development": "docker compose -f docker-compose.development.yml up -d --build && node scripts/run-api-flows.mjs",
     "postgres:backup-restore": "node scripts/verify-postgres-backup-restore.mjs"
   }
 }

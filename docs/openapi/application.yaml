@@ -20,6 +20,40 @@ paths:
       responses:
         '200': { description: Critical dependencies are ready }
         '503': { description: Critical dependency is unavailable }
+  /api/v1/auth/me:
+    get:
+      operationId: getCurrentPrincipal
+      security: [{ ApiKeyAuth: [] }]
+      responses:
+        '200': { description: Authenticated API-key principal }
+        '401': { description: Invalid or missing API key }
+  /api/v1/auth/api-keys:
+    get:
+      operationId: listApiKeys
+      security: [{ ApiKeyAuth: [] }]
+      responses:
+        '200': { description: API key metadata without secrets }
+    post:
+      operationId: issueApiKey
+      security: [{ ApiKeyAuth: [] }]
+      responses:
+        '201': { description: API key issued; secret returned once }
+  /api/v1/auth/api-keys/{keyId}/rotate:
+    parameters:
+      - $ref: '#/components/parameters/KeyId'
+    post:
+      operationId: rotateApiKey
+      security: [{ ApiKeyAuth: [] }]
+      responses:
+        '201': { description: API key rotated; new secret returned once }
+  /api/v1/auth/api-keys/{keyId}/revoke:
+    parameters:
+      - $ref: '#/components/parameters/KeyId'
+    post:
+      operationId: revokeApiKey
+      security: [{ ApiKeyAuth: [] }]
+      responses:
+        '201': { description: API key revoked }
   /api/v1/orders:
     get:
       operationId: listOrders
@@ -147,7 +181,25 @@ paths:
       operationId: getReconciliation
       responses:
         '200': { description: Reconciliation status }
+  /api/v1/admin/audit-events:
+    get:
+      operationId: getAuditEvents
+      security: [{ ApiKeyAuth: [] }]
+      parameters:
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 50 }
+        - name: cursor
+          in: query
+          schema: { type: integer, minimum: 0 }
+      responses:
+        '200': { description: Paginated tamper-evident audit records }
+        '400': { description: Invalid pagination }
+        '401': { description: Invalid or missing API key }
+        '403': { description: Admin or auditor role required }
 components:
+  securitySchemes:
+    ApiKeyAuth: { type: apiKey, in: header, name: x-api-key }
   parameters:
     OrderId:
       name: orderId
@@ -171,6 +223,11 @@ components:
       schema: { type: string, minLength: 1, maxLength: 128 }
     CommandId:
       name: commandId
+      in: path
+      required: true
+      schema: { type: string, minLength: 1, maxLength: 128 }
+    KeyId:
+      name: keyId
       in: path
       required: true
       schema: { type: string, minLength: 1, maxLength: 128 }

@@ -2,31 +2,41 @@
 
 Статус: accepted. Дата: 2026-09-07.
 
+## Ручная проверка audit trail
+
+Версионированная read boundary `GET /api/v1/admin/audit-events` предоставляет
+страничную выборку append-only цепочки ролям `ADMIN` и `AUDITOR`. Параметр
+`limit` ограничен диапазоном 1–100, `cursor` задаёт смещение от начала цепочки.
+Ответ содержит `sequence`, `previousHash` и `hash`, но не содержит API keys,
+HTTP-заголовки или иные credentials. Изменять и удалять audit records через HTTP
+нельзя; исправление бизнес-состояния выполняется только отдельной компенсацией.
+
 ## Permission matrix
 
-| Action | ADMIN | RISK_MANAGER | AUDITOR | SUPPORT | Dual control |
-| --- | --- | --- | --- | --- | --- |
-| Instrument configuration | allow | allow | deny | deny | required |
-| Fee policy change | allow | allow | deny | deny | required |
-| Risk policy change | deny | allow | deny | deny | required |
-| User/account freeze | allow | allow | deny | deny | no |
-| Emergency stop/resume | allow | deny | deny | deny | required |
-| Reconciliation dashboard | allow | deny | allow | deny | no |
+| Action                   | ADMIN | RISK_MANAGER | AUDITOR | SUPPORT | Dual control |
+| ------------------------ | ----- | ------------ | ------- | ------- | ------------ |
+| Instrument configuration | allow | allow        | deny    | deny    | required     |
+| Fee policy change        | allow | allow        | deny    | deny    | required     |
+| Risk policy change       | deny  | allow        | deny    | deny    | required     |
+| User/account freeze      | allow | allow        | deny    | deny    | no           |
+| Emergency stop/resume    | allow | deny         | deny    | deny    | required     |
+| Audit trail read         | allow | deny         | allow   | deny    | no           |
+| Reconciliation dashboard | allow | deny         | allow   | deny    | no           |
 
 Запрещённая попытка получает `ADMIN_FORBIDDEN` и фиксируется как
 `ACTION_REJECTED` с реальным actor, command ID и target.
 
 ## Audit field catalog
 
-| Field | Назначение |
-| --- | --- |
-| `id`, `sequence` | уникальность и порядок append-only chain |
-| `occurredAt` | UTC timestamp действия |
+| Field                         | Назначение                                    |
+| ----------------------------- | --------------------------------------------- |
+| `id`, `sequence`              | уникальность и порядок append-only chain      |
+| `occurredAt`                  | UTC timestamp действия                        |
 | `actor.actorId`, `actor.role` | проверенный субъект и роль на момент действия |
-| `eventType`, `actionType` | этап и категория административного действия |
-| `commandId`, `targetId` | идемпотентность и затронутый объект |
-| `details` | allow-listed metadata без секретов |
-| `previousHash`, `hash` | tamper detection |
+| `eventType`, `actionType`     | этап и категория административного действия   |
+| `commandId`, `targetId`       | идемпотентность и затронутый объект           |
+| `details`                     | allow-listed metadata без секретов            |
+| `previousHash`, `hash`        | tamper detection                              |
 
 Жизненный цикл критичной команды: `ACTION_REQUESTED` → `ACTION_APPROVED` →
 `ACTION_APPLIED`. Компенсация создаёт `COMPENSATION_APPLIED` и ссылается на

@@ -1,10 +1,12 @@
 import { Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { AuditModule } from '../audit';
 import { ApiKeyGuard, ApiKeyRegistry, ApiKeyRole } from './gateway.auth';
 import { GatewayController } from './gateway.controller';
 import { IdempotencyStore } from './gateway.idempotency';
 import { RateLimitService } from './gateway.rate-limit';
 import { InMemoryTradingCommandPort } from './gateway.types';
+import { AuthenticationController } from './auth.controller';
 
 /**
  * Composition root Gateway-модуля.
@@ -13,15 +15,23 @@ import { InMemoryTradingCommandPort } from './gateway.types';
  * guard выполняет authentication, а token `TRADING_COMMAND_PORT` позволяет
  * заменить in-memory core на sequencer без изменения controller. Значение
  * `GATEWAY_API_KEYS` имеет формат `key:role:userId,key2:admin:operator`.
+ * Development fallback добавляет `dev-key` и `dev-admin-key`; production не
+ * получает default credentials.
  */
 @Module({
-  controllers: [GatewayController],
+  imports: [AuditModule],
+  controllers: [AuthenticationController, GatewayController],
   providers: [
     {
       provide: ApiKeyRegistry,
       inject: [ConfigService],
       useFactory: (config: ConfigService): ApiKeyRegistry => {
-        const raw = config.get<string>('GATEWAY_API_KEYS', 'dev-key:trader:dev-user');
+        const environment = config.getOrThrow<string>('NODE_ENV');
+        const developmentKeys = 'dev-key:trader:dev-user,dev-admin-key:admin:dev-admin-user';
+        const raw = config.get<string>(
+          'GATEWAY_API_KEYS',
+          environment === 'production' ? '' : developmentKeys,
+        );
         const entries = raw
           .split(',')
           .filter(Boolean)

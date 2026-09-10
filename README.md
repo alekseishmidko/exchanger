@@ -53,6 +53,16 @@ WebSocket market-data использует Socket.IO namespace
 curl http://localhost:5001/health
 ```
 
+Автоматическая проверка групп API endpoints с пошаговым статусом и отчётами:
+
+```bash
+pnpm api:flows:development
+```
+
+Если development-контейнер уже работает, достаточно `pnpm api:flows`.
+
+Описание сценариев и форматов отчёта: [API flow pipeline](docs/api-flow-pipeline.md).
+
 Для Docker development Swagger UI открыт по `http://localhost:5001/docs`.
 WebSocket namespace доступен по `http://localhost:5001/market-data`.
 
