@@ -156,6 +156,15 @@ module-name/
 - обновлена локальная документация модуля;
 - обновлена глобальная документация или ADR, если изменена архитектура;
 - добавлены metrics, logs и correlation IDs для нового потока;
+
+## Operational logging
+
+Operational logging выполняется только через DI adapter `StructuredLogger` и
+стабильные имена `LOG_EVENTS`. Прямые `console.log/error/warn/info/debug`
+запрещены. Новая критичная boundary обязана иметь success/failure events,
+передавать correlation/causation metadata и не сериализовать request/event/domain
+payload. Подробный контракт: [`observability/logging.md`](observability/logging.md).
+
 - миграции и rollback/recovery-план проверены;
 - CI выполняет форматирование, lint, typecheck, тесты и сборку;
 - нет известных нарушений инвариантов или необъяснённых flaky-тестов.
@@ -195,6 +204,12 @@ Definition of Done этапа 0 выполнен, когда все команд
 
 ## 12. Конфигурация окружений
 
-Для разработки используется `.env.development`, для production — `.env.production`. Docker Compose-файлы `docker-compose.development.yml` и `docker-compose.production.yml` являются воспроизводимыми точками входа и запускаются командами `pnpm docker:development` и `pnpm docker:production` соответственно.
+Версионируемые `.env.development.example` и `.env.production.example` содержат
+только безопасные defaults и обеспечивают запуск Compose из чистого checkout.
+Jest с `NODE_ENV=test` использует версионируемый `.env.test.example`.
+Игнорируемые `.env.development` и `.env.production` используются как
+необязательные локальные overrides. Docker Compose-файлы
+`docker-compose.development.yml` и `docker-compose.production.yml` запускаются
+командами `pnpm docker:development` и `pnpm docker:production` соответственно.
 
 В NestJS используется `@nestjs/config` через глобальный `ConfigModule`. Обязательные параметры читаются только через `ConfigService.getOrThrow<T>()`. `ConfigService.get<T>(key, fallback)` допускается только для параметров с безопасным и документированным значением по умолчанию, например `PORT` и `HOST`. Секреты не коммитятся в env-файлы и передаются deployment-средой.

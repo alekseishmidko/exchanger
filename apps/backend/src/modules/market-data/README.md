@@ -31,16 +31,16 @@ write buffer. При disconnect gateway вызывает все unsubscribe call
 
 ## Client/server events
 
-| Event | Направление | Назначение |
-| --- | --- | --- |
-| `market.subscribe` | client → server | public book/trades/ticker или private user subscription |
-| `market.unsubscribe` | client → server | идемпотентное удаление подписки |
-| `market.resync` | client → server | replay/snapshot после gap или reconnect |
-| `heartbeat` | client → server | проверка живости transport |
-| `market.ack` | server → client | подтверждение subscribe/unsubscribe |
-| `market.data` | server → client | snapshot, increment, trade, ticker, private event |
-| `market.error` | server → client | безопасная protocol error |
-| `heartbeat.ack` | server → client | heartbeat response |
+| Event                | Направление     | Назначение                                              |
+| -------------------- | --------------- | ------------------------------------------------------- |
+| `market.subscribe`   | client → server | public book/trades/ticker или private user subscription |
+| `market.unsubscribe` | client → server | идемпотентное удаление подписки                         |
+| `market.resync`      | client → server | replay/snapshot после gap или reconnect                 |
+| `heartbeat`          | client → server | проверка живости transport                              |
+| `market.ack`         | server → client | подтверждение subscribe/unsubscribe                     |
+| `market.data`        | server → client | snapshot, increment, trade, ticker, private event       |
+| `market.error`       | server → client | безопасная protocol error                               |
+| `heartbeat.ack`      | server → client | heartbeat response                                      |
 
 Все server events имеют envelope `1.0` с `correlationId`, `emittedAt` и
 `sequence`. Для data sequence совпадает с payload sequence; control messages
@@ -57,3 +57,9 @@ Socket.IO integration tests.
 
 Публичные типы, validation schemas, gateway handlers и application methods имеют
 русские JSDoc с алгоритмом, ограничениями и примерами.
+
+## Operational log events
+
+`websocket.connected` и `websocket.subscribed` отмечают transport boundaries;
+`websocket.rejected` содержит protocol code и correlation ID. Каждое fan-out
+сообщение не логируется, чтобы slow consumer или burst не создавали log storm.

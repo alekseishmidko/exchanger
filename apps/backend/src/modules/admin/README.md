@@ -50,3 +50,9 @@ breaker и approval, а также read-only reconciliation status. Actor все
 Полный реестр transport operations, ownership и безопасные DTO examples:
 [`docs/api-client-guide.md`](../../../../../docs/api-client-guide.md) и
 [`docs/openapi/application.yaml`](../../../../../docs/openapi/application.yaml).
+
+## Operational log events
+
+`admin.action.applied` фиксирует единственное фактическое применение команды;
+`admin.action.rejected` — отказ role policy. Повтор по command ID не создаёт
+второй success. Immutable audit chain остаётся отдельным бизнес-контрактом.

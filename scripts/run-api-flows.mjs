@@ -88,7 +88,7 @@ async function runStep({
       durationMs: Math.round(performance.now() - stepStartedAt),
     };
     steps.push(result);
-    console.log(`✓ [${group}] ${name} (${result.durationMs} ms)`);
+    process.stdout.write(`✓ [${group}] ${name} (${result.durationMs} ms)\n`);
   } catch (error) {
     const result = {
       group,
@@ -99,7 +99,7 @@ async function runStep({
       error: error instanceof Error ? error.message : 'неизвестная ошибка',
     };
     steps.push(result);
-    console.error(`✗ [${group}] ${name}: ${result.error}`);
+    process.stderr.write(`✗ [${group}] ${name}: ${result.error}\n`);
   }
 }
 
@@ -321,8 +321,10 @@ async function main() {
   }
 
   const report = await writeReports(new Date());
-  console.log(`\nPipeline: ${report.status}; ${report.passed}/${report.total} checks passed`);
-  console.log(`Reports: ${reportDirectory}`);
+  process.stdout.write(
+    `\nPipeline: ${report.status}; ${report.passed}/${report.total} checks passed\n`,
+  );
+  process.stdout.write(`Reports: ${reportDirectory}\n`);
   if (report.status === 'failed') process.exitCode = 1;
 }
 

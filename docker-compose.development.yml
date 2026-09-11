@@ -3,8 +3,14 @@ services:
     build:
       context: .
       target: development
+    # Версионируемый example обеспечивает запуск из чистого checkout в CI.
+    # Локальный ignored-файл, если существует, применяется последним и
+    # переопределяет только нужные разработчику значения.
     env_file:
-      - .env.development
+      - path: .env.development.example
+        required: true
+      - path: .env.development
+        required: false
     environment:
       # В startup-логах показываем адрес хоста, а не внутренний container port.
       APPLICATION_PUBLIC_URL: "http://localhost:${BACKEND_HOST_PORT:-5001}"

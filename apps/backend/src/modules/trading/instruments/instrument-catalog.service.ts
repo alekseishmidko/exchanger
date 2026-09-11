@@ -1,5 +1,6 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, Inject, Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { Instrument, InstrumentRules, InstrumentStatus } from './instrument';
+import { LOG_EVENTS, StructuredLogger } from '../../observability';
 
 /** Публичный immutable snapshot инструмента, безопасный для transport mapping. */
 export type InstrumentSnapshot = Readonly<{
@@ -42,20 +43,31 @@ export interface InstrumentCatalogPort {
 export class InstrumentCatalogService implements InstrumentCatalogPort {
   private readonly instruments = new Map<string, Instrument>();
 
+  constructor(@Optional() @Inject(StructuredLogger) private readonly logger?: StructuredLogger) {}
+
   /** Регистрирует инструмент и запрещает неявную перезапись существующего ID. */
   register(instrument: Instrument): void {
     if (this.instruments.has(instrument.id)) {
+      this.logger?.warn('instruments', LOG_EVENTS.INSTRUMENT_REJECTED, {
+        metadata: { instrumentId: instrument.id, reason: 'ALREADY_EXISTS' },
+      });
       throw new ConflictException({
         code: 'INSTRUMENT_ALREADY_EXISTS',
         message: 'Instrument already exists',
       });
     }
     this.instruments.set(instrument.id, instrument);
+    this.logger?.info('instruments', LOG_EVENTS.INSTRUMENT_CHANGED, {
+      metadata: { instrumentId: instrument.id, change: 'REGISTERED' },
+    });
   }
 
   /** Делегирует проверку версии и effectiveAt самому domain aggregate. */
   addRules(instrumentId: string, rules: InstrumentRules): void {
     this.requireInstrument(instrumentId).addRules(rules);
+    this.logger?.info('instruments', LOG_EVENTS.INSTRUMENT_CHANGED, {
+      metadata: { instrumentId, change: 'RULES_ADDED', rulesVersion: rules.version },
+    });
   }
 
   /** Применяет только два допустимых lifecycle-перехода. */
@@ -63,6 +75,9 @@ export class InstrumentCatalogService implements InstrumentCatalogPort {
     const instrument = this.requireInstrument(instrumentId);
     if (status === 'ACTIVE') instrument.activate();
     else instrument.pause();
+    this.logger?.info('instruments', LOG_EVENTS.INSTRUMENT_CHANGED, {
+      metadata: { instrumentId, change: 'STATUS_CHANGED', status },
+    });
   }
 
   /** Возвращает сериализуемый snapshot без методов domain aggregate. */
@@ -81,6 +96,9 @@ export class InstrumentCatalogService implements InstrumentCatalogPort {
   private requireInstrument(instrumentId: string): Instrument {
     const instrument = this.instruments.get(instrumentId);
     if (!instrument) {
+      this.logger?.warn('instruments', LOG_EVENTS.INSTRUMENT_REJECTED, {
+        metadata: { instrumentId, reason: 'NOT_FOUND' },
+      });
       throw new NotFoundException({
         code: 'INSTRUMENT_NOT_FOUND',
         message: 'Instrument was not found',

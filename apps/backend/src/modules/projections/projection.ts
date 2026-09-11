@@ -1,8 +1,16 @@
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, Optional } from '@nestjs/common';
+import {
+  LOG_EVENTS,
+  NOOP_OPERATIONAL_LOGGER,
+  OperationalLogger,
+  StructuredLogger,
+} from '../observability';
 
 /** Событие event log, достаточное для построения read-моделей. */
 export type ProjectionEvent = Readonly<{
   eventId: string;
+  correlationId?: string;
+  causationId?: string;
   eventType:
     'OrderAccepted' | 'OrderRejected' | 'OrderCancelled' | 'TradeExecuted' | 'SettlementApplied';
   sequence: number;
@@ -64,6 +72,7 @@ export type ProjectionMetrics = Readonly<{
  * транзакции вместе с consumer offset. `schemaVersion` позволяет мигрировать
  * структуру проекции независимо от версии исходных domain events.
  */
+@Injectable()
 export class ProjectionStore {
   /** Версия схемы текущих read-моделей. */
   static readonly schemaVersion = 1;
@@ -74,6 +83,13 @@ export class ProjectionStore {
   private appliedSequence = 0;
   private sourceSequence = 0;
 
+  private readonly logger: OperationalLogger;
+
+  /** Использует DI logger в приложении и no-op fallback в чистых unit-тестах. */
+  constructor(@Optional() @Inject(StructuredLogger) logger?: StructuredLogger) {
+    this.logger = logger ?? NOOP_OPERATIONAL_LOGGER;
+  }
+
   /**
    * Применяет одно событие к соответствующей read-модели.
    *
@@ -81,8 +97,22 @@ export class ProjectionStore {
    * @throws BadRequestException При пропущенной последовательности событий.
    */
   apply(event: ProjectionEvent): void {
-    if (this.processedEvents.has(event.eventId)) return;
+    if (this.processedEvents.has(event.eventId)) {
+      this.logger.info('projections', LOG_EVENTS.PROJECTION_DUPLICATE, {
+        eventId: event.eventId,
+        correlationId: event.correlationId,
+        causationId: event.causationId ?? event.eventId,
+        outcome: 'recovered',
+      });
+      return;
+    }
     if (event.sequence !== this.appliedSequence + 1) {
+      this.logger.warn('projections', LOG_EVENTS.PROJECTION_GAP, {
+        eventId: event.eventId,
+        correlationId: event.correlationId,
+        causationId: event.causationId ?? event.eventId,
+        metadata: { expectedSequence: this.appliedSequence + 1, actualSequence: event.sequence },
+      });
       throw new BadRequestException({
         code: 'PROJECTION_SEQUENCE_GAP',
         message: 'Projection sequence gap detected',
@@ -108,6 +138,12 @@ export class ProjectionStore {
     }
     this.processedEvents.add(event.eventId);
     this.appliedSequence = event.sequence;
+    this.logger.info('projections', LOG_EVENTS.PROJECTION_APPLIED, {
+      eventId: event.eventId,
+      correlationId: event.correlationId,
+      causationId: event.causationId ?? event.eventId,
+      metadata: { eventType: event.eventType, sequence: event.sequence },
+    });
   }
 
   /** Полностью перестраивает read-модели из упорядоченного event log. */
@@ -119,6 +155,10 @@ export class ProjectionStore {
     this.appliedSequence = 0;
     this.sourceSequence = events.at(-1)?.sequence ?? 0;
     for (const event of events) this.apply(event);
+    this.logger.info('projections', LOG_EVENTS.PROJECTION_REBUILT, {
+      outcome: 'recovered',
+      metadata: { eventCount: events.length, appliedSequence: this.appliedSequence },
+    });
   }
 
   /** Возвращает страницу истории заявок конкретного пользователя. */

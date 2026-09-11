@@ -1,5 +1,8 @@
 # Документация проекта
 
+- [Structured logging](observability/logging.md)
+- [Runbook поиска потока в логах](runbooks/log-correlation.md)
+
 ## Глобальные документы
 
 - [Требования к системе](system-design-requirements.md)

@@ -1,4 +1,5 @@
 import { Decimal } from '../../shared-kernel';
+import { LOG_EVENTS, NOOP_OPERATIONAL_LOGGER, OperationalLogger } from '../../observability';
 
 /** Направление заявки в стакане. */
 export type MatchingSide = 'BUY' | 'SELL';
@@ -84,10 +85,26 @@ export class MatchingEngine {
   private readonly bids = new Map<string, ActiveOrder[]>();
   private readonly asks = new Map<string, ActiveOrder[]>();
 
-  /** Применяет одну команду и возвращает воспроизводимый набор событий. */
+  constructor(private readonly logger: OperationalLogger = NOOP_OPERATIONAL_LOGGER) {}
+
+  /**
+   * Применяет одну команду и логирует только terminal result, не циклы matching.
+   * Это сохраняет наблюдаемость order boundary без I/O на каждой итерации уровня.
+   */
   apply(command: MatchingCommand): readonly MatchingEvent[] {
     this.sequence += 1;
-    return command.type === 'PLACE' ? this.place(command) : this.cancel(command);
+    const events = command.type === 'PLACE' ? this.place(command) : this.cancel(command);
+    const rejection = events.find((event) => event.kind === 'ORDER_REJECTED');
+    if (rejection?.kind === 'ORDER_REJECTED') {
+      this.logger.warn('matching', LOG_EVENTS.MATCHING_ORDER_REJECTED, {
+        metadata: { orderId: command.orderId, rejectionCode: rejection.code },
+      });
+    } else {
+      this.logger.info('matching', LOG_EVENTS.MATCHING_ORDER_PROCESSED, {
+        metadata: { orderId: command.orderId, emittedEvents: events.length },
+      });
+    }
+    return events;
   }
 
   /** Возвращает sequence последней применённой команды. */

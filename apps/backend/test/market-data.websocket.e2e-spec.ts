@@ -94,7 +94,9 @@ describe('Market data WebSocket transport', () => {
     for (const client of clients.splice(0)) client.disconnect();
   });
 
-  afterAll(async () => app.close());
+  afterAll(async () => {
+    if (app) await app.close();
+  });
 
   /** Создаёт client с отключённым polling и автоматическим reconnect. */
   function client(apiKey?: string): MarketDataClient {

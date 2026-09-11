@@ -33,7 +33,13 @@ Production-образ собирается и запускается в фоне
 pnpm docker:production
 ```
 
-Конфигурация окружений находится в `.env.development` и `.env.production`. В production-файл нельзя добавлять секреты: секретные значения передаются через secret storage или deployment environment с переопределением переменных.
+Безопасные базовые настройки хранятся в `.env.development.example` и
+`.env.production.example`, а contract-тесты используют `.env.test.example`.
+Поэтому Compose и Jest работают из чистого checkout.
+Игнорируемые `.env.development` и `.env.production` являются необязательными
+локальными override-файлами и применяются после example. В production-файл
+нельзя добавлять секреты: секретные значения передаются через secret storage или
+deployment environment.
 
 Проверка приложения при локальном запуске через `pnpm dev`:
 

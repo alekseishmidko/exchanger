@@ -20,3 +20,9 @@
 `ORDER_ACCEPTED`, `TRADE_EXECUTED`, `ORDER_UPDATED`, `ORDER_CANCELLED` и `ORDER_REJECTED` возвращаются в стабильном порядке. Каждая команда увеличивает sequence на единицу; replay одинакового массива команд создаёт одинаковые события и book state.
 
 Полная таблица переходов и диаграмма находятся в [`docs/matching-engine.md`](../../../../docs/matching-engine.md), rejection codes — в `docs/matching-rejection-codes.md`.
+
+## Operational log events
+
+`matching.order.processed` и `matching.order.rejected` пишутся один раз на
+команду. Цикл price levels, отдельные fills и comparisons не логируются, поэтому
+logger не меняет алгоритмическую сложность hot path.

@@ -3,6 +3,7 @@ import {
   StateMachineCommand,
   TradingStateMachine,
 } from '../state-machine';
+import { LOG_EVENTS, NOOP_OPERATIONAL_LOGGER, OperationalLogger } from '../../observability';
 
 /** Команда с ownership context конкретной partition. */
 export type SequencedCommand<TPayload> = StateMachineCommand<TPayload> &
@@ -27,6 +28,7 @@ export class TradingSequencer<TPayload, TResult> {
     private readonly createMachine: (
       instrumentId: string,
     ) => TradingStateMachine<TPayload, TResult>,
+    private readonly logger: OperationalLogger = NOOP_OPERATIONAL_LOGGER,
   ) {}
 
   /** Назначает единственного owner для instrument partition. */
@@ -39,16 +41,31 @@ export class TradingSequencer<TPayload, TResult> {
 
   /** Передаёт команду только назначенному owner и нужной state machine. */
   submit(command: SequencedCommand<TPayload>): TResult {
-    const owner = this.owners.get(command.instrumentId);
-    if (!owner) throw new PartitionOwnershipError('PARTITION_UNASSIGNED');
-    if (owner !== command.ownerId) throw new PartitionOwnershipError('NOT_OWNER');
-    const machine =
-      this.machines.get(command.instrumentId) ?? this.createMachine(command.instrumentId);
-    this.machines.set(command.instrumentId, machine);
     try {
-      return machine.apply(command);
+      const owner = this.owners.get(command.instrumentId);
+      if (!owner) throw new PartitionOwnershipError('PARTITION_UNASSIGNED');
+      if (owner !== command.ownerId) throw new PartitionOwnershipError('NOT_OWNER');
+      const machine =
+        this.machines.get(command.instrumentId) ?? this.createMachine(command.instrumentId);
+      this.machines.set(command.instrumentId, machine);
+      const result = machine.apply(command);
+      this.logger.info('sequencer', LOG_EVENTS.SEQUENCER_COMMAND_APPLIED, {
+        commandId: command.commandId,
+        metadata: { instrumentId: command.instrumentId, sequence: command.sequence },
+      });
+      return result;
     } catch (error) {
-      if (error instanceof StateMachineAdmissionError) throw error;
+      this.logger.warn('sequencer', LOG_EVENTS.SEQUENCER_COMMAND_REJECTED, {
+        commandId: command.commandId,
+        metadata: {
+          instrumentId: command.instrumentId,
+          sequence: command.sequence,
+          rejectionCode:
+            error instanceof StateMachineAdmissionError || error instanceof PartitionOwnershipError
+              ? error.code
+              : 'INTERNAL_REJECTION',
+        },
+      });
       throw error;
     }
   }

@@ -48,3 +48,9 @@ Liveness отвечает `200`, если HTTP-процесс способен �
 - Конфигурация валидируется при старте приложения; некорректный `NODE_ENV`, `PORT` или отсутствующий `SERVICE_NAME` блокируют запуск.
 - Обязательные настройки читаются через `ConfigService.getOrThrow`, параметры с fallback — через `get`.
 - Тесты liveness/readiness и отсутствие секретов в ответах/log fields обязательны.
+
+## Operational log events
+
+`health.liveness.succeeded` не вызывает dependencies;
+`health.readiness.succeeded` содержит только число checks, а
+`health.dependency.failed` — безопасное имя недоступной зависимости без exception.

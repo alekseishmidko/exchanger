@@ -42,3 +42,9 @@
 Transport contract и DTO examples опубликованы в
 [`docs/openapi/application.yaml`](../../../../../../docs/openapi/application.yaml) и
 [`docs/api-client-guide.md`](../../../../../../docs/api-client-guide.md).
+
+## Operational log events
+
+`instrument.changed` фиксирует register/rules/status boundary;
+`instrument.rejected` — duplicate/not-found отказ. Правила и admin identity не
+сериализуются целиком: используются instrument ID, версия и безопасная причина.

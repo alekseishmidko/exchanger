@@ -8,3 +8,9 @@ Append-only adapter для событий settlement. Каждое событи�
 `retainLatest` и `EventLog.restore`. Архив содержит format version, committed
 consumer offset, события и SHA-256 checksum. Retention разрешён только после
 подтверждённого сохранения архива во внешнее durable storage.
+
+## Operational log events
+
+`event-log.appended`, `event-log.consumed`, `event-log.timeout`,
+`event-log.dead-lettered` и `event-log.recovered` связываются через event ID,
+correlation/causation IDs. Payload события в operational log не попадает.
