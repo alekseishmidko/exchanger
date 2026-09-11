@@ -5,6 +5,9 @@ artifacts/
 .env
 .env.*
 !.env.example
+!.env.development.example
+!.env.production.example
+!.env.test.example
 .env.development
 .env.production
 .idea/

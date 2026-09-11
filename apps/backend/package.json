@@ -13,7 +13,7 @@
     "typecheck": "tsc --noEmit",
     "format": "prettier --write \"{src,test}/**/*.ts\"",
     "format:check": "prettier --check \"{src,test}/**/*.ts\"",
-    "contracts:check": "jest test/api-contracts.spec.ts test/transport-api.e2e-spec.ts test/api-flow.e2e-spec.ts test/market-data.websocket.e2e-spec.ts --runInBand"
+    "contracts:check": "jest test/api-contracts.spec.ts test/transport-api.e2e-spec.ts test/api-flow.e2e-spec.ts test/market-data.websocket.e2e-spec.ts src/modules/observability/structured-logger.spec.ts src/modules/observability/logging-flow.spec.ts --runInBand"
   },
   "dependencies": {
     "@exchange/contracts": "workspace:*",

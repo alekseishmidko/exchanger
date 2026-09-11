@@ -1,4 +1,4 @@
-import { HttpException, Injectable } from '@nestjs/common';
+import { HttpException, Inject, Injectable, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
   ConnectedSocket,
@@ -27,6 +27,12 @@ import {
   resyncSchema,
   subscriptionSchema,
 } from './market-data.validation';
+import {
+  LOG_EVENTS,
+  NOOP_OPERATIONAL_LOGGER,
+  OperationalLogger,
+  StructuredLogger,
+} from '../observability';
 
 /** Client events принимают unknown payload и валидируют его до использования. */
 interface ClientToServerEvents {
@@ -84,12 +90,15 @@ export class MarketDataGateway implements OnGatewayConnection, OnGatewayDisconne
   private readonly subscriptions = new Map<string, Map<string, ActiveSubscription>>();
   private readonly allowedOrigins: ReadonlySet<string>;
   private readonly maxPendingMessages: number;
+  private readonly logger: OperationalLogger;
 
   constructor(
     private readonly hub: MarketDataHub,
     private readonly apiKeys: ApiKeyRegistry,
     config: ConfigService,
+    @Optional() @Inject(StructuredLogger) logger?: StructuredLogger,
   ) {
+    this.logger = logger ?? NOOP_OPERATIONAL_LOGGER;
     const origins = config.get<string>(
       'WEBSOCKET_ALLOWED_ORIGINS',
       'http://localhost:3000,http://localhost:5001',
@@ -140,6 +149,9 @@ export class MarketDataGateway implements OnGatewayConnection, OnGatewayDisconne
       }
     }
     this.subscriptions.set(client.id, new Map());
+    this.logger.info('market-data', LOG_EVENTS.WEBSOCKET_CONNECTED, {
+      metadata: { authenticated: Boolean(client.data.principal) },
+    });
   }
 
   /**
@@ -203,6 +215,10 @@ export class MarketDataGateway implements OnGatewayConnection, OnGatewayDisconne
         subscription: key,
       });
       acknowledged = true;
+      this.logger.info('market-data', LOG_EVENTS.WEBSOCKET_SUBSCRIBED, {
+        correlationId: request.requestId,
+        metadata: { channel: request.channel, instrumentId: request.instrumentId ?? null },
+      });
       for (const message of pendingMessages)
         this.emitMarketData(client, request.requestId, message);
     } catch (error) {
@@ -400,6 +416,10 @@ export class MarketDataGateway implements OnGatewayConnection, OnGatewayDisconne
     message: string,
     recoverable: boolean,
   ): void {
+    this.logger.warn('market-data', LOG_EVENTS.WEBSOCKET_REJECTED, {
+      correlationId,
+      metadata: { code, recoverable },
+    });
     this.emitEnvelope<WebSocketErrorDto>(client, 'market.error', correlationId, {
       code,
       message,

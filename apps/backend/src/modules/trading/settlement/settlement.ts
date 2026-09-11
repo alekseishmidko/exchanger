@@ -1,6 +1,7 @@
 import { AssetId, createId, Decimal, AccountId, OperationId } from '../../shared-kernel';
 import { Ledger, OperationResult } from '../../ledger';
 import { EventLog } from '../event-log';
+import { LOG_EVENTS, NOOP_OPERATIONAL_LOGGER, OperationalLogger } from '../../observability';
 
 /** Данные заявки, необходимые для предварительного резервирования. */
 export type OrderToReserve = Readonly<{
@@ -17,6 +18,8 @@ export type OrderToReserve = Readonly<{
 /** Событие результата matching engine для settlement consumer. */
 export type TradeExecuted = Readonly<{
   eventId: string;
+  correlationId?: string;
+  causationId?: string;
   tradeId: string;
   makerOrderId: string;
   takerOrderId: string;
@@ -35,6 +38,8 @@ export type TradeExecuted = Readonly<{
 /** Событие завершённого settlement с ссылками на ledger postings. */
 export type SettlementApplied = Readonly<{
   eventId: string;
+  correlationId?: string;
+  causationId?: string;
   settlementId: string;
   tradeId: string;
   postingIds: readonly string[];
@@ -57,6 +62,7 @@ export class SettlementService {
     private readonly ledger: Ledger,
     private readonly eventLog: EventLog,
     private readonly feeScale = 8,
+    private readonly logger: OperationalLogger = NOOP_OPERATIONAL_LOGGER,
   ) {}
 
   /** Резервирует base либо quote+fee до допуска заявки в matching engine. */
@@ -99,10 +105,23 @@ export class SettlementService {
           eventId: event.eventId,
           eventType: 'TradeExecuted',
           payload: event,
+          ...(event.correlationId ? { correlationId: event.correlationId } : {}),
+          ...(event.causationId ? { causationId: event.causationId } : {}),
         });
         return;
       } catch (error) {
-        if (attempt === maxRetries - 1) throw error;
+        if (attempt === maxRetries - 1) {
+          this.logger.failure('settlement', LOG_EVENTS.SETTLEMENT_REJECTED, {
+            eventId: event.eventId,
+            metadata: { tradeId: event.tradeId, reason: 'EVENT_LOG_UNAVAILABLE' },
+          });
+          throw error;
+        }
+        this.logger.warn('settlement', LOG_EVENTS.SETTLEMENT_RETRY, {
+          eventId: event.eventId,
+          outcome: 'retry',
+          metadata: { tradeId: event.tradeId, attempt: attempt + 1 },
+        });
       }
     }
   }
@@ -162,6 +181,8 @@ export class SettlementService {
     }
     const result: SettlementApplied = {
       eventId: `settlement-event-${event.tradeId}`,
+      ...(event.correlationId ? { correlationId: event.correlationId } : {}),
+      causationId: event.eventId,
       settlementId: `settlement-${event.tradeId}`,
       tradeId: event.tradeId,
       postingIds: operationIds.flatMap(({ postingIds }) => postingIds.map(String)),
@@ -171,6 +192,14 @@ export class SettlementService {
       eventId: result.eventId,
       eventType: 'SettlementApplied',
       payload: result,
+      ...(result.correlationId ? { correlationId: result.correlationId } : {}),
+      causationId: event.eventId,
+    });
+    this.logger.info('settlement', LOG_EVENTS.SETTLEMENT_APPLIED, {
+      eventId: result.eventId,
+      correlationId: result.correlationId,
+      causationId: event.eventId,
+      metadata: { tradeId: event.tradeId, postingCount: result.postingIds.length },
     });
     return result;
   }

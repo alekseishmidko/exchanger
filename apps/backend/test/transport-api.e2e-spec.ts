@@ -70,7 +70,9 @@ describe('Transport API completeness', () => {
     await (app.getHttpAdapter().getInstance() as unknown as { ready: () => Promise<void> }).ready();
   });
 
-  afterAll(async () => app.close());
+  afterAll(async () => {
+    if (app) await app.close();
+  });
 
   it('publishes instruments, accounts, projections and admin operations in OpenAPI', async () => {
     const response = await request(app.getHttpServer()).get('/docs/openapi.json').expect(200);

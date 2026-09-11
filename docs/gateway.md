@@ -81,6 +81,13 @@ command requests в минуту в reference implementation.
 
 Основные угрозы: утечка API key, credential stuffing, oversized JSON, обход object authorization, replay команд и внутренние stack traces. Меры: secret-free logs/errors, hashed key registry, role/object checks, DTO allow-list, idempotency fingerprint, rotation/revocation, audit и rate limit. Production boundary дополнительно требует TLS, persistent credential/idempotency storage и distributed rate limiter.
 
+## Operational log events
+
+Все REST handlers автоматически получают `http.request.completed` либо
+`http.request.rejected`. Place/cancel дополнительно создают ровно один
+`gateway.command.accepted` или `gateway.command.rejected` внутри idempotency
+callback. Поэтому сетевой retry не имитирует повторный business-success.
+
 ## Каталог REST boundaries
 
 Runtime Swagger дополнительно содержит следующие группы:

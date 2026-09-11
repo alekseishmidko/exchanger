@@ -50,3 +50,9 @@ strict runtime validation, затем application service создаёт typed I
 Публичные DTO examples и ownership matrix находятся в
 [`docs/api-client-guide.md`](../../../../../docs/api-client-guide.md), реестр routes —
 в [`docs/openapi/application.yaml`](../../../../../docs/openapi/application.yaml).
+
+## Operational log events
+
+`ledger.command.applied` пишется после атомарного изменения состояния;
+`ledger.command.rejected` — при нарушении инварианта. Amount, account owner,
+баланс и postings не логируются; расследование использует command ID и audit.

@@ -1,13 +1,16 @@
 import {
   BadRequestException,
   ConflictException,
+  Inject,
   Injectable,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { AuditActor, AuditLog } from '../audit';
 import { Decimal, createId } from '../shared-kernel';
 import { Account, Asset } from './asset-account';
 import { Ledger } from './ledger';
+import { LOG_EVENTS, StructuredLogger } from '../observability';
 
 /** Описание asset при открытии нулевого баланса нового аккаунта. */
 export type OpenBalanceDefinition = Readonly<{ assetId: string; code: string; scale: number }>;
@@ -46,7 +49,10 @@ export class LedgerApplicationService {
   private readonly assets = new Map<string, OpenBalanceDefinition>();
   private readonly commandAudit: LedgerCommandAudit[] = [];
 
-  constructor(private readonly audit: AuditLog) {}
+  constructor(
+    private readonly audit: AuditLog,
+    @Optional() @Inject(StructuredLogger) private readonly logger?: StructuredLogger,
+  ) {}
 
   /**
    * Регистрирует аккаунт и набор нулевых балансов одной application-командой.
@@ -100,6 +106,10 @@ export class LedgerApplicationService {
     this.accounts.set(accountId, snapshot);
     this.accountAssets.set(accountId, new Set(balances.map(({ assetId }) => assetId)));
     this.commandAudit.push({ commandId, actorId, action: 'CREATE_ACCOUNT', targetId: accountId });
+    this.logger?.info('ledger', LOG_EVENTS.LEDGER_COMMAND_APPLIED, {
+      commandId,
+      metadata: { action: 'CREATE_ACCOUNT', balanceCount: balances.length },
+    });
     return snapshot;
   }
 
@@ -164,6 +174,10 @@ export class LedgerApplicationService {
       if (action === 'RELEASE')
         this.ledger.release(operationId, typedAccountId, typedAssetId, decimal);
     } catch {
+      this.logger?.warn('ledger', LOG_EVENTS.LEDGER_COMMAND_REJECTED, {
+        commandId,
+        metadata: { action, reason: 'INVARIANT_VIOLATION' },
+      });
       throw new BadRequestException({
         code: 'BALANCE_COMMAND_REJECTED',
         message: 'Balance command violates ledger invariants',
@@ -184,6 +198,10 @@ export class LedgerApplicationService {
       actorId: actor.actorId,
       action,
       targetId: `${accountId}:${assetId}`,
+    });
+    this.logger?.info('ledger', LOG_EVENTS.LEDGER_COMMAND_APPLIED, {
+      commandId,
+      metadata: { action, assetId },
     });
     return this.getBalance(accountId, assetId);
   }

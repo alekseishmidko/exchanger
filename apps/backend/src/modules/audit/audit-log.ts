@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
+import { LOG_EVENTS, StructuredLogger } from '../observability';
 
 /** Роли сотрудников, имеющих доступ к административному контуру. */
 export type AdministrativeRole = 'ADMIN' | 'RISK_MANAGER' | 'AUDITOR' | 'SUPPORT';
@@ -60,6 +61,8 @@ export type AuditRecord = Readonly<{
 export class AuditLog {
   private readonly records: AuditRecord[] = [];
 
+  constructor(@Optional() @Inject(StructuredLogger) private readonly logger?: StructuredLogger) {}
+
   /**
    * Добавляет запись в конец цепочки и возвращает immutable snapshot.
    *
@@ -95,6 +98,10 @@ export class AuditLog {
     };
     const record = { id: `audit-${sequence}`, ...body, hash: this.hash(body) } as const;
     this.records.push(record);
+    this.logger?.info('audit', LOG_EVENTS.AUDIT_RECORD_APPENDED, {
+      commandId,
+      metadata: { auditEventType: eventType, actionType, sequence },
+    });
     return record;
   }
 
@@ -116,8 +123,12 @@ export class AuditLog {
     let previousHash = 'GENESIS';
     for (let index = 0; index < records.length; index += 1) {
       const record = records[index];
-      if (!record || record.sequence !== index + 1 || record.previousHash !== previousHash)
+      if (!record || record.sequence !== index + 1 || record.previousHash !== previousHash) {
+        this.logger?.failure('audit', LOG_EVENTS.AUDIT_INTEGRITY_FAILED, {
+          metadata: { sequence: index + 1, reason: 'CHAIN_MISMATCH' },
+        });
         return false;
+      }
       const body = {
         sequence: record.sequence,
         occurredAt: record.occurredAt,
@@ -130,7 +141,12 @@ export class AuditLog {
         previousHash: record.previousHash,
       };
       const { hash } = record;
-      if (hash !== this.hash(body)) return false;
+      if (hash !== this.hash(body)) {
+        this.logger?.failure('audit', LOG_EVENTS.AUDIT_INTEGRITY_FAILED, {
+          metadata: { sequence: record.sequence, reason: 'HASH_MISMATCH' },
+        });
+        return false;
+      }
       previousHash = hash;
     }
     return true;

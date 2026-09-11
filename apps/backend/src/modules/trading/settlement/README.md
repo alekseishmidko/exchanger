@@ -22,3 +22,9 @@ Insufficient balance отклоняет reserve до matching. Event-log timeout
 ## Границы
 
 Текущая реализация содержит in-memory reference adapter. Durable persistence, transaction boundary и external broker adapter подключаются через event-log/ledger ports без изменения settlement policy.
+
+## Operational log events
+
+`settlement.applied`, `settlement.retry` и `settlement.rejected` связываются по
+trade/event IDs. Posting count допустим, но balances, fees, prices, quantity и
+сами проводки исключены централизованной redaction policy.

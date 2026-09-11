@@ -5,6 +5,7 @@ import {
   Get,
   Headers,
   Inject,
+  Optional,
   Param,
   Post,
   Query,
@@ -38,6 +39,12 @@ import { cancelOrderDtoSchema, placeOrderDtoSchema, ZodValidationPipe } from './
 import { IdempotencyStore } from './gateway.idempotency';
 import { RateLimitService } from './gateway.rate-limit';
 import {
+  LOG_EVENTS,
+  NOOP_OPERATIONAL_LOGGER,
+  OperationalLogger,
+  StructuredLogger,
+} from '../observability';
+import {
   CancelOrderRequestDto,
   GatewayCommandResponseDto,
   GatewayOrderPageResponseDto,
@@ -61,12 +68,17 @@ type GatewayRequest = { principal: ApiKeyPrincipal };
 @ApiUnauthorizedResponse({ description: 'API-ключ отсутствует или недействителен.' })
 @ApiForbiddenResponse({ description: 'Ключ не даёт доступа к указанному аккаунту.' })
 export class GatewayController {
+  private readonly logger: OperationalLogger;
+
   constructor(
     @Inject('TRADING_COMMAND_PORT')
     private readonly trading: TradingCommandPort,
     private readonly idempotency: IdempotencyStore,
     private readonly rateLimit: RateLimitService,
-  ) {}
+    @Optional() @Inject(StructuredLogger) logger?: StructuredLogger,
+  ) {
+    this.logger = logger ?? NOOP_OPERATIONAL_LOGGER;
+  }
 
   /** Валидирует, авторизует и направляет place command в trading core. */
   @Post('orders')
@@ -96,9 +108,22 @@ export class GatewayController {
       userId: request.principal.userId,
       limitPrice: body.limitPrice ?? null,
     };
-    return this.idempotency.execute(`${request.principal.keyId}:${key}`, command, () =>
-      this.trading.placeOrder(command),
-    );
+    return this.idempotency.execute(`${request.principal.keyId}:${key}`, command, async () => {
+      try {
+        const result = await this.trading.placeOrder(command);
+        this.logger.info('gateway', LOG_EVENTS.GATEWAY_COMMAND_ACCEPTED, {
+          commandId: command.commandId,
+          metadata: { commandType: 'PLACE_ORDER', instrumentId: command.instrumentId },
+        });
+        return result;
+      } catch (error) {
+        this.logger.warn('gateway', LOG_EVENTS.GATEWAY_COMMAND_REJECTED, {
+          commandId: command.commandId,
+          metadata: { commandType: 'PLACE_ORDER', errorType: this.errorType(error) },
+        });
+        throw error;
+      }
+    });
   }
 
   /** Валидирует, авторизует и направляет cancel command в trading core. */
@@ -133,9 +158,22 @@ export class GatewayController {
       idempotencyKey: key,
       userId: request.principal.userId,
     };
-    return this.idempotency.execute(`${request.principal.keyId}:${key}`, command, () =>
-      this.trading.cancelOrder(command),
-    );
+    return this.idempotency.execute(`${request.principal.keyId}:${key}`, command, async () => {
+      try {
+        const result = await this.trading.cancelOrder(command);
+        this.logger.info('gateway', LOG_EVENTS.GATEWAY_COMMAND_ACCEPTED, {
+          commandId: command.commandId,
+          metadata: { commandType: 'CANCEL_ORDER', orderId: command.orderId },
+        });
+        return result;
+      } catch (error) {
+        this.logger.warn('gateway', LOG_EVENTS.GATEWAY_COMMAND_REJECTED, {
+          commandId: command.commandId,
+          metadata: { commandType: 'CANCEL_ORDER', errorType: this.errorType(error) },
+        });
+        throw error;
+      }
+    });
   }
 
   /** Проверяет формат обязательного Idempotency-Key до обращения к core. */
@@ -171,5 +209,10 @@ export class GatewayController {
       });
     }
     return this.trading.listOrders(limit, cursor);
+  }
+
+  /** Возвращает только класс ошибки, не message/stack с потенциальным payload. */
+  private errorType(error: unknown): string {
+    return error instanceof Error ? error.name : 'UnknownError';
   }
 }

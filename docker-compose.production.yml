@@ -3,8 +3,13 @@ services:
     build:
       context: .
       target: production
+    # Example содержит только безопасные operational defaults. Реальные secrets
+    # остаются в ignored .env.production либо передаются deployment-платформой.
     env_file:
-      - .env.production
+      - path: .env.production.example
+        required: true
+      - path: .env.production
+        required: false
     ports:
       - "5000:5000"
     restart: unless-stopped

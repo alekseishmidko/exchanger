@@ -1,8 +1,33 @@
+import { resolve } from 'node:path';
+
 /** Допустимые режимы запуска backend-приложения. */
 export type Environment = 'development' | 'production' | 'test';
 
 /** Набор переменных окружения до преобразования в typed configuration. */
 export type EnvironmentConfig = Record<string, unknown>;
+
+/**
+ * Формирует детерминированный приоритет конфигурационных файлов окружения.
+ *
+ * Сначала читается ignored runtime override, затем версионируемый безопасный
+ * template того же окружения. Поэтому production никогда не откатывается к
+ * development-настройкам, а Jest с `NODE_ENV=test` работает в чистом checkout
+ * через `.env.test.example`.
+ *
+ * @example Для `/repo/apps/backend/src` и `test` будут возвращены
+ * `/repo/.env.test`, `/repo/.env.test.example`, `/repo/.env.example`.
+ */
+export function environmentFilePaths(
+  runtimeDirectory: string,
+  environment: string = process.env['NODE_ENV'] ?? 'development',
+): readonly string[] {
+  const root = resolve(runtimeDirectory, '../../..');
+  return [
+    resolve(root, `.env.${environment}`),
+    resolve(root, `.env.${environment}.example`),
+    resolve(root, '.env.example'),
+  ];
+}
 
 /** Проверяет обязательные переменные и диапазон порта до старта NestJS. */
 export function validateEnvironment(config: EnvironmentConfig): EnvironmentConfig {
@@ -66,6 +91,19 @@ export function validateEnvironment(config: EnvironmentConfig): EnvironmentConfi
   }
 
   for (const key of ['WEBSOCKET_MAX_SUBSCRIBERS', 'WEBSOCKET_MAX_PENDING'] as const) {
+    const value = config[key];
+    if (
+      value !== undefined &&
+      ((typeof value !== 'string' && typeof value !== 'number') || !/^\d+$/.test(`${value}`))
+    ) {
+      throw new Error(`${key} must be a positive integer`);
+    }
+    if (value !== undefined && Number(value) < 1) {
+      throw new Error(`${key} must be a positive integer`);
+    }
+  }
+
+  for (const key of ['LOG_SAMPLE_LIMIT', 'LOG_SAMPLE_WINDOW_MS'] as const) {
     const value = config[key];
     if (
       value !== undefined &&

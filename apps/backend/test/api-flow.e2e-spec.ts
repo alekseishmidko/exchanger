@@ -116,7 +116,9 @@ describe('HTTP command to domain and projection flow', () => {
     ).ready();
   });
 
-  afterAll(async () => app.close());
+  afterAll(async () => {
+    if (app) await app.close();
+  });
 
   it('passes controller → application port → domain → projection without duplicate effect', async () => {
     const command = {

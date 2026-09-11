@@ -726,35 +726,35 @@ background consumers и composition root.
 
 Реализация:
 
-- [ ] выбран единый logger adapter и ADR фиксирует production JSON format;
-- [ ] logger внедряется через DI во все модули, controllers, gateways, consumers и adapters;
-- [ ] прямые `console.log/error/warn` запрещены ESLint и CI-проверкой;
-- [ ] определена схема полей: timestamp, level, service, module, event, environment, correlationId, causationId, commandId/eventId, outcome и durationMs;
-- [ ] HTTP, WebSocket, sequencer, matching, settlement, ledger, event-log, projections, admin, audit и health используют каталог стабильных log events;
-- [ ] success, rejection, retry, timeout, dependency failure, recovery и shutdown имеют согласованные уровни;
-- [ ] логирование выполняется на boundaries и изменениях состояния, но не на каждой итерации hot path;
-- [ ] API keys, authorization headers, cookies, персональные и финансовые payloads проходят централизованную redaction;
-- [ ] production stack trace доступен только в защищённом internal log event;
-- [ ] sampling/rate limiting защищают от log storm без потери audit/security событий;
-- [ ] startup logs различают bind address, public URL, build version и environment;
-- [ ] audit log остаётся отдельным immutable бизнес-контрактом и не подменяется operational logger.
+- [x] выбран единый logger adapter и ADR фиксирует production JSON format;
+- [x] logger внедряется через DI во все модули, controllers, gateways, consumers и adapters;
+- [x] прямые `console.log/error/warn` запрещены ESLint и CI-проверкой;
+- [x] определена схема полей: timestamp, level, service, module, event, environment, correlationId, causationId, commandId/eventId, outcome и durationMs;
+- [x] HTTP, WebSocket, sequencer, matching, settlement, ledger, event-log, projections, admin, audit и health используют каталог стабильных log events;
+- [x] success, rejection, retry, timeout, dependency failure, recovery и shutdown имеют согласованные уровни;
+- [x] логирование выполняется на boundaries и изменениях состояния, но не на каждой итерации hot path;
+- [x] API keys, authorization headers, cookies, персональные и финансовые payloads проходят централизованную redaction;
+- [x] production stack trace доступен только в защищённом internal log event;
+- [x] sampling/rate limiting защищают от log storm без потери audit/security событий;
+- [x] startup logs различают bind address, public URL, build version и environment;
+- [x] audit log остаётся отдельным immutable бизнес-контрактом и не подменяется operational logger.
 
 Тесты и проверки:
 
-- [ ] каждый модуль проверяет хотя бы один success и один failure log event;
-- [ ] contract test блокирует несовместимое изменение обязательных log fields;
-- [ ] canary secret tests подтверждают отсутствие секретов в message и metadata;
-- [ ] correlationId/causationId проходят через HTTP → command → event → consumer;
-- [ ] duplicate/retry не создаёт ложного повторного business-success события;
-- [ ] benchmark фиксирует CPU, allocation и I/O overhead logger на hot path;
-- [ ] CI блокирует console output и неизвестные production event names.
+- [x] каждый модуль проверяет хотя бы один success и один failure log event;
+- [x] contract test блокирует несовместимое изменение обязательных log fields;
+- [x] canary secret tests подтверждают отсутствие секретов в message и metadata;
+- [x] correlationId/causationId проходят через HTTP → command → event → consumer;
+- [x] duplicate/retry не создаёт ложного повторного business-success события;
+- [x] benchmark фиксирует CPU, allocation и I/O overhead logger на hot path;
+- [x] CI блокирует console output и неизвестные production event names.
 
 Документация:
 
-- [ ] создан `docs/observability/logging.md` с каталогом событий и полей;
-- [ ] описаны уровни, redaction, sampling и retention;
-- [ ] README каждого модуля перечисляет его основные log events;
-- [ ] runbook описывает поиск потока по correlationId, commandId и eventId.
+- [x] создан `docs/observability/logging.md` с каталогом событий и полей;
+- [x] описаны уровни, redaction, sampling и retention;
+- [x] README каждого модуля перечисляет его основные log events;
+- [x] runbook описывает поиск потока по correlationId, commandId и eventId.
 
 **Gate:** принятый или отклонённый критичный запрос прослеживается через все
 модули; секреты отсутствуют, а logger не нарушает latency budget.

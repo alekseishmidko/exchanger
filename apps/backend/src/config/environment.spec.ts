@@ -1,6 +1,14 @@
-import { validateEnvironment } from './environment';
+import { environmentFilePaths, validateEnvironment } from './environment';
 
 describe('environment validation', () => {
+  /** Гарантирует, что clean-checkout tests получают безопасный test template. */
+  it('uses an environment-specific example after the ignored runtime override', () => {
+    expect(environmentFilePaths('/repo/apps/backend/src', 'test')).toEqual([
+      '/repo/.env.test',
+      '/repo/.env.test.example',
+      '/repo/.env.example',
+    ]);
+  });
   it('rejects an invalid production configuration', () => {
     expect(() =>
       validateEnvironment({
@@ -80,5 +88,20 @@ describe('environment validation', () => {
         WEBSOCKET_ALLOWED_ORIGINS: '   ',
       }),
     ).toThrow('WEBSOCKET_ALLOWED_ORIGINS must be a non-empty comma-separated list');
+  });
+
+  /** Защищает logger от отключения sampling или бесконечно короткого окна. */
+  it.each([
+    ['LOG_SAMPLE_LIMIT', '0'],
+    ['LOG_SAMPLE_WINDOW_MS', 'not-a-number'],
+  ])('rejects invalid logging setting %s=%s', (key, value) => {
+    expect(() =>
+      validateEnvironment({
+        NODE_ENV: 'production',
+        PORT: '5000',
+        SERVICE_NAME: 'exchange-backend',
+        [key]: value,
+      }),
+    ).toThrow(`${key} must be a positive integer`);
   });
 });

@@ -20,3 +20,9 @@ Query endpoints:
 
 Версионируемый реестр routes и клиентские правила: [OpenAPI](../../../../../docs/openapi/application.yaml)
 и [client guide](../../../../../docs/api-client-guide.md).
+
+## Operational log events
+
+`projection.applied`, `projection.duplicate`, `projection.rebuilt` и
+`projection.gap` описывают consumer state. Duplicate имеет outcome `recovered` и
+не считается вторым business-success. Event payload/read model не сериализуются.

@@ -1,7 +1,8 @@
-import { ForbiddenException, Injectable } from '@nestjs/common';
+import { ForbiddenException, Inject, Injectable, Optional } from '@nestjs/common';
 import { AuditActor, AuditLog, AdministrativeRole, AuditRecord } from '../audit';
 import { Decimal } from '../shared-kernel';
 import { Instrument, InstrumentCatalogService, InstrumentRules } from '../trading/instruments';
+import { LOG_EVENTS, StructuredLogger } from '../observability';
 
 /** Версионированная комиссия maker/taker, вступающая в силу в заданный момент. */
 export type FeePolicy = Readonly<{
@@ -99,6 +100,7 @@ export class AdminService {
   constructor(
     private readonly audit: AuditLog,
     private readonly instruments: InstrumentCatalogService = new InstrumentCatalogService(),
+    @Optional() @Inject(StructuredLogger) private readonly logger?: StructuredLogger,
   ) {}
 
   /**
@@ -140,6 +142,10 @@ export class AdminService {
       {},
       now,
     );
+    this.logger?.info('admin', LOG_EVENTS.ADMIN_ACTION_APPLIED, {
+      commandId: command.commandId,
+      metadata: { actionType: command.type, status: result.status },
+    });
     return result;
   }
 
@@ -185,6 +191,13 @@ export class AdminService {
       {},
       now,
     );
+    this.logger?.info('admin', LOG_EVENTS.ADMIN_ACTION_APPLIED, {
+      commandId,
+      metadata: {
+        actionType: pending.command.type,
+        status: result.status,
+      },
+    });
     return result;
   }
 
@@ -367,6 +380,10 @@ export class AdminService {
     if (!allowed[type].includes(actor.role)) {
       this.audit.append(actor, 'ACTION_REJECTED', type, commandId, targetId, {
         reason: 'ROLE_FORBIDDEN',
+      });
+      this.logger?.warn('admin', LOG_EVENTS.ADMIN_ACTION_REJECTED, {
+        commandId,
+        metadata: { actionType: type, reason: 'ROLE_FORBIDDEN' },
       });
       throw new ForbiddenException({
         code: 'ADMIN_FORBIDDEN',

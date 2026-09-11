@@ -8,6 +8,9 @@ export default tseslint.config(
   prettier,
   {
     files: ['src/**/*.ts', 'test/**/*.ts', '*.ts'],
+    rules: {
+      'no-console': 'error',
+    },
     languageOptions: {
       parserOptions: {
         project: './tsconfig.json',

@@ -1,7 +1,19 @@
 import { createHash } from 'node:crypto';
+import {
+  LOG_EVENTS,
+  LoggingContext,
+  NOOP_OPERATIONAL_LOGGER,
+  OperationalLogger,
+} from '../../observability';
 
 /** Минимальное immutable событие для durable event log adapter. */
-export type LogEvent = Readonly<{ eventId: string; eventType: string; payload: unknown }>;
+export type LogEvent = Readonly<{
+  eventId: string;
+  eventType: string;
+  payload: unknown;
+  correlationId?: string;
+  causationId?: string;
+}>;
 
 /**
  * Переносимый архив append-only журнала.
@@ -33,14 +45,32 @@ export class EventLog {
   private offset = 0;
   private failuresBeforeSuccess = 0;
 
+  constructor(
+    private readonly logger: OperationalLogger = NOOP_OPERATIONAL_LOGGER,
+    private readonly context?: LoggingContext,
+  ) {}
+
   /** Добавляет событие с контролируемой timeout-ошибкой. */
   async append(event: LogEvent): Promise<void> {
     await Promise.resolve();
     if (this.failuresBeforeSuccess > 0) {
       this.failuresBeforeSuccess -= 1;
+      this.logger.warn('event-log', LOG_EVENTS.EVENT_LOG_TIMEOUT, {
+        eventId: event.eventId,
+        correlationId: event.correlationId,
+        causationId: event.causationId,
+        outcome: 'retry',
+        metadata: { eventType: event.eventType },
+      });
       throw new EventLogTimeout();
     }
     this.events.push(event);
+    this.logger.info('event-log', LOG_EVENTS.EVENT_LOG_APPENDED, {
+      eventId: event.eventId,
+      correlationId: event.correlationId,
+      causationId: event.causationId,
+      metadata: { eventType: event.eventType, offset: this.events.length - 1 },
+    });
   }
 
   /** Настраивает число временных отказов для retry тестов. */
@@ -56,10 +86,32 @@ export class EventLog {
       let handled = false;
       for (let attempt = 0; attempt < maxRetries && !handled; attempt += 1) {
         try {
-          await handler(event);
+          await this.handleInContext(event, handler);
           handled = true;
+          this.logger.info('event-log', LOG_EVENTS.EVENT_LOG_CONSUMED, {
+            eventId: event.eventId,
+            correlationId: event.correlationId,
+            causationId: event.eventId,
+            metadata: { eventType: event.eventType, attempt: attempt + 1 },
+          });
         } catch {
-          if (attempt === maxRetries - 1) this.deadLetters.push(event);
+          if (attempt === maxRetries - 1) {
+            this.deadLetters.push(event);
+            this.logger.failure('event-log', LOG_EVENTS.EVENT_LOG_DEAD_LETTERED, {
+              eventId: event.eventId,
+              correlationId: event.correlationId,
+              causationId: event.eventId,
+              metadata: { eventType: event.eventType, attempts: maxRetries },
+            });
+          } else {
+            this.logger.warn('event-log', LOG_EVENTS.EVENT_LOG_TIMEOUT, {
+              eventId: event.eventId,
+              correlationId: event.correlationId,
+              causationId: event.eventId,
+              outcome: 'retry',
+              metadata: { eventType: event.eventType, attempt: attempt + 1 },
+            });
+          }
         }
       }
       if (handled) this.offset += 1;
@@ -118,7 +170,11 @@ export class EventLog {
    *
    * @throws Error Если format version, offset или checksum повреждены.
    */
-  static restore(archive: EventLogArchive): EventLog {
+  static restore(
+    archive: EventLogArchive,
+    logger: OperationalLogger = NOOP_OPERATIONAL_LOGGER,
+    context?: LoggingContext,
+  ): EventLog {
     const { checksum, ...body } = archive;
     if (
       archive.formatVersion !== 1 ||
@@ -128,9 +184,13 @@ export class EventLog {
     ) {
       throw new Error('Invalid event log archive');
     }
-    const log = new EventLog();
+    const log = new EventLog(logger, context);
     log.events.push(...archive.events);
     log.offset = archive.committedOffset;
+    log.logger.info('event-log', LOG_EVENTS.EVENT_LOG_RECOVERED, {
+      outcome: 'recovered',
+      metadata: { eventCount: archive.events.length, committedOffset: archive.committedOffset },
+    });
     return log;
   }
 
@@ -139,5 +199,25 @@ export class EventLog {
       typeof field === 'bigint' ? field.toString() : field,
     );
     return createHash('sha256').update(serialized).digest('hex');
+  }
+
+  /**
+   * Восстанавливает AsyncLocalStorage context на consumer boundary.
+   * Event ID становится причиной downstream records, а correlation ID сохраняет
+   * исходный пользовательский flow после чтения из durable log.
+   */
+  private handleInContext(
+    event: LogEvent,
+    handler: (event: LogEvent) => Promise<void>,
+  ): Promise<void> {
+    if (!this.context) return handler(event);
+    return this.context.run(
+      {
+        correlationId: event.correlationId ?? event.eventId,
+        causationId: event.eventId,
+        eventId: event.eventId,
+      },
+      () => handler(event),
+    );
   }
 }

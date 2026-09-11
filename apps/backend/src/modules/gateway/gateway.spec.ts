@@ -31,7 +31,9 @@ describe('Gateway command API', () => {
     ).ready();
   });
 
-  afterAll(async () => app.close());
+  afterAll(async () => {
+    if (app) await app.close();
+  });
 
   /** Базовый валидный decimal-string payload для place endpoint. */
   const order = {
