@@ -76,6 +76,11 @@ describe('Transport API completeness', () => {
     const response = await request(app.getHttpServer()).get('/docs/openapi.json').expect(200);
     const document = response.body as TransportOpenApiDocument;
     expect(document.paths['/api/v1/instruments']?.['get']).toBeDefined();
+    expect(document.paths['/api/v1/auth/me']?.['get']).toBeDefined();
+    expect(document.paths['/api/v1/auth/api-keys']?.['get']).toBeDefined();
+    expect(document.paths['/api/v1/auth/api-keys']?.['post']).toBeDefined();
+    expect(document.paths['/api/v1/auth/api-keys/{keyId}/rotate']?.['post']).toBeDefined();
+    expect(document.paths['/api/v1/auth/api-keys/{keyId}/revoke']?.['post']).toBeDefined();
     expect(document.paths['/api/v1/accounts']?.['post']).toBeDefined();
     expect(document.paths['/api/v1/projections/orders']?.['get']).toBeDefined();
     expect(document.paths['/api/v1/admin/instruments']?.['post']).toBeDefined();
@@ -85,6 +90,7 @@ describe('Transport API completeness', () => {
     expect(document.paths['/api/v1/admin/fee-policies']?.['post']).toBeDefined();
     expect(document.paths['/api/v1/admin/risk-policies']?.['post']).toBeDefined();
     expect(document.paths['/api/v1/admin/reconciliation']?.['get']).toBeDefined();
+    expect(document.paths['/api/v1/admin/audit-events']?.['get']).toBeDefined();
     expect(document.paths['/api/v1/accounts/{accountId}/balances']?.['get']).toBeDefined();
     expect(
       document.paths['/api/v1/accounts/{accountId}/balances/{assetId}/commands']?.['post'],
@@ -296,6 +302,32 @@ describe('Transport API completeness', () => {
       );
 
     await request(app.getHttpServer())
+      .get('/api/v1/admin/audit-events?limit=2')
+      .set('x-api-key', 'auditor-key')
+      .expect(200)
+      .expect(({ body }) => {
+        const page = body as {
+          items: Array<{ sequence: number }>;
+          nextCursor: string | null;
+        };
+        expect(page.items).toHaveLength(2);
+        expect(page.items[0]?.sequence).toBe(1);
+        expect(JSON.stringify(page)).not.toContain('admin-1-key');
+      });
+
+    await request(app.getHttpServer())
+      .get('/api/v1/admin/audit-events')
+      .set('x-api-key', 'support-key')
+      .expect(403)
+      .expect(({ body }) => expect((body as { code: string }).code).toBe('AUDIT_READ_FORBIDDEN'));
+
+    await request(app.getHttpServer())
+      .get('/api/v1/admin/audit-events?limit=101')
+      .set('x-api-key', 'auditor-key')
+      .expect(400)
+      .expect(({ body }) => expect((body as { code: string }).code).toBe('PAGINATION_INVALID'));
+
+    await request(app.getHttpServer())
       .post('/api/v1/admin/fee-policies')
       .set('x-api-key', 'support-key')
       .set('idempotency-key', 'support-forbidden')
@@ -396,6 +428,8 @@ describe('Transport API completeness', () => {
    */
   it('rejects unauthenticated access to every protected REST operation', async () => {
     const getPaths = [
+      '/api/v1/auth/me',
+      '/api/v1/auth/api-keys',
       '/api/v1/orders',
       '/api/v1/instruments',
       '/api/v1/instruments/BTC-USD',
@@ -407,12 +441,16 @@ describe('Transport API completeness', () => {
       '/api/v1/projections/balances',
       '/api/v1/projections/metrics',
       '/api/v1/admin/reconciliation',
+      '/api/v1/admin/audit-events',
     ];
     for (const path of getPaths) {
       await request(app.getHttpServer()).get(path).expect(401);
     }
 
     const postPaths = [
+      '/api/v1/auth/api-keys',
+      '/api/v1/auth/api-keys/key-1/rotate',
+      '/api/v1/auth/api-keys/key-1/revoke',
       '/api/v1/orders',
       '/api/v1/orders/order-1/cancel',
       '/api/v1/accounts',

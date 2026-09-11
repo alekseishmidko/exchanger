@@ -169,3 +169,40 @@ export class ReconciliationResponseDto {
   @ApiProperty({ type: [String] }) readonly feePolicyVersions!: readonly string[];
   @ApiProperty({ type: [String] }) readonly riskPolicyVersions!: readonly string[];
 }
+
+/** Проверенная identity сотрудника, зафиксированная в audit record. */
+export class AuditActorResponseDto {
+  @ApiProperty({ example: 'admin-1' }) actorId!: string;
+  @ApiProperty({ enum: ['ADMIN', 'RISK_MANAGER', 'AUDITOR', 'SUPPORT'], example: 'ADMIN' })
+  role!: 'ADMIN' | 'RISK_MANAGER' | 'AUDITOR' | 'SUPPORT';
+}
+
+/**
+ * Публичное представление одной записи tamper-evident audit chain.
+ *
+ * `previousHash` и `hash` позволяют оператору проверить целостность и порядок
+ * выгруженной цепочки. `details` формируется только из allow-listed полей и не
+ * содержит credential, request headers или других секретов.
+ */
+export class AuditRecordResponseDto {
+  @ApiProperty({ example: 'audit-1' }) id!: string;
+  @ApiProperty({ example: 1 }) sequence!: number;
+  @ApiProperty({ format: 'date-time', example: '2026-01-01T00:00:00.000Z' })
+  occurredAt!: string;
+  @ApiProperty({ type: AuditActorResponseDto }) actor!: AuditActorResponseDto;
+  @ApiProperty({ example: 'ACTION_APPLIED' }) eventType!: string;
+  @ApiProperty({ example: 'FREEZE_ACCOUNT' }) actionType!: string;
+  @ApiProperty({ example: 'admin-command-1' }) commandId!: string;
+  @ApiProperty({ example: 'account-1' }) targetId!: string;
+  @ApiProperty({ type: Object, example: { reason: 'ROLE_FORBIDDEN' } })
+  details!: Readonly<Record<string, string | number | boolean | null>>;
+  @ApiProperty({ example: 'GENESIS' }) previousHash!: string;
+  @ApiProperty({ example: '42a5f9c0...' }) hash!: string;
+}
+
+/** Cursor-страница audit records в стабильном порядке возрастания sequence. */
+export class AuditRecordPageResponseDto {
+  @ApiProperty({ type: [AuditRecordResponseDto] })
+  items!: readonly AuditRecordResponseDto[];
+  @ApiProperty({ nullable: true, example: '25' }) nextCursor!: string | null;
+}

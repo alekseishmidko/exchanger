@@ -3,6 +3,98 @@ info:
   title: Exchange Gateway API
   version: 0.1.0
 paths:
+  /api/v1/auth/me:
+    get:
+      operationId: getCurrentPrincipal
+      summary: Validate API key and return the current public identity
+      security: [{ ApiKeyAuth: [] }]
+      responses:
+        '200':
+          description: Authenticated principal without credential data
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthenticationPrincipal' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+  /api/v1/auth/api-keys:
+    get:
+      summary: List API key metadata without secrets
+      security: [{ ApiKeyAuth: [] }]
+      responses:
+        '200':
+          description: Safe API key metadata
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/ApiKeyMetadata' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      summary: Issue an API key and return its secret once
+      security: [{ ApiKeyAuth: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/IssueApiKey' }
+      responses:
+        '201':
+          description: API key issued
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/IssuedApiKey' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/auth/api-keys/{keyId}/rotate:
+    post:
+      summary: Rotate an active API key
+      security: [{ ApiKeyAuth: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/KeyId' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MutateApiKey' }
+      responses:
+        '201':
+          description: New secret returned once
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/IssuedApiKey' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { description: API key not found }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/auth/api-keys/{keyId}/revoke:
+    post:
+      summary: Revoke an API key
+      security: [{ ApiKeyAuth: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/KeyId' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MutateApiKey' }
+      responses:
+        '201':
+          description: Revoked metadata
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiKeyMetadata' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { description: API key not found }
   /api/v1/orders:
     post:
       security: [{ ApiKeyAuth: [] }]
@@ -57,10 +149,62 @@ components:
         schema: { type: string, maxLength: 128 },
       }
     OrderId: { name: orderId, in: path, required: true, schema: { type: string } }
+    KeyId: { name: keyId, in: path, required: true, schema: { type: string } }
     Limit:
       { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 50 } }
     Cursor: { name: cursor, in: query, schema: { type: string } }
   schemas:
+    AuthenticationPrincipal:
+      type: object
+      additionalProperties: false
+      required: [authenticated, authenticationScheme, subjectId, role]
+      properties:
+        authenticated: { type: boolean, enum: [true], example: true }
+        authenticationScheme: { type: string, enum: [API_KEY], example: API_KEY }
+        subjectId: { type: string, example: user-1 }
+        role:
+          type: string
+          enum: [trader, admin, risk_manager, auditor, support]
+          example: trader
+    IssueApiKey:
+      type: object
+      additionalProperties: false
+      required: [commandId, userId, role, label]
+      properties:
+        commandId: { type: string, example: issue-key-command-1 }
+        userId: { type: string, example: user-1 }
+        role: { type: string, enum: [trader, admin, risk_manager, auditor, support] }
+        label: { type: string, maxLength: 128, example: market-maker-primary }
+    MutateApiKey:
+      type: object
+      additionalProperties: false
+      required: [commandId]
+      properties:
+        commandId: { type: string, example: rotate-key-command-1 }
+    ApiKeyMetadata:
+      type: object
+      additionalProperties: false
+      required: [keyId, userId, role, label, status, createdAt, rotatedAt, revokedAt, lastUsedAt]
+      properties:
+        keyId: { type: string, example: key-550e8400-e29b-41d4-a716-446655440000 }
+        userId: { type: string, example: user-1 }
+        role: { type: string, enum: [trader, admin, risk_manager, auditor, support] }
+        label: { type: string, example: market-maker-primary }
+        status: { type: string, enum: [ACTIVE, REVOKED] }
+        createdAt: { type: string, format: date-time }
+        rotatedAt: { type: string, format: date-time, nullable: true }
+        revokedAt: { type: string, format: date-time, nullable: true }
+        lastUsedAt: { type: string, format: date-time, nullable: true }
+    IssuedApiKey:
+      type: object
+      additionalProperties: false
+      required: [apiKey, metadata]
+      properties:
+        apiKey:
+          type: string
+          description: Secret returned only by issue/rotate.
+          example: ex_example-secret-returned-once
+        metadata: { $ref: '#/components/schemas/ApiKeyMetadata' }
     PlaceOrder:
       type: object
       required:

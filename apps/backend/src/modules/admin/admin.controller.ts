@@ -7,6 +7,7 @@ import {
   HttpException,
   Param,
   Post,
+  Query,
   Req,
   UseGuards,
 } from '@nestjs/common';
@@ -34,6 +35,7 @@ import { Decimal, createId } from '../shared-kernel';
 import { Instrument, InstrumentRules } from '../trading/instruments';
 import {
   AdminCommandResponseDto,
+  AuditRecordPageResponseDto,
   CircuitBreakerRequestDto,
   ConfigureInstrumentRequestDto,
   FeePolicyRequestDto,
@@ -275,6 +277,45 @@ export class AdminController {
   getReconciliation(@Req() request: AdminRequest): ReconciliationResponseDto {
     assertAdministrativeAccess(request.principal);
     return this.admin.getDashboard(this.actor(request.principal));
+  }
+
+  /**
+   * Возвращает страницу audit chain для ручной диагностики и расследований.
+   *
+   * Cursor — это смещение в стабильной последовательности append-only записей.
+   * Сначала service проверяет роль `ADMIN`/`AUDITOR`, затем controller применяет
+   * bounded pagination. Например, `?limit=2&cursor=2` вернёт записи 3–4 и
+   * следующий cursor только при наличии продолжения.
+   */
+  @Get('audit-events')
+  @ApiOperation({ summary: 'Получить страницу событий административного аудита' })
+  @ApiOkResponse({ type: AuditRecordPageResponseDto })
+  @ApiBadRequestResponse({ description: 'limit/cursor имеют недопустимое значение.' })
+  getAuditEvents(
+    @Req() request: AdminRequest,
+    @Query('limit') rawLimit?: string,
+    @Query('cursor') rawCursor?: string,
+  ): AuditRecordPageResponseDto {
+    const limit = rawLimit === undefined ? 50 : Number(rawLimit);
+    const cursor = rawCursor === undefined ? 0 : Number(rawCursor);
+    if (
+      !Number.isInteger(limit) ||
+      limit < 1 ||
+      limit > 100 ||
+      !Number.isInteger(cursor) ||
+      cursor < 0
+    ) {
+      throw new BadRequestException({
+        code: 'PAGINATION_INVALID',
+        message: 'Pagination parameters are invalid',
+      });
+    }
+    const records = this.admin.getAuditRecords(this.actor(request.principal));
+    const items = records.slice(cursor, cursor + limit);
+    return {
+      items,
+      nextCursor: cursor + items.length < records.length ? String(cursor + items.length) : null,
+    };
   }
 
   /** Создаёт domain rules только после строгой runtime validation DTO. */

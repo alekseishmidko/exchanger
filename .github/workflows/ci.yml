@@ -61,3 +61,46 @@ jobs:
 
       - name: Build
         run: pnpm build
+
+  api-flows:
+    name: Development API flows
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.15.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Start development environment
+        run: docker compose -f docker-compose.development.yml up -d --build
+
+      - name: Run black-box API flows
+        run: pnpm api:flows
+
+      - name: Publish pipeline summary
+        if: always()
+        run: cat artifacts/api-flows/summary.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload API flow reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: development-api-flow-reports
+          path: artifacts/api-flows/
+          if-no-files-found: warn
+
+      - name: Show backend logs on failure
+        if: failure()
+        run: docker compose -f docker-compose.development.yml logs backend
+
+      - name: Stop development environment
+        if: always()
+        run: docker compose -f docker-compose.development.yml down --volumes

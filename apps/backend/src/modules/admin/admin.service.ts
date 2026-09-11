@@ -1,5 +1,5 @@
 import { ForbiddenException, Injectable } from '@nestjs/common';
-import { AuditActor, AuditLog, AdministrativeRole } from '../audit';
+import { AuditActor, AuditLog, AdministrativeRole, AuditRecord } from '../audit';
 import { Decimal } from '../shared-kernel';
 import { Instrument, InstrumentCatalogService, InstrumentRules } from '../trading/instruments';
 
@@ -277,6 +277,28 @@ export class AdminService {
       now,
     );
     return dashboard;
+  }
+
+  /**
+   * Возвращает неизменяемую копию audit chain после проверки read-role.
+   *
+   * Авторизация остаётся в application boundary, а не только в контроллере:
+   * это защищает журнал и при вызове сервиса из другого transport adapter.
+   * Допускаются `ADMIN` и `AUDITOR`; support и risk manager не получают историю
+   * действий, поскольку она может содержать служебные идентификаторы объектов.
+   *
+   * @example
+   * `getAuditRecords({ actorId: 'auditor-1', role: 'AUDITOR' })` возвращает
+   * записи в порядке их монотонного `sequence`, не раскрывая API-key secrets.
+   */
+  getAuditRecords(actor: AuditActor): readonly AuditRecord[] {
+    if (actor.role !== 'ADMIN' && actor.role !== 'AUDITOR') {
+      throw new ForbiddenException({
+        code: 'AUDIT_READ_FORBIDDEN',
+        message: 'Audit records access is forbidden',
+      });
+    }
+    return this.audit.getRecords();
   }
 
   private apply(command: AdminCommand): void {

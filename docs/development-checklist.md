@@ -208,6 +208,12 @@
 11. [x] `admin`: instrument configuration, limits, circuit breaker и audit.
 12. [ ] нагрузочное, failure, security и recovery тестирование всей системы.
 13. [x] полнота transport API: REST/OpenAPI для внешних сценариев и AsyncAPI для WebSocket.
+14. [ ] единое structured logging во всех модулях и transport/application boundaries.
+15. [ ] observability: metrics, traces, dashboards, alerts и проверяемые SLO.
+16. [ ] реалистичное HTTP/WebSocket/processing нагрузочное тестирование.
+17. [ ] resilience, chaos и восстановление при деградации зависимостей.
+18. [ ] adversarial, fuzz, race и нестандартные граничные сценарии.
+19. [ ] capacity planning и итоговая production-readiness qualification.
 
 ## 11. Пошаговая модульная декомпозиция
 
@@ -659,12 +665,14 @@ application port, выполняет authentication/authorization и возвр�
 REST API:
 
 - [x] Swagger подключён к NestJS и конфигурация вынесена в `src/config/swagger.ts`;
+- [x] Swagger содержит полный API-key lifecycle: identity check, issue, list, rotate и revoke;
 - [x] Gateway place/cancel endpoints описаны Swagger metadata и публичными DTO;
 - [x] для `instruments` добавлены read endpoints каталога и защищённые admin-команды изменения lifecycle/rules;
 - [x] для `accounts/balances` добавлены endpoints создания/получения аккаунта и просмотра доступного/зарезервированного баланса;
 - [x] операции изменения баланса доступны только через авторизованный application command, а не через прямое редактирование ledger;
 - [x] endpoints `projections` снабжены отдельными request/response DTO, pagination schema, error responses и Swagger decorators;
 - [x] для `admin` добавлены endpoints freeze/unfreeze, circuit breaker, policy changes, dual-control approval и reconciliation status;
+- [x] для ручной диагностики опубликован read-only audit trail с role checks и bounded pagination;
 - [x] все write endpoints требуют idempotency key, object-level authorization и audit metadata;
 - [x] DTO не экспортируют внутренние domain entities и не принимают неизвестные поля;
 - [x] decimal values во всех HTTP-контрактах передаются строками;
@@ -707,3 +715,241 @@ WebSocket и AsyncAPI:
 описывает WebSocket-протокол, а автоматическая проверка доказывает соответствие
 документации фактически запущенному приложению без обхода авторизации,
 идемпотентности и domain boundaries.
+
+### Этап 14. Единое structured logging
+
+**Модули:** все application-модули, transport/infrastructure adapters,
+background consumers и composition root.
+
+Цель — сделать каждый критичный поток диагностируемым через единый logger, не
+превращая логи в источник секретов или дополнительную нагрузочную проблему.
+
+Реализация:
+
+- [ ] выбран единый logger adapter и ADR фиксирует production JSON format;
+- [ ] logger внедряется через DI во все модули, controllers, gateways, consumers и adapters;
+- [ ] прямые `console.log/error/warn` запрещены ESLint и CI-проверкой;
+- [ ] определена схема полей: timestamp, level, service, module, event, environment, correlationId, causationId, commandId/eventId, outcome и durationMs;
+- [ ] HTTP, WebSocket, sequencer, matching, settlement, ledger, event-log, projections, admin, audit и health используют каталог стабильных log events;
+- [ ] success, rejection, retry, timeout, dependency failure, recovery и shutdown имеют согласованные уровни;
+- [ ] логирование выполняется на boundaries и изменениях состояния, но не на каждой итерации hot path;
+- [ ] API keys, authorization headers, cookies, персональные и финансовые payloads проходят централизованную redaction;
+- [ ] production stack trace доступен только в защищённом internal log event;
+- [ ] sampling/rate limiting защищают от log storm без потери audit/security событий;
+- [ ] startup logs различают bind address, public URL, build version и environment;
+- [ ] audit log остаётся отдельным immutable бизнес-контрактом и не подменяется operational logger.
+
+Тесты и проверки:
+
+- [ ] каждый модуль проверяет хотя бы один success и один failure log event;
+- [ ] contract test блокирует несовместимое изменение обязательных log fields;
+- [ ] canary secret tests подтверждают отсутствие секретов в message и metadata;
+- [ ] correlationId/causationId проходят через HTTP → command → event → consumer;
+- [ ] duplicate/retry не создаёт ложного повторного business-success события;
+- [ ] benchmark фиксирует CPU, allocation и I/O overhead logger на hot path;
+- [ ] CI блокирует console output и неизвестные production event names.
+
+Документация:
+
+- [ ] создан `docs/observability/logging.md` с каталогом событий и полей;
+- [ ] описаны уровни, redaction, sampling и retention;
+- [ ] README каждого модуля перечисляет его основные log events;
+- [ ] runbook описывает поиск потока по correlationId, commandId и eventId.
+
+**Gate:** принятый или отклонённый критичный запрос прослеживается через все
+модули; секреты отсутствуют, а logger не нарушает latency budget.
+
+### Этап 15. Observability, SLI/SLO и alerting
+
+**Сигналы:** logs, metrics и distributed traces. Конфигурация collection,
+dashboards и alerting хранится как код и воспроизводится в staging.
+
+Инструментирование:
+
+- [ ] определены SLI/SLO для availability, command acceptance, settlement correctness, market-data freshness и projection lag;
+- [ ] OpenTelemetry context распространяется через HTTP, WebSocket, command envelope, event log и consumers;
+- [ ] spans покрывают admission, sequencer wait, matching, settlement, ledger commit, event append и projection apply;
+- [ ] RED metrics покрывают REST/WebSocket, USE metrics — runtime, PostgreSQL, pools, event loop и consumers;
+- [ ] бизнес-метрики отражают accepted/rejected orders, trades, settlement failures, reconciliation differences, gaps и circuit breaker state;
+- [ ] histogram buckets соответствуют latency budgets и позволяют вычислять p50/p95/p99;
+- [ ] labels не содержат userId, orderId, commandId и другие unbounded значения;
+- [ ] установлены cardinality limits и защита от telemetry overload;
+- [ ] logs связаны с traces через traceId/spanId, metrics — через exemplars где возможно;
+- [ ] exporter имеет bounded queue/timeout и не блокирует торговый hot path;
+- [ ] readiness не зависит от доступности observability backend;
+- [ ] dashboards и alert rules версионируются и проверяются автоматически.
+
+Тесты и эксплуатационная проверка:
+
+- [ ] integration test подтверждает непрерывный trace полного command flow;
+- [ ] metric contract tests проверяют имена, типы, единицы и разрешённые labels;
+- [ ] cardinality test с уникальными IDs не создаёт неограниченные series;
+- [ ] exporter failure не останавливает приложение и отражается internal metric;
+- [ ] synthetic traffic переводит каждый alert в firing и обратно в resolved;
+- [ ] dashboards проверены на пустом, нормальном и деградировавшем окружении;
+- [ ] каждый alert содержит owner, severity, runbook URL и diagnostic context;
+- [ ] измерены ingestion volume, retention и допустимая потеря non-critical telemetry.
+
+Документация:
+
+- [ ] созданы `docs/observability/metrics.md`, `tracing.md`, `slo.md` и `alerts.md`;
+- [ ] зафиксированы dashboard catalog, ownership и escalation policy;
+- [ ] описано различие client error, saturation, dependency failure и invariant violation;
+- [ ] добавлен observability blackout runbook.
+
+**Gate:** дежурный инженер обнаруживает и локализует проблему от клиентского
+запроса до зависимости без подключения отладчика.
+
+### Этап 16. Реалистичное нагрузочное тестирование
+
+**Контуры:** REST command/query API, WebSocket streams, sequencer, matching,
+settlement, ledger, event log, PostgreSQL и projections.
+
+Профили и данные:
+
+- [ ] выбран и зафиксирован нагрузочный runner; для HTTP/WebSocket сценариев базовым кандидатом является k6;
+- [ ] нагрузочные сценарии находятся в версионируемом `tests/load/` и используют общие flow/data builders;
+- [ ] реализованы smoke, average, stress, spike, soak и breakpoint profiles;
+- [ ] workload моделирует чтение, place/cancel, partial/multi-fill, private/public subscriptions и reconnect;
+- [ ] распределение инструментов, аккаунтов, Side/OrderType/TIF и размеров заявок похоже на ожидаемый production traffic;
+- [ ] hot instrument и равномерно распределённые instruments тестируются отдельно;
+- [ ] IDs/idempotency keys уникальны, а test data очищается или изолируется по runId;
+- [ ] тест выполняется с реальными PostgreSQL/event-log adapters, TLS и сетевыми hop;
+- [ ] генератор нагрузки запущен отдельно от system under test и сам не является bottleneck;
+- [ ] hardware, topology, dataset size, build SHA и configuration сохраняются с результатом.
+
+Метрики и автоматизация:
+
+- [ ] заданы thresholds для throughput, error rate, p50/p95/p99/max и timeout rate;
+- [ ] фиксируются consumer/projection lag, event-loop lag, CPU, memory, GC, pool usage, DB locks и network throughput;
+- [ ] измеряется accepted-to-settled и accepted-to-visible latency, а не только HTTP response time;
+- [ ] quick smoke/average profile запускается в CI, полный stress/soak — по расписанию и перед release;
+- [ ] regression budget сравнивает результат с baseline на сопоставимом окружении;
+- [ ] failed thresholds завершают pipeline с ненулевым кодом;
+- [ ] raw results, trend graphs и GitHub summary сохраняются как artifacts;
+- [ ] после теста выполняются reconciliation и проверка отсутствия потерянных/повторных эффектов.
+
+Документация:
+
+- [ ] создан `docs/testing/load-testing.md` с профилями и командами запуска;
+- [ ] описаны target workload, допущения и различие Pilot baseline от production SLA;
+- [ ] результаты имеют дату, build SHA, environment и ссылку на artifacts;
+- [ ] зафиксированы найденные bottlenecks, владельцы и план устранения.
+
+**Gate:** система выдерживает целевой average и peak profile в рамках SLO, после
+нагрузки сходится reconciliation, а деградация имеет измеренную безопасную форму.
+
+### Этап 17. Resilience, chaos и восстановление под нагрузкой
+
+Цель — проверить не только скорость исправной системы, но и сохранение денежных,
+ordering и idempotency-инвариантов во время частичных отказов.
+
+Сценарии:
+
+- [ ] fault injection разрешён только в изолированном test/staging окружении;
+- [ ] проверены latency, timeout, reset и packet loss для PostgreSQL, event log и внешних adapters;
+- [ ] проверены pool exhaustion, deadlock, lock contention и временная read-only БД;
+- [ ] проверены consumer crash до/после commit, duplicate delivery, gap и poison event;
+- [ ] process/container kill выполняется во время place, match, settlement и projection apply;
+- [ ] rolling restart не нарушает partition ownership и monotonic sequence;
+- [ ] retry storm, reconnect storm и thundering herd не обходят rate/backpressure limits;
+- [ ] WebSocket slow consumers и массовый reconnect не влияют на matching latency;
+- [ ] disk pressure, memory pressure и event-loop stall приводят к контролируемой деградации;
+- [ ] clock skew и leap/timezone boundaries не меняют deterministic ordering/effectiveAt policy;
+- [ ] observability backend outage не блокирует business flow;
+- [ ] circuit breaker, pause и recovery transitions проверены под продолжающейся нагрузкой.
+
+Проверки результата:
+
+- [ ] ни одна accepted command не потеряна и не применена дважды;
+- [ ] sequence, ledger balance и immutable audit trail остаются корректными;
+- [ ] readiness отражает деградацию и не маскирует отказ критичной зависимости;
+- [ ] backlog после восстановления уменьшается, а не растёт бесконечно;
+- [ ] практически измерены RTO/RPO для каждого класса отказа;
+- [ ] reconciliation автоматически выполняется после каждого chaos scenario;
+- [ ] failure не создаёт утечку stack trace, credential или private event;
+- [ ] сценарии детерминированы, имеют seed/timeline и сохраняют artifacts.
+
+Документация:
+
+- [ ] failure matrix содержит injection method, expected behavior, alert и owner;
+- [ ] обновлены recovery/replay, dependency outage и reconciliation runbooks;
+- [ ] описаны stop conditions, blast-radius limits и emergency abort chaos-тестов;
+- [ ] результаты game day подписаны участниками и содержат follow-up actions.
+
+**Gate:** при отказе одной критичной зависимости система либо продолжает работу в
+заявленном degraded mode, либо безопасно прекращает admission без потери принятой
+команды и без нарушения финансовых инвариантов.
+
+### Этап 18. Adversarial и нестандартные граничные сценарии
+
+Входные данные и протоколы:
+
+- [ ] property-based/fuzz tests генерируют команды, события и последовательности операций с воспроизводимым seed;
+- [ ] проверены пустые, oversized, deeply nested, truncated и malformed JSON payloads;
+- [ ] проверены Unicode normalization, control characters, duplicate JSON keys и необычные identifiers;
+- [ ] decimal tests покрывают ноль, максимальную точность, очень большие значения, ведущие нули, exponent, NaN/Infinity и rounding boundaries;
+- [ ] timestamps покрывают прошлое/будущее, одинаковый effectiveAt, clock rollback и timezone/DST boundaries;
+- [ ] pagination проверена при параллельном добавлении данных, stale/tampered cursor и изменении projection version;
+- [ ] REST/WebSocket protocol fuzzing не приводит к uncaught exception или process crash;
+- [ ] неизвестная версия/тип сообщения отклоняется либо обрабатывается по compatibility policy.
+
+Гонки и злоупотребления:
+
+- [ ] проверены concurrent duplicate place, cancel-vs-match, freeze-vs-place и pause-vs-admission;
+- [ ] settlement-vs-retry и projection rebuild-vs-live delivery дают exactly-once business effect;
+- [ ] один idempotency key с разными payloads/identities всегда конфликтует;
+- [ ] hot-key, hot-instrument и skewed partition не приводят к starvation остальных partitions;
+- [ ] rate-limit bypass через reconnect, headers, API keys и distributed clients закрыт;
+- [ ] authorization isolation проверена массовой матрицей users/accounts/orders/subscriptions;
+- [ ] WebSocket subscription churn, invalid ack ordering и sequence wrap/large values обработаны безопасно;
+- [ ] zip/decompression bomb, slow request и connection exhaustion ограничены transport configuration;
+- [ ] любой unexpected input даёт документированный 4xx/protocol error, но не 500 и не утечку данных.
+
+Автоматизация и документация:
+
+- [ ] найденный fuzz/property failure сохраняется как минимальный regression fixture;
+- [ ] nightly pipeline имеет ограничение времени, corpus retention и triage owner;
+- [ ] security tools покрывают dependencies, container image, secrets, SAST и API threat model;
+- [ ] создан `docs/testing/adversarial-cases.md` с каталогом классов входов и ожидаемыми outcomes;
+- [ ] flaky race test не отключается без issue, owner и срока исправления.
+
+**Gate:** некорректные, враждебные и конкурентные входы не нарушают isolation,
+идемпотентность, ordering, денежные инварианты и доступность процесса.
+
+### Этап 19. Capacity planning и production-readiness qualification
+
+Capacity и длительная устойчивость:
+
+- [ ] найден maximum sustainable throughput и saturation point каждого критического компонента;
+- [ ] production target использует согласованный headroom для traffic burst и отказа одного instance/node;
+- [ ] измерено влияние числа instruments, active orders, accounts, event history и projection size;
+- [ ] отдельный soak test выявляет memory/handle/connection leaks и рост GC pause;
+- [ ] проверены лимиты PostgreSQL connections, storage growth, indexes, WAL/event retention и archive throughput;
+- [ ] autoscaling policy основана на causal metrics: queue/lag/CPU, а не только среднем CPU;
+- [ ] scale-out/scale-in не нарушает partition ownership, ordering и WebSocket sessions;
+- [ ] graceful shutdown завершает или безопасно передаёт accepted work;
+- [ ] deploy/rollback совместимы с активными clients, предыдущей schema и in-flight events;
+- [ ] стоимость инфраструктуры и telemetry оценена для average/peak/retention profiles.
+
+Release qualification:
+
+- [ ] black-box API flow pipeline проходит против release candidate environment;
+- [ ] smoke, average, spike, soak, chaos, recovery и adversarial suites имеют зелёные отчёты;
+- [ ] SLO/error budget и performance regression budgets соблюдены;
+- [ ] backup/restore, archive/restore и region/node recovery проверены практически;
+- [ ] dashboards, alerts и runbook links проверены дежурным инженером;
+- [ ] открытые исключения имеют severity, owner, deadline и формальное risk acceptance;
+- [ ] release report содержит build SHA, конфигурацию, результаты и решение go/no-go;
+- [ ] rollback criteria и emergency stop rehearsed до production deployment.
+
+Документация:
+
+- [ ] создан `docs/operations/capacity-plan.md`;
+- [ ] создан versioned production-readiness report template;
+- [ ] определены владельцы SLO, capacity, on-call и release decision;
+- [ ] baseline и trend history доступны для сравнения следующих releases.
+
+**Финальный gate:** release допускается к production только при доказанной
+устойчивости под целевой и аварийной нагрузкой, практически проверенном recovery и
+отсутствии необъяснимых нарушений SLO или доменных инвариантов.
