@@ -1,5 +1,11 @@
 # Event log adapter
 
+## Observability boundary
+
+Append сохраняет W3C carrier вместе с event metadata. Consumer восстанавливает
+remote parent в `event_log.consume`, поэтому retry/restart не разрывает trace до
+projection. Payload события не становится span attribute.
+
 Append-only adapter для событий settlement. Каждое событие имеет `eventId`, `eventType` и payload; consumer хранит offset и повторяет обработку до передачи poison-события в DLQ.
 
 Все публичные методы и типы сопровождаются русскими JSDoc-комментариями. Production-реализация должна заменить in-memory хранилище на durable log/outbox согласно [ADR 0003](../../../../../docs/adr/0003-settlement-log-first.md).

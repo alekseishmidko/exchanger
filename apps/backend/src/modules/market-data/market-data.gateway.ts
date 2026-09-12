@@ -32,6 +32,10 @@ import {
   NOOP_OPERATIONAL_LOGGER,
   OperationalLogger,
   StructuredLogger,
+  MetricsService,
+  TelemetryService,
+  TRACE_SPANS,
+  TraceCarrier,
 } from '../observability';
 
 /** Client events принимают unknown payload и валидируют его до использования. */
@@ -92,10 +96,27 @@ export class MarketDataGateway implements OnGatewayConnection, OnGatewayDisconne
   private readonly maxPendingMessages: number;
   private readonly logger: OperationalLogger;
 
+  /**
+   * Собирает WebSocket transport boundary и его эксплуатационные ограничения.
+   *
+   * Hub остаётся transport-independent, registry выполняет handshake auth,
+   * metrics записывает только bounded operation/channel/outcome, а telemetry
+   * продолжает переданный клиентом W3C context. Logger optional для изолированных
+   * unit-тестов, но в NestJS composition root заменяется production adapter-ом.
+   *
+   * @param hub Источник snapshot, replay и fan-out подписок.
+   * @param apiKeys Registry для проверки ключа только на private boundary.
+   * @param config Валидированные origin и backpressure limits.
+   * @param metrics RED-метрики сообщений WebSocket.
+   * @param telemetry OpenTelemetry adapter для message spans.
+   * @param logger Необязательный operational logger с no-op fallback.
+   */
   constructor(
     private readonly hub: MarketDataHub,
     private readonly apiKeys: ApiKeyRegistry,
     config: ConfigService,
+    private readonly metrics: MetricsService,
+    private readonly telemetry: TelemetryService,
     @Optional() @Inject(StructuredLogger) logger?: StructuredLogger,
   ) {
     this.logger = logger ?? NOOP_OPERATIONAL_LOGGER;
@@ -189,6 +210,13 @@ export class MarketDataGateway implements OnGatewayConnection, OnGatewayDisconne
       return;
     }
     const request: SubscribeRequestDto = result.data;
+    this.observeMessage('subscribe', request.channel, request.trace ?? {}, () =>
+      this.subscribeValidated(client, request),
+    );
+  }
+
+  /** Регистрирует уже валидированную подписку внутри WebSocket tracing context. */
+  private subscribeValidated(client: AuthenticatedSocket, request: SubscribeRequestDto): void {
     try {
       const key = this.subscriptionKey(request);
       const current = this.subscriptions.get(client.id);
@@ -247,12 +275,14 @@ export class MarketDataGateway implements OnGatewayConnection, OnGatewayDisconne
       return;
     }
     const request: UnsubscribeRequestDto = result.data;
-    const key = this.subscriptionKey(request);
-    this.subscriptions.get(client.id)?.get(key)?.unsubscribe();
-    this.subscriptions.get(client.id)?.delete(key);
-    this.emitEnvelope<SubscriptionAckDto>(client, 'market.ack', request.requestId, {
-      action: 'unsubscribed',
-      subscription: key,
+    this.observeMessage('unsubscribe', request.channel, request.trace ?? {}, () => {
+      const key = this.subscriptionKey(request);
+      this.subscriptions.get(client.id)?.get(key)?.unsubscribe();
+      this.subscriptions.get(client.id)?.delete(key);
+      this.emitEnvelope<SubscriptionAckDto>(client, 'market.ack', request.requestId, {
+        action: 'unsubscribed',
+        subscription: key,
+      });
     });
   }
 
@@ -271,13 +301,15 @@ export class MarketDataGateway implements OnGatewayConnection, OnGatewayDisconne
       return;
     }
     const request: ResyncRequestDto = result.data;
-    try {
-      for (const message of this.hub.resync(request.instrumentId, request.lastSequence)) {
-        this.emitMarketData(client, request.requestId, message);
+    this.observeMessage('resync', 'book', request.trace ?? {}, () => {
+      try {
+        for (const message of this.hub.resync(request.instrumentId, request.lastSequence)) {
+          this.emitMarketData(client, request.requestId, message);
+        }
+      } catch (error) {
+        this.emitKnownError(client, request.requestId, error);
       }
-    } catch (error) {
-      this.emitKnownError(client, request.requestId, error);
-    }
+    });
   }
 
   /**
@@ -301,9 +333,11 @@ export class MarketDataGateway implements OnGatewayConnection, OnGatewayDisconne
       return;
     }
     const request: HeartbeatRequestDto = result.data;
-    this.emitEnvelope<HeartbeatResponseDto>(client, 'heartbeat.ack', request.requestId, {
-      receivedAt: new Date().toISOString(),
-      ...(request.sentAt ? { sentAt: request.sentAt } : {}),
+    this.observeMessage('heartbeat', 'control', request.trace ?? {}, () => {
+      this.emitEnvelope<HeartbeatResponseDto>(client, 'heartbeat.ack', request.requestId, {
+        receivedAt: new Date().toISOString(),
+        ...(request.sentAt ? { sentAt: request.sentAt } : {}),
+      });
     });
   }
 
@@ -441,5 +475,36 @@ export class MarketDataGateway implements OnGatewayConnection, OnGatewayDisconne
       if (typeof value === 'string' && value.length <= 128) return value;
     }
     return 'unknown';
+  }
+
+  /**
+   * Продолжает W3C trace WebSocket-команды и записывает RED metric.
+   * Operation/channel проходят bounded allow-list в MetricsService, поэтому
+   * requestId и socketId не создают отдельные time series.
+   */
+  private observeMessage(
+    operation: string,
+    channel: string,
+    carrier: TraceCarrier,
+    handler: () => void,
+  ): void {
+    const startedAt = process.hrtime.bigint();
+    try {
+      this.telemetry.continueSpan(
+        TRACE_SPANS.WEBSOCKET_MESSAGE,
+        carrier,
+        { 'messaging.operation': operation, 'messaging.channel': channel },
+        handler,
+      );
+      this.metrics.observeWebSocket(operation, channel, 'success', this.elapsed(startedAt));
+    } catch (error) {
+      this.metrics.observeWebSocket(operation, channel, 'failure', this.elapsed(startedAt));
+      throw error;
+    }
+  }
+
+  /** Переводит monotonic duration в миллисекунды. */
+  private elapsed(startedAt: bigint): number {
+    return Number(process.hrtime.bigint() - startedAt) / 1_000_000;
   }
 }

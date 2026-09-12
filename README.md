@@ -69,6 +69,13 @@ pnpm api:flows:development
 
 Описание сценариев и форматов отчёта: [API flow pipeline](docs/api-flow-pipeline.md).
 
+Полный observability-контур (OpenTelemetry Collector, Tempo, Prometheus,
+Alertmanager и Grafana) запускается командой `pnpm docker:observability`. Grafana доступна на
+`http://localhost:3000`, Prometheus — на `http://localhost:9090`. Проверка
+telemetry contracts, cardinality, dashboards и alerts без Docker выполняется
+через `pnpm observability:check`; подробности — в
+[observability guide](docs/observability/alerts.md).
+
 Для Docker development Swagger UI открыт по `http://localhost:5001/docs`.
 WebSocket namespace доступен по `http://localhost:5001/market-data`.
 

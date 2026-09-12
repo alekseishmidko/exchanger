@@ -13,13 +13,17 @@ export type PublicMarketDataChannel = 'book' | 'trades' | 'ticker';
  * correlationId ответов и позволяет клиенту сопоставить ack/error с командой.
  *
  * @example
- * `{ "requestId": "req-1", "channel": "book", "instrumentId": "BTC-USD" }`
+ * `{ "requestId": "req-1", "channel": "book", "instrumentId": "BTC-USD", "trace": { "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01" } }`
+ *
+ * `trace` — необязательный W3C carrier. Сервер валидирует его и начинает новый
+ * root trace при ошибке формата; поле не используется для авторизации.
  */
 export type SubscribeRequestDto = Readonly<{
   requestId: string;
   channel: PublicMarketDataChannel | 'user';
   instrumentId?: string | undefined;
   userId?: string | undefined;
+  trace?: TraceCarrier | undefined;
 }>;
 
 /**
@@ -40,11 +44,15 @@ export type UnsubscribeRequestDto = SubscribeRequestDto;
  *
  * @example
  * `{ "requestId": "resync-1", "instrumentId": "BTC-USD", "lastSequence": 41 }`
+ *
+ * `trace` продолжает клиентский trace только для диагностики resync и не влияет
+ * на выбор snapshot либо диапазона replay.
  */
 export type ResyncRequestDto = Readonly<{
   requestId: string;
   instrumentId: string;
   lastSequence: number;
+  trace?: TraceCarrier | undefined;
 }>;
 
 /**
@@ -54,8 +62,15 @@ export type ResyncRequestDto = Readonly<{
  *
  * @example
  * `{ "requestId": "ping-1", "sentAt": "2026-09-09T00:00:00.000Z" }`
+ *
+ * Необязательный `trace` связывает heartbeat с transport span; raw trace IDs не
+ * становятся labels метрик и не увеличивают cardinality.
  */
-export type HeartbeatRequestDto = Readonly<{ requestId: string; sentAt?: string | undefined }>;
+export type HeartbeatRequestDto = Readonly<{
+  requestId: string;
+  sentAt?: string | undefined;
+  trace?: TraceCarrier | undefined;
+}>;
 
 /**
  * Общий wire envelope server message.
@@ -114,3 +129,4 @@ export type HeartbeatResponseDto = Readonly<{
   receivedAt: string;
   sentAt?: string | undefined;
 }>;
+import { TraceCarrier } from '../observability';

@@ -4,6 +4,9 @@ import { HttpLoggingInterceptor } from './http-logging.interceptor';
 import { LoggingContext } from './logging-context';
 import { StructuredLogger } from './structured-logger';
 import { LifecycleReporter } from './lifecycle-reporter';
+import { MetricsController } from './metrics.controller';
+import { MetricsService } from './metrics';
+import { TelemetryService } from './tracing';
 
 /**
  * Глобальный composition root operational logging.
@@ -14,12 +17,15 @@ import { LifecycleReporter } from './lifecycle-reporter';
  */
 @Global()
 @Module({
+  controllers: [MetricsController],
   providers: [
     LoggingContext,
+    MetricsService,
+    TelemetryService,
     StructuredLogger,
     LifecycleReporter,
     { provide: APP_INTERCEPTOR, useClass: HttpLoggingInterceptor },
   ],
-  exports: [LoggingContext, StructuredLogger],
+  exports: [LoggingContext, MetricsService, StructuredLogger, TelemetryService],
 })
 export class ObservabilityModule {}

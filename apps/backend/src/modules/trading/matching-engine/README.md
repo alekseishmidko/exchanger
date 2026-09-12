@@ -1,5 +1,11 @@
 # Matching engine
 
+## Observability boundary
+
+Один `trading.matching.apply` span создаётся на команду, но не на итерацию уровня
+цены. Trade/rejection metrics используют только bounded instrument/result labels;
+orderId остаётся в защищённом trace/log контексте.
+
 ## Назначение
 
 Чистый deterministic matching engine для одного инструмента. Он хранит bids/asks price levels, FIFO queue внутри уровня, active orders, статус/остаток заявки и sequence последней команды.

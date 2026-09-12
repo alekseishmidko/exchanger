@@ -1,5 +1,11 @@
 # Settlement module
 
+## Observability boundary
+
+`trading.settlement.apply` содержит дочерние `ledger.commit` и
+`event_log.append`. `exchange_settlement_total` разделяет applied и invariant
+failure; финансовый payload и суммы не экспортируются в telemetry.
+
 ## Назначение
 
 Settlement связывает `TradeExecuted` с ledger: резервирует средства до допуска заявки, после match переводит reserved base/quote, начисляет maker/taker fees и публикует `SettlementApplied`.

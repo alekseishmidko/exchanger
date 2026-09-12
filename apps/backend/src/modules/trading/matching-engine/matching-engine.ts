@@ -1,5 +1,14 @@
 import { Decimal } from '../../shared-kernel';
-import { LOG_EVENTS, NOOP_OPERATIONAL_LOGGER, OperationalLogger } from '../../observability';
+import {
+  LOG_EVENTS,
+  NOOP_OPERATIONAL_LOGGER,
+  NOOP_TELEMETRY,
+  NOOP_OPERATIONAL_METRICS,
+  OperationalMetrics,
+  OperationalLogger,
+  TelemetryPort,
+  TRACE_SPANS,
+} from '../../observability';
 
 /** Направление заявки в стакане. */
 export type MatchingSide = 'BUY' | 'SELL';
@@ -85,15 +94,43 @@ export class MatchingEngine {
   private readonly bids = new Map<string, ActiveOrder[]>();
   private readonly asks = new Map<string, ActiveOrder[]>();
 
-  constructor(private readonly logger: OperationalLogger = NOOP_OPERATIONAL_LOGGER) {}
+  /**
+   * Создаёт движок с observability ports, не связывая домен с NestJS SDK.
+   *
+   * No-op adapters используются в replay/property/benchmark тестах. Production
+   * adapters открывают один span и пишут итоговые события на command boundary;
+   * внутри перебора price levels сетевой или дисковый I/O не выполняется.
+   *
+   * @param logger Каталогизированные terminal operational events.
+   * @param telemetry Port одного span на команду matching engine.
+   * @param metrics Счётчик исполненных сделок с bounded labels.
+   */
+  constructor(
+    private readonly logger: OperationalLogger = NOOP_OPERATIONAL_LOGGER,
+    private readonly telemetry: TelemetryPort = NOOP_TELEMETRY,
+    private readonly metrics: OperationalMetrics = NOOP_OPERATIONAL_METRICS,
+  ) {}
 
   /**
    * Применяет одну команду и логирует только terminal result, не циклы matching.
    * Это сохраняет наблюдаемость order boundary без I/O на каждой итерации уровня.
+   *
+   * @param command Команда размещения либо отмены для текущего instrument book.
+   * @returns Детерминированная последовательность domain events.
    */
   apply(command: MatchingCommand): readonly MatchingEvent[] {
+    return this.telemetry.span(TRACE_SPANS.MATCHING_APPLY, { 'command.type': command.type }, () =>
+      this.applyObserved(command),
+    );
+  }
+
+  /** Исполняет deterministic matching внутри уже открытого tracing span. */
+  private applyObserved(command: MatchingCommand): readonly MatchingEvent[] {
     this.sequence += 1;
     const events = command.type === 'PLACE' ? this.place(command) : this.cancel(command);
+    for (const event of events) {
+      if (event.kind === 'TRADE_EXECUTED') this.metrics.observeTrade('other', 'executed');
+    }
     const rejection = events.find((event) => event.kind === 'ORDER_REJECTED');
     if (rejection?.kind === 'ORDER_REJECTED') {
       this.logger.warn('matching', LOG_EVENTS.MATCHING_ORDER_REJECTED, {

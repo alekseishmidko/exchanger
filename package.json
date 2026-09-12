@@ -20,6 +20,9 @@
     "format:check": "corepack pnpm --filter @exchange/backend format:check",
     "security:check": "node scripts/check-repository.mjs",
     "contracts:check": "corepack pnpm --filter @exchange/backend contracts:check",
+    "observability:check": "corepack pnpm --filter @exchange/backend test -- src/modules/observability/metrics.spec.ts src/modules/observability/tracing.spec.ts src/modules/observability/observability-config.spec.ts --runInBand",
+    "docker:observability": "docker compose -f docker-compose.development.yml -f docker-compose.observability.yml up --build",
+    "docker:observability:down": "docker compose -f docker-compose.development.yml -f docker-compose.observability.yml down --volumes",
     "api:flows": "node scripts/run-api-flows.mjs",
     "api:flows:development": "docker compose -f docker-compose.development.yml up -d --build && node scripts/run-api-flows.mjs",
     "postgres:backup-restore": "node scripts/verify-postgres-backup-restore.mjs"

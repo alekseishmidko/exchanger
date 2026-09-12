@@ -3,7 +3,16 @@ import {
   StateMachineCommand,
   TradingStateMachine,
 } from '../state-machine';
-import { LOG_EVENTS, NOOP_OPERATIONAL_LOGGER, OperationalLogger } from '../../observability';
+import {
+  LOG_EVENTS,
+  NOOP_OPERATIONAL_LOGGER,
+  NOOP_TELEMETRY,
+  NOOP_OPERATIONAL_METRICS,
+  OperationalMetrics,
+  OperationalLogger,
+  TelemetryPort,
+  TRACE_SPANS,
+} from '../../observability';
 
 /** Команда с ownership context конкретной partition. */
 export type SequencedCommand<TPayload> = StateMachineCommand<TPayload> &
@@ -24,11 +33,25 @@ export class TradingSequencer<TPayload, TResult> {
   private readonly owners = new Map<string, string>();
   private readonly machines = new Map<string, TradingStateMachine<TPayload, TResult>>();
 
+  /**
+   * Создаёт sequencer, лениво выделяющий отдельную state machine на инструмент.
+   *
+   * InstrumentId не экспортируется как metric label: span содержит только
+   * bounded тип partition. Gap фиксируется счётчиком, но исходная admission
+   * ошибка остаётся результатом state machine и не маскируется observability.
+   *
+   * @param createMachine Фабрика изолированного состояния instrument partition.
+   * @param logger Operational events принятия и отказа команды.
+   * @param telemetry Port для измерения sequencer wait/application boundary.
+   * @param metrics Метрики sequence gap с bounded component label.
+   */
   constructor(
     private readonly createMachine: (
       instrumentId: string,
     ) => TradingStateMachine<TPayload, TResult>,
     private readonly logger: OperationalLogger = NOOP_OPERATIONAL_LOGGER,
+    private readonly telemetry: TelemetryPort = NOOP_TELEMETRY,
+    private readonly metrics: OperationalMetrics = NOOP_OPERATIONAL_METRICS,
   ) {}
 
   /** Назначает единственного owner для instrument partition. */
@@ -39,8 +62,22 @@ export class TradingSequencer<TPayload, TResult> {
     this.owners.set(instrumentId, ownerId);
   }
 
-  /** Передаёт команду только назначенному owner и нужной state machine. */
+  /**
+   * Передаёт команду только назначенному owner и нужной state machine.
+   *
+   * @param command Команда с instrument, owner и ожидаемой последовательностью.
+   * @returns Ранее сохранённый результат duplicate либо результат нового apply.
+   * @throws PartitionOwnershipError Если partition не назначена этому owner.
+   * @throws StateMachineAdmissionError Если sequence содержит gap или нарушает policy.
+   */
   submit(command: SequencedCommand<TPayload>): TResult {
+    return this.telemetry.span(TRACE_SPANS.SEQUENCER_WAIT, { 'partition.kind': 'instrument' }, () =>
+      this.submitObserved(command),
+    );
+  }
+
+  /** Проверяет ownership и применяет команду внутри sequencer tracing boundary. */
+  private submitObserved(command: SequencedCommand<TPayload>): TResult {
     try {
       const owner = this.owners.get(command.instrumentId);
       if (!owner) throw new PartitionOwnershipError('PARTITION_UNASSIGNED');
@@ -55,6 +92,9 @@ export class TradingSequencer<TPayload, TResult> {
       });
       return result;
     } catch (error) {
+      if (error instanceof StateMachineAdmissionError && String(error.code).includes('GAP')) {
+        this.metrics.observeGap('sequencer');
+      }
       this.logger.warn('sequencer', LOG_EVENTS.SEQUENCER_COMMAND_REJECTED, {
         commandId: command.commandId,
         metadata: {

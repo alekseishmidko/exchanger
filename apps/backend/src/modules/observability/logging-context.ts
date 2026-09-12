@@ -21,12 +21,26 @@ export type LoggingContextValue = Readonly<{
 export class LoggingContext {
   private readonly storage = new AsyncLocalStorage<LoggingContextValue>();
 
-  /** Выполняет callback в неизменяемом контексте конкретного потока. */
+  /**
+   * Выполняет callback в неизменяемом контексте конкретного потока.
+   *
+   * Вложенные Promise/callback наследуют значение, а параллельный запрос получает
+   * отдельное хранилище. Копирование объекта не позволяет вызывающему коду менять
+   * уже активный context после запуска операции.
+   *
+   * @param value Correlation и optional causation/command/event identifiers.
+   * @param callback Синхронная либо возвращающая Promise application operation.
+   * @returns Исходный результат callback без преобразования.
+   */
   run<T>(value: LoggingContextValue, callback: () => T): T {
     return this.storage.run({ ...value }, callback);
   }
 
-  /** Возвращает metadata текущего потока либо пустое значение вне boundary. */
+  /**
+   * Возвращает metadata текущего потока либо пустое значение вне boundary.
+   * Это позволяет startup/background логам использовать тот же logger без
+   * искусственного correlationId.
+   */
   current(): Partial<LoggingContextValue> {
     return this.storage.getStore() ?? {};
   }

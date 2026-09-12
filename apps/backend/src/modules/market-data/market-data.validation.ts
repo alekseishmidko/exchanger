@@ -12,6 +12,16 @@ const identifier = z
   .min(1)
   .max(128)
   .regex(/^[A-Za-z0-9._:-]+$/);
+/** W3C trace carrier без произвольных baggage fields. */
+const traceCarrier = z
+  .object({
+    traceparent: z
+      .string()
+      .regex(/^00-[0-9a-f]{32}-[0-9a-f]{16}-0[01]$/i)
+      .optional(),
+    tracestate: z.string().max(512).optional(),
+  })
+  .strict();
 
 /**
  * Strict runtime-схема subscribe/unsubscribe.
@@ -26,6 +36,7 @@ export const subscriptionSchema = z
     channel: z.enum(['book', 'trades', 'ticker', 'user']),
     instrumentId: identifier.optional(),
     userId: identifier.optional(),
+    trace: traceCarrier.optional(),
   })
   .strict()
   .superRefine((value, context) => {
@@ -43,12 +54,13 @@ export const resyncSchema = z
     requestId,
     instrumentId: identifier,
     lastSequence: z.number().int().nonnegative(),
+    trace: traceCarrier.optional(),
   })
   .strict();
 
 /** Strict runtime-схема heartbeat; sentAt нужен только для измерения RTT клиента. */
 export const heartbeatSchema = z
-  .object({ requestId, sentAt: z.string().datetime().optional() })
+  .object({ requestId, sentAt: z.string().datetime().optional(), trace: traceCarrier.optional() })
   .strict();
 
 /** Точный decimal wire-format без JSON floating point и exponent notation. */

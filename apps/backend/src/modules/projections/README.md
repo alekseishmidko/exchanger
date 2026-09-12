@@ -1,5 +1,11 @@
 # Projections и query API
 
+## Observability boundary
+
+`projection.apply` продолжает trace исходного event, projection lag публикуется
+bounded gauge, а sequence gap — отдельным counter. User/account IDs не являются
+labels и применяются только внутри authorization-filtered read model.
+
 Projection store строит order history, trade history и balance read models из упорядоченного event log. `eventId` защищает от duplicate delivery, `sequence` обнаруживает gap, а `rebuild(events)` очищает состояние и выполняет полный replay.
 
 Query endpoints:

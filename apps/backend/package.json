@@ -13,7 +13,7 @@
     "typecheck": "tsc --noEmit",
     "format": "prettier --write \"{src,test}/**/*.ts\"",
     "format:check": "prettier --check \"{src,test}/**/*.ts\"",
-    "contracts:check": "jest test/api-contracts.spec.ts test/transport-api.e2e-spec.ts test/api-flow.e2e-spec.ts test/market-data.websocket.e2e-spec.ts src/modules/observability/structured-logger.spec.ts src/modules/observability/logging-flow.spec.ts --runInBand"
+    "contracts:check": "jest test/api-contracts.spec.ts test/transport-api.e2e-spec.ts test/api-flow.e2e-spec.ts test/market-data.websocket.e2e-spec.ts src/modules/observability/structured-logger.spec.ts src/modules/observability/logging-flow.spec.ts src/modules/observability/metrics.spec.ts src/modules/observability/tracing.spec.ts src/modules/observability/observability-config.spec.ts --runInBand"
   },
   "dependencies": {
     "@exchange/contracts": "workspace:*",
@@ -25,6 +25,11 @@
     "@nestjs/platform-socket.io": "^11.2.3",
     "@nestjs/swagger": "^11.4.7",
     "@nestjs/websockets": "^11.2.3",
+    "@opentelemetry/api": "^1.9.1",
+    "@opentelemetry/context-async-hooks": "^2.11.0",
+    "@opentelemetry/exporter-trace-otlp-http": "^0.222.0",
+    "@opentelemetry/sdk-trace-base": "^2.11.0",
+    "prom-client": "^15.1.3",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.2",
     "socket.io": "^4.8.3",

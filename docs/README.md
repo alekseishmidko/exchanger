@@ -1,7 +1,12 @@
 # Документация проекта
 
 - [Structured logging](observability/logging.md)
+- [Metrics and cardinality](observability/metrics.md)
+- [Distributed tracing](observability/tracing.md)
+- [SLI/SLO and error budgets](observability/slo.md)
+- [Dashboards and alerts](observability/alerts.md)
 - [Runbook поиска потока в логах](runbooks/log-correlation.md)
+- [Observability blackout runbook](runbooks/observability-blackout.md)
 
 ## Глобальные документы
 

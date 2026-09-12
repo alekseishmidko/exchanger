@@ -165,6 +165,14 @@ Operational logging выполняется только через DI adapter `S
 передавать correlation/causation metadata и не сериализовать request/event/domain
 payload. Подробный контракт: [`observability/logging.md`](observability/logging.md).
 
+Operational metrics создаются только через `MetricsService` и bounded labels из
+`METRIC_LABEL_POLICY`. Пользовательские и доменные identifiers запрещены как
+labels; для перехода от агрегата к конкретному потоку используются exemplars и
+trace. Критичная boundary создаёт span из каталога `TRACE_SPANS`, переносит W3C
+context через command/event envelope и не зависит от доступности exporter.
+Изменение SLI, alert threshold или dashboard выполняется вместе с contract test
+и документацией в [`docs/observability/`](observability/).
+
 - миграции и rollback/recovery-план проверены;
 - CI выполняет форматирование, lint, typecheck, тесты и сборку;
 - нет известных нарушений инвариантов или необъяснённых flaky-тестов.

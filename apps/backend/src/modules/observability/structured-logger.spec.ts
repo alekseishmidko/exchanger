@@ -95,6 +95,8 @@ describe('StructuredLogger contract', () => {
       causationId: 'event-parent',
       commandId: 'command-1',
       eventId: null,
+      traceId: null,
+      spanId: null,
       outcome: 'success',
       durationMs: 1.25,
       metadata: {},

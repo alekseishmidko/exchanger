@@ -1,5 +1,11 @@
 # Market data и WebSocket boundary
 
+## Observability boundary
+
+WebSocket-команда может передать optional W3C `trace` carrier. Gateway создаёт
+`websocket.message`, записывает RED count/duration по bounded operation/channel и
+никогда не использует socketId/userId как label.
+
 ## Назначение и границы
 
 `MarketDataHub` хранит transport-independent snapshots, bounded replay history и

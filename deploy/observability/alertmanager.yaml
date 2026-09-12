@@ -1,0 +1,19 @@
+global:
+  resolve_timeout: 5m
+
+route:
+  receiver: staging-observation
+  group_by: [alertname, owner, severity]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  routes:
+    - matchers: [severity="critical"]
+      receiver: staging-observation
+      repeat_interval: 15m
+
+# Receiver без внешнего webhook предназначен только для воспроизводимого staging:
+# firing/resolved видны в Alertmanager UI. Production deployment добавляет
+# PagerDuty/Slack receivers из secret-managed configuration, не из Git.
+receivers:
+  - name: staging-observation
