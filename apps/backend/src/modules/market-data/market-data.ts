@@ -1,4 +1,5 @@
 import { BadRequestException, ForbiddenException } from '@nestjs/common';
+import { NOOP_OPERATIONAL_METRICS, OperationalMetrics } from '../observability';
 
 /**
  * Один агрегированный уровень стакана.
@@ -114,10 +115,12 @@ export class MarketDataHub {
    *
    * @param maxSubscribers Максимальное число public и private subscriptions.
    * @param maxPendingPerSubscriber Максимум сообщений, ожидающих доставки одному consumer.
+   * @param metrics Port низкокардинальных freshness/gap метрик; в domain-тестах no-op.
    */
   constructor(
     private readonly maxSubscribers = 1000,
     private readonly maxPendingPerSubscriber = 100,
+    private readonly metrics: OperationalMetrics = NOOP_OPERATIONAL_METRICS,
   ) {}
 
   /**
@@ -133,6 +136,7 @@ export class MarketDataHub {
       asks: new Map(snapshot.asks.map((level) => [level.price, level.quantity])),
       history: [],
     });
+    this.metrics.markMarketDataPublished('book');
   }
 
   /**
@@ -144,7 +148,10 @@ export class MarketDataHub {
    */
   publishIncrement(increment: OrderBookIncrement): void {
     const book = this.books.get(increment.instrumentId);
-    if (!book || increment.sequence !== book.sequence + 1) throw new MarketDataGapError();
+    if (!book || increment.sequence !== book.sequence + 1) {
+      this.metrics.observeGap('market-data');
+      throw new MarketDataGapError();
+    }
     this.applyLevels(book.bids, increment.bids);
     this.applyLevels(book.asks, increment.asks);
     book.sequence = increment.sequence;
@@ -154,6 +161,7 @@ export class MarketDataHub {
       this.publicSubscribers.get(this.publicKey(increment.instrumentId, 'book')) ?? [],
       increment,
     );
+    this.metrics.markMarketDataPublished('book');
   }
 
   /** Возвращает immutable snapshot текущего стакана для reconnect/resync. */
@@ -240,12 +248,17 @@ export class MarketDataHub {
     this.broadcast(this.privateSubscribers.get(event.userId) ?? [], event);
   }
 
-  /** Публикует trade/ticker только подписчикам того же instrument и channel. */
+  /**
+   * Публикует trade/ticker только подписчикам того же instrument и channel.
+   * После fan-out обновляет freshness timestamp по bounded channel label; payload
+   * сделки и идентификаторы клиентов в метрики не передаются.
+   */
   publishTick(event: MarketTick): void {
     this.broadcast(
       this.publicSubscribers.get(this.publicKey(event.instrumentId, event.channel)) ?? [],
       event,
     );
+    this.metrics.markMarketDataPublished(event.channel);
   }
 
   /** Возвращает число активных subscriptions для monitoring и fan-out alerts. */

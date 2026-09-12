@@ -321,6 +321,7 @@ components:
             requestId: { $ref: '#/components/schemas/Identifier' }
             channel: { type: string, enum: [book, trades, ticker] }
             instrumentId: { $ref: '#/components/schemas/Identifier' }
+            trace: { $ref: '#/components/schemas/TraceCarrier' }
         - type: object
           additionalProperties: false
           required: [requestId, channel, userId]
@@ -328,6 +329,7 @@ components:
             requestId: { $ref: '#/components/schemas/Identifier' }
             channel: { type: string, const: user }
             userId: { $ref: '#/components/schemas/Identifier' }
+            trace: { $ref: '#/components/schemas/TraceCarrier' }
     ResyncRequest:
       type: object
       additionalProperties: false
@@ -336,6 +338,7 @@ components:
         requestId: { $ref: '#/components/schemas/Identifier' }
         instrumentId: { $ref: '#/components/schemas/Identifier' }
         lastSequence: { type: integer, minimum: 0 }
+        trace: { $ref: '#/components/schemas/TraceCarrier' }
     HeartbeatRequest:
       type: object
       additionalProperties: false
@@ -343,6 +346,18 @@ components:
       properties:
         requestId: { $ref: '#/components/schemas/Identifier' }
         sentAt: { type: string, format: date-time }
+        trace: { $ref: '#/components/schemas/TraceCarrier' }
+    TraceCarrier:
+      type: object
+      additionalProperties: false
+      description: Optional W3C OpenTelemetry context; baggage and business IDs are forbidden.
+      properties:
+        traceparent:
+          type: string
+          pattern: '^00-[0-9a-fA-F]{32}-[0-9a-fA-F]{16}-0[01]$'
+        tracestate:
+          type: string
+          maxLength: 512
     EnvelopeMetadata:
       type: object
       required: [messageVersion, correlationId, emittedAt, sequence]

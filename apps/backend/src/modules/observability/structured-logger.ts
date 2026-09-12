@@ -2,6 +2,7 @@ import { Injectable, LoggerService, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { KNOWN_LOG_EVENTS, LOG_EVENTS, LogEventName, UNSAMPLED_LOG_EVENTS } from './log-events';
 import { LoggingContext } from './logging-context';
+import { context, trace } from '@opentelemetry/api';
 
 /** Поддерживаемые уровни, совместимые с production log collectors. */
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
@@ -20,6 +21,8 @@ export type StructuredLogRecord = Readonly<{
   causationId: string | null;
   commandId: string | null;
   eventId: string | null;
+  traceId: string | null;
+  spanId: string | null;
   outcome: LogOutcome;
   durationMs: number | null;
   metadata: Readonly<Record<string, unknown>>;
@@ -89,6 +92,18 @@ export class StructuredLogger implements LoggerService, OperationalLogger {
   private readonly sink: LogSink;
   private readonly buckets = new Map<string, { startedAt: number; count: number }>();
 
+  /**
+   * Создаёт logger с конфигурацией окружения и заменяемым output sink.
+   *
+   * В production sink по умолчанию пишет по одной JSON-записи в stdout, чтобы
+   * runtime мог собирать логи без файлов внутри контейнера. В тестах вывод
+   * отключён; переданный in-memory sink позволяет проверять полный контракт и
+   * redaction без перехвата глобальной консоли.
+   *
+   * @param context Источник correlation/causation идентификаторов текущего flow.
+   * @param config Настройки service, environment, build и sampling window.
+   * @param sink Необязательный безопасный получатель готовой log record.
+   */
   constructor(
     private readonly context: LoggingContext,
     @Optional() config?: ConfigService,
@@ -106,12 +121,22 @@ export class StructuredLogger implements LoggerService, OperationalLogger {
     this.sampleWindowMs = config?.get<number>('LOG_SAMPLE_WINDOW_MS', 10_000) ?? 10_000;
   }
 
-  /** Пишет success/info event. */
+  /**
+   * Пишет успешное terminal-событие уровня `info`.
+   *
+   * @param module Стабильное имя владельца события, например `ledger`.
+   * @param event Имя из централизованного каталога `LOG_EVENTS`.
+   * @param attributes Идентификаторы flow, outcome, duration и безопасная metadata.
+   */
   info(module: string, event: LogEventName, attributes: LogAttributes = {}): void {
     this.emit('info', module, event, { outcome: 'success', ...attributes });
   }
 
-  /** Пишет dependency/internal failure; stack разрешён лишь для internal event. */
+  /**
+   * Пишет dependency/internal failure уровня `error`.
+   * Stack включается только при `internal=true`, после обязательной redaction;
+   * пользовательский error response из этой записи не формируется.
+   */
   failure(module: string, event: LogEventName, attributes: LogAttributes = {}): void {
     this.emit('error', module, event, { outcome: 'failure', ...attributes });
   }
@@ -159,7 +184,11 @@ export class StructuredLogger implements LoggerService, OperationalLogger {
     this.debug(message, context);
   }
 
-  /** Возвращает build version для startup record без чтения process.env. */
+  /**
+   * Возвращает build version для startup record без повторного чтения process.env.
+   *
+   * @returns Версия image/commit либо безопасный fallback `development`.
+   */
   getBuildVersion(): string {
     return this.buildVersion;
   }
@@ -174,6 +203,7 @@ export class StructuredLogger implements LoggerService, OperationalLogger {
     if (!KNOWN_LOG_EVENTS.has(event)) throw new Error(`Unknown production log event: ${event}`);
     if (!this.shouldWrite(event, level)) return;
     const inherited = this.context.current();
+    const activeSpan = trace.getSpan(context.active())?.spanContext();
     const error = attributes.error;
     const record: StructuredLogRecord = {
       timestamp: new Date().toISOString(),
@@ -186,6 +216,8 @@ export class StructuredLogger implements LoggerService, OperationalLogger {
       causationId: attributes.causationId ?? inherited.causationId ?? null,
       commandId: attributes.commandId ?? inherited.commandId ?? null,
       eventId: attributes.eventId ?? inherited.eventId ?? null,
+      traceId: activeSpan?.traceId ?? null,
+      spanId: activeSpan?.spanId ?? null,
       outcome: attributes.outcome ?? (level === 'error' ? 'failure' : 'success'),
       durationMs: attributes.durationMs ?? null,
       metadata: this.redact(attributes.metadata ?? {}) as Readonly<Record<string, unknown>>,

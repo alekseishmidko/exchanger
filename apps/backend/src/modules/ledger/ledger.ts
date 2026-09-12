@@ -2,6 +2,7 @@ import { AccountId, AssetId, createId, Decimal, OperationId, PostingId } from '.
 import { Account, Asset } from './asset-account';
 import { Balance } from './balance';
 import { assertBalancedPostings, Posting } from './posting';
+import { NOOP_TELEMETRY, TelemetryPort, TRACE_SPANS } from '../observability';
 
 /** Результат идемпотентной операции ledger. */
 export type OperationResult = Readonly<{
@@ -18,6 +19,17 @@ export class Ledger {
   private readonly postings: Posting[] = [];
   private readonly operations = new Map<OperationId, OperationResult>();
   private nextPostingNumber = 1;
+
+  /**
+   * Создаёт ledger aggregate с заменяемым telemetry port.
+   *
+   * No-op значение сохраняет независимость домена от NestJS и OpenTelemetry.
+   * Production composition root передаёт adapter, который измеряет commit, но
+   * не получает accountId, amount или другие финансовые данные в attributes.
+   *
+   * @param telemetry Port для span вокруг атомарного набора проводок.
+   */
+  constructor(private readonly telemetry: TelemetryPort = NOOP_TELEMETRY) {}
 
   /** Регистрирует asset definition до проведения операций. */
   registerAsset(asset: Asset): void {
@@ -113,8 +125,36 @@ export class Ledger {
     return result;
   }
 
-  /** Переводит средства из reserved источника в available получателя. */
+  /**
+   * Переводит средства из reserved источника в available получателя.
+   *
+   * Операция выполняется внутри `ledger.commit` span и остаётся идемпотентной по
+   * `operationId`. Trace не изменяет порядок проверок и не может превратить
+   * неуспешную проводку в успешную.
+   */
   settleReservedTransfer(
+    operationId: OperationId,
+    debitAccountId: AccountId,
+    creditAccountId: AccountId,
+    assetId: AssetId,
+    amount: Decimal,
+  ): OperationResult {
+    return this.telemetry.span(
+      TRACE_SPANS.LEDGER_COMMIT,
+      { 'ledger.operation': 'reserved_transfer' },
+      () =>
+        this.settleReservedTransferObserved(
+          operationId,
+          debitAccountId,
+          creditAccountId,
+          assetId,
+          amount,
+        ),
+    );
+  }
+
+  /** Применяет atomic debit/credit posting set внутри ledger commit span. */
+  private settleReservedTransferObserved(
     operationId: OperationId,
     debitAccountId: AccountId,
     creditAccountId: AccountId,

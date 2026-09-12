@@ -12,6 +12,7 @@ Production использует JSON Lines: одна завершённая JSON
 | `service`              | стабильное имя сервиса (`SERVICE_NAME`)                         |
 | `module`               | источник boundary: `gateway`, `ledger`, `settlement` и т. п.    |
 | `event`                | имя из compile-time каталога `LOG_EVENTS`                       |
+| `traceId`, `spanId`    | активный OpenTelemetry context либо `null`                       |
 | `environment`          | `development`, `test` или `production`                          |
 | `correlationId`        | идентификатор полного пользовательского потока либо `null`      |
 | `causationId`          | command/event, непосредственно породивший действие, либо `null` |

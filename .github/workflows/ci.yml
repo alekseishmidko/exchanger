@@ -56,6 +56,9 @@ jobs:
       - name: API contract validation and drift checks
         run: pnpm contracts:check
 
+      - name: Observability configuration and telemetry contracts
+        run: pnpm observability:check
+
       - name: Tests
         run: pnpm test
 

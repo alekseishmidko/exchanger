@@ -29,7 +29,19 @@ export function environmentFilePaths(
   ];
 }
 
-/** Проверяет обязательные переменные и диапазон порта до старта NestJS. */
+/**
+ * Проверяет обязательные переменные до создания NestJS application graph.
+ *
+ * Помимо адреса сервера функция валидирует Swagger/WebSocket/logging и bounded
+ * OpenTelemetry queue/timeout. Некорректный OTLP URL или нулевой лимит завершает
+ * startup немедленно, поэтому runtime не начинает работу в частично настроенном
+ * состоянии. Значения возвращаются без секретного логирования и доступны далее
+ * через `ConfigService.getOrThrow`; optional настройки имеют явный fallback.
+ *
+ * @param config Сырые значения, объединённые ConfigModule по env-file priority.
+ * @returns Тот же объект после успешной полной проверки.
+ * @throws Error При отсутствующем обязательном поле или небезопасном формате.
+ */
 export function validateEnvironment(config: EnvironmentConfig): EnvironmentConfig {
   const nodeEnv = config['NODE_ENV'];
   const port = config['PORT'] ?? 5000;
@@ -113,6 +125,46 @@ export function validateEnvironment(config: EnvironmentConfig): EnvironmentConfi
     }
     if (value !== undefined && Number(value) < 1) {
       throw new Error(`${key} must be a positive integer`);
+    }
+  }
+
+  for (const key of [
+    'OTEL_BSP_MAX_QUEUE_SIZE',
+    'OTEL_BSP_MAX_EXPORT_BATCH_SIZE',
+    'OTEL_BSP_SCHEDULE_DELAY',
+    'OTEL_BSP_EXPORT_TIMEOUT',
+    'OTEL_DIAGNOSTIC_SPAN_LIMIT',
+  ] as const) {
+    const value = config[key];
+    if (
+      value !== undefined &&
+      ((typeof value !== 'string' && typeof value !== 'number') || !/^\d+$/.test(`${value}`))
+    ) {
+      throw new Error(`${key} must be a positive integer`);
+    }
+    if (value !== undefined && Number(value) < 1) {
+      throw new Error(`${key} must be a positive integer`);
+    }
+  }
+
+  const tracesEnabled = config['OTEL_TRACES_ENABLED'];
+  if (
+    tracesEnabled !== undefined &&
+    (typeof tracesEnabled !== 'string' || !['true', 'false', '1', '0'].includes(tracesEnabled))
+  ) {
+    throw new Error('OTEL_TRACES_ENABLED must be true, false, 1, or 0');
+  }
+
+  const tracesEndpoint = config['OTEL_EXPORTER_OTLP_TRACES_ENDPOINT'];
+  if (tracesEndpoint !== undefined) {
+    if (typeof tracesEndpoint !== 'string') {
+      throw new Error('OTEL_EXPORTER_OTLP_TRACES_ENDPOINT must be an absolute HTTP(S) URL');
+    }
+    try {
+      const url = new URL(tracesEndpoint);
+      if (!['http:', 'https:'].includes(url.protocol)) throw new Error('unsafe protocol');
+    } catch {
+      throw new Error('OTEL_EXPORTER_OTLP_TRACES_ENDPOINT must be an absolute HTTP(S) URL');
     }
   }
 

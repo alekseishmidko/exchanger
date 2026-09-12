@@ -43,6 +43,9 @@ import {
   NOOP_OPERATIONAL_LOGGER,
   OperationalLogger,
   StructuredLogger,
+  MetricsService,
+  TelemetryService,
+  TRACE_SPANS,
 } from '../observability';
 import {
   CancelOrderRequestDto,
@@ -70,17 +73,38 @@ type GatewayRequest = { principal: ApiKeyPrincipal };
 export class GatewayController {
   private readonly logger: OperationalLogger;
 
+  /**
+   * Собирает command transport boundary из application ports и observability.
+   *
+   * Контроллер не получает matching engine или ledger напрямую. После guard он
+   * проверяет idempotency/rate/object access, строит публичную command-модель и
+   * вызывает только `TradingCommandPort`. Span и metrics используют bounded тип
+   * команды; финансовый payload не записывается в telemetry.
+   *
+   * @param trading Разрешённый application port place/cancel сценариев.
+   * @param idempotency Хранилище результата повторной HTTP-команды.
+   * @param rateLimit Ограничитель нагрузки на API key boundary.
+   * @param metrics Метрики command acceptance/rejection.
+   * @param telemetry Adapter admission span текущего HTTP trace.
+   * @param logger Необязательный operational logger с no-op fallback.
+   */
   constructor(
     @Inject('TRADING_COMMAND_PORT')
     private readonly trading: TradingCommandPort,
     private readonly idempotency: IdempotencyStore,
     private readonly rateLimit: RateLimitService,
+    private readonly metrics: MetricsService,
+    private readonly telemetry: TelemetryService,
     @Optional() @Inject(StructuredLogger) logger?: StructuredLogger,
   ) {
     this.logger = logger ?? NOOP_OPERATIONAL_LOGGER;
   }
 
-  /** Валидирует, авторизует и направляет place command в trading core. */
+  /**
+   * Валидирует, авторизует и направляет place command в trading core.
+   * Повтор с тем же API key и `Idempotency-Key` возвращает сохранённый результат
+   * без второго business effect; несовместимый payload отклоняет store.
+   */
   @Post('orders')
   @ApiOperation({ summary: 'Разместить заявку' })
   @ApiHeader({
@@ -108,25 +132,33 @@ export class GatewayController {
       userId: request.principal.userId,
       limitPrice: body.limitPrice ?? null,
     };
-    return this.idempotency.execute(`${request.principal.keyId}:${key}`, command, async () => {
-      try {
-        const result = await this.trading.placeOrder(command);
-        this.logger.info('gateway', LOG_EVENTS.GATEWAY_COMMAND_ACCEPTED, {
-          commandId: command.commandId,
-          metadata: { commandType: 'PLACE_ORDER', instrumentId: command.instrumentId },
-        });
-        return result;
-      } catch (error) {
-        this.logger.warn('gateway', LOG_EVENTS.GATEWAY_COMMAND_REJECTED, {
-          commandId: command.commandId,
-          metadata: { commandType: 'PLACE_ORDER', errorType: this.errorType(error) },
-        });
-        throw error;
-      }
-    });
+    return this.telemetry.span(TRACE_SPANS.COMMAND_ADMISSION, { 'command.type': 'place' }, () =>
+      this.idempotency.execute(`${request.principal.keyId}:${key}`, command, async () => {
+        try {
+          const result = await this.trading.placeOrder(command);
+          this.metrics.observeCommand('place', 'accepted');
+          this.logger.info('gateway', LOG_EVENTS.GATEWAY_COMMAND_ACCEPTED, {
+            commandId: command.commandId,
+            metadata: { commandType: 'PLACE_ORDER', instrumentId: command.instrumentId },
+          });
+          return result;
+        } catch (error) {
+          this.metrics.observeCommand('place', 'rejected', this.metricReason(error));
+          this.logger.warn('gateway', LOG_EVENTS.GATEWAY_COMMAND_REJECTED, {
+            commandId: command.commandId,
+            metadata: { commandType: 'PLACE_ORDER', errorType: this.errorType(error) },
+          });
+          throw error;
+        }
+      }),
+    );
   }
 
-  /** Валидирует, авторизует и направляет cancel command в trading core. */
+  /**
+   * Валидирует, авторизует и направляет cancel command в trading core.
+   * Path и body обязаны адресовать одну заявку, после чего используется та же
+   * admission/idempotency цепочка, что и для размещения заявки.
+   */
   @Post('orders/:orderId/cancel')
   @ApiOperation({ summary: 'Отменить активную заявку' })
   @ApiParam({ name: 'orderId', example: 'order-1' })
@@ -158,22 +190,26 @@ export class GatewayController {
       idempotencyKey: key,
       userId: request.principal.userId,
     };
-    return this.idempotency.execute(`${request.principal.keyId}:${key}`, command, async () => {
-      try {
-        const result = await this.trading.cancelOrder(command);
-        this.logger.info('gateway', LOG_EVENTS.GATEWAY_COMMAND_ACCEPTED, {
-          commandId: command.commandId,
-          metadata: { commandType: 'CANCEL_ORDER', orderId: command.orderId },
-        });
-        return result;
-      } catch (error) {
-        this.logger.warn('gateway', LOG_EVENTS.GATEWAY_COMMAND_REJECTED, {
-          commandId: command.commandId,
-          metadata: { commandType: 'CANCEL_ORDER', errorType: this.errorType(error) },
-        });
-        throw error;
-      }
-    });
+    return this.telemetry.span(TRACE_SPANS.COMMAND_ADMISSION, { 'command.type': 'cancel' }, () =>
+      this.idempotency.execute(`${request.principal.keyId}:${key}`, command, async () => {
+        try {
+          const result = await this.trading.cancelOrder(command);
+          this.metrics.observeCommand('cancel', 'accepted');
+          this.logger.info('gateway', LOG_EVENTS.GATEWAY_COMMAND_ACCEPTED, {
+            commandId: command.commandId,
+            metadata: { commandType: 'CANCEL_ORDER', orderId: command.orderId },
+          });
+          return result;
+        } catch (error) {
+          this.metrics.observeCommand('cancel', 'rejected', this.metricReason(error));
+          this.logger.warn('gateway', LOG_EVENTS.GATEWAY_COMMAND_REJECTED, {
+            commandId: command.commandId,
+            metadata: { commandType: 'CANCEL_ORDER', errorType: this.errorType(error) },
+          });
+          throw error;
+        }
+      }),
+    );
   }
 
   /** Проверяет формат обязательного Idempotency-Key до обращения к core. */
@@ -214,5 +250,11 @@ export class GatewayController {
   /** Возвращает только класс ошибки, не message/stack с потенциальным payload. */
   private errorType(error: unknown): string {
     return error instanceof Error ? error.name : 'UnknownError';
+  }
+
+  /** Сводит произвольные exception classes к bounded metric reason. */
+  private metricReason(error: unknown): string {
+    if (error instanceof BadRequestException) return 'validation';
+    return 'unknown';
   }
 }

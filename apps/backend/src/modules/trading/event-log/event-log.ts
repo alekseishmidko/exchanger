@@ -4,15 +4,26 @@ import {
   LoggingContext,
   NOOP_OPERATIONAL_LOGGER,
   OperationalLogger,
+  NOOP_TELEMETRY,
+  TelemetryPort,
+  TraceCarrier,
+  TRACE_SPANS,
 } from '../../observability';
 
-/** Минимальное immutable событие для durable event log adapter. */
+/**
+ * Минимальное immutable событие для durable event log adapter.
+ *
+ * `trace` хранит только W3C carrier и позволяет consumer продолжить trace после
+ * чтения журнала. В carrier отсутствуют payload и business IDs, поэтому tracing
+ * metadata не раскрывает внутреннее состояние и не участвует в идемпотентности.
+ */
 export type LogEvent = Readonly<{
   eventId: string;
   eventType: string;
   payload: unknown;
   correlationId?: string;
   causationId?: string;
+  trace?: TraceCarrier;
 }>;
 
 /**
@@ -45,32 +56,59 @@ export class EventLog {
   private offset = 0;
   private failuresBeforeSuccess = 0;
 
+  /**
+   * Создаёт append/consume boundary с заменяемыми operational adapters.
+   *
+   * Logger и context отвечают за диагностику причинной цепочки, telemetry — за
+   * producer/consumer spans. Их no-op/optional значения позволяют replay-тестам
+   * использовать журнал без NestJS и сети, сохраняя ту же бизнес-семантику.
+   *
+   * @param logger Стабильные append/retry/DLQ/recovery log events.
+   * @param context AsyncLocalStorage-контекст downstream consumer handler.
+   * @param telemetry Port для переноса trace через durable asynchronous boundary.
+   */
   constructor(
     private readonly logger: OperationalLogger = NOOP_OPERATIONAL_LOGGER,
     private readonly context?: LoggingContext,
+    private readonly telemetry: TelemetryPort = NOOP_TELEMETRY,
   ) {}
 
-  /** Добавляет событие с контролируемой timeout-ошибкой. */
+  /**
+   * Добавляет событие с контролируемой timeout-ошибкой.
+   *
+   * Если producer не передал carrier, активный span сериализуется перед append.
+   * Событие попадает в массив только после проверки simulated dependency failure;
+   * при timeout вызывающий код получает ошибку и может безопасно повторить append.
+   *
+   * @param event Immutable envelope с уникальным eventId и безопасной metadata.
+   */
   async append(event: LogEvent): Promise<void> {
-    await Promise.resolve();
-    if (this.failuresBeforeSuccess > 0) {
-      this.failuresBeforeSuccess -= 1;
-      this.logger.warn('event-log', LOG_EVENTS.EVENT_LOG_TIMEOUT, {
-        eventId: event.eventId,
-        correlationId: event.correlationId,
-        causationId: event.causationId,
-        outcome: 'retry',
-        metadata: { eventType: event.eventType },
-      });
-      throw new EventLogTimeout();
-    }
-    this.events.push(event);
-    this.logger.info('event-log', LOG_EVENTS.EVENT_LOG_APPENDED, {
-      eventId: event.eventId,
-      correlationId: event.correlationId,
-      causationId: event.causationId,
-      metadata: { eventType: event.eventType, offset: this.events.length - 1 },
-    });
+    return this.telemetry.span(
+      TRACE_SPANS.EVENT_APPEND,
+      { 'event.type': event.eventType },
+      async () => {
+        await Promise.resolve();
+        if (this.failuresBeforeSuccess > 0) {
+          this.failuresBeforeSuccess -= 1;
+          this.logger.warn('event-log', LOG_EVENTS.EVENT_LOG_TIMEOUT, {
+            eventId: event.eventId,
+            correlationId: event.correlationId,
+            causationId: event.causationId,
+            outcome: 'retry',
+            metadata: { eventType: event.eventType },
+          });
+          throw new EventLogTimeout();
+        }
+        const stored = event.trace ? event : { ...event, trace: this.telemetry.carrier() };
+        this.events.push(stored);
+        this.logger.info('event-log', LOG_EVENTS.EVENT_LOG_APPENDED, {
+          eventId: event.eventId,
+          correlationId: event.correlationId,
+          causationId: event.causationId,
+          metadata: { eventType: event.eventType, offset: this.events.length - 1 },
+        });
+      },
+    );
   }
 
   /** Настраивает число временных отказов для retry тестов. */
@@ -78,7 +116,16 @@ export class EventLog {
     this.failuresBeforeSuccess = Math.max(0, count);
   }
 
-  /** Обрабатывает события после committed offset с retry и DLQ. */
+  /**
+   * Обрабатывает события после committed offset с retry и DLQ.
+   *
+   * Каждый вызов handler выполняется в consumer span, дочернем к producer trace.
+   * Offset сдвигается после terminal результата: успешной обработки либо переноса
+   * в DLQ после `maxRetries`, поэтому poison event не блокирует очередь навсегда.
+   *
+   * @param handler Идемпотентный consumer callback одного события.
+   * @param maxRetries Максимальное число попыток до dead-letter policy.
+   */
   async consume(handler: (event: LogEvent) => Promise<void>, maxRetries = 3): Promise<void> {
     while (this.offset < this.events.length) {
       const event = this.events[this.offset];
@@ -86,7 +133,16 @@ export class EventLog {
       let handled = false;
       for (let attempt = 0; attempt < maxRetries && !handled; attempt += 1) {
         try {
-          await this.handleInContext(event, handler);
+          if (this.telemetry.continueSpan) {
+            await this.telemetry.continueSpan(
+              TRACE_SPANS.EVENT_CONSUME,
+              event.trace ?? {},
+              { 'event.type': event.eventType },
+              () => this.handleInContext(event, handler),
+            );
+          } else {
+            await this.handleInContext(event, handler);
+          }
           handled = true;
           this.logger.info('event-log', LOG_EVENTS.EVENT_LOG_CONSUMED, {
             eventId: event.eventId,

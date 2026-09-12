@@ -2,7 +2,7 @@ import { ForbiddenException, Inject, Injectable, Optional } from '@nestjs/common
 import { AuditActor, AuditLog, AdministrativeRole, AuditRecord } from '../audit';
 import { Decimal } from '../shared-kernel';
 import { Instrument, InstrumentCatalogService, InstrumentRules } from '../trading/instruments';
-import { LOG_EVENTS, StructuredLogger } from '../observability';
+import { LOG_EVENTS, MetricsService, StructuredLogger } from '../observability';
 
 /** Версионированная комиссия maker/taker, вступающая в силу в заданный момент. */
 export type FeePolicy = Readonly<{
@@ -97,10 +97,23 @@ export class AdminService {
   private readonly frozenAccounts = new Set<string>();
   private readonly stoppedTargets = new Set<string>();
 
+  /**
+   * Создаёт административную application boundary.
+   *
+   * Audit log остаётся обязательной бизнес-зависимостью. Operational logger и
+   * metrics дополняют, но не заменяют immutable audit: открытие circuit breaker
+   * отражается gauge, а нарушение reconciliation — отдельным counter.
+   *
+   * @param audit Tamper-evident журнал всех административных решений.
+   * @param instruments Каталог версионированных правил и lifecycle инструментов.
+   * @param logger Необязательный operational logger для runtime диагностики.
+   * @param metrics Необязательные circuit-breaker/reconciliation метрики.
+   */
   constructor(
     private readonly audit: AuditLog,
     private readonly instruments: InstrumentCatalogService = new InstrumentCatalogService(),
     @Optional() @Inject(StructuredLogger) private readonly logger?: StructuredLogger,
+    @Optional() @Inject(MetricsService) private readonly metrics?: MetricsService,
   ) {}
 
   /**
@@ -280,6 +293,7 @@ export class AdminService {
       feePolicyVersions: this.feePolicies.map(({ version }) => version),
       riskPolicyVersions: this.riskPolicies.map(({ version }) => version),
     };
+    if (!dashboard.auditIntegrity) this.metrics?.observeReconciliationDifference('ledger');
     this.audit.append(
       actor,
       'RECONCILIATION_EXECUTED',
@@ -349,9 +363,11 @@ export class AdminService {
         break;
       case 'EMERGENCY_STOP':
         this.stoppedTargets.add(command.targetId);
+        this.metrics?.setCircuitBreaker('trading', 'open');
         break;
       case 'RESUME_TRADING':
         this.stoppedTargets.delete(command.targetId);
+        this.metrics?.setCircuitBreaker('trading', 'closed');
         break;
     }
   }

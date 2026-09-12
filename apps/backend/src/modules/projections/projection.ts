@@ -4,6 +4,14 @@ import {
   NOOP_OPERATIONAL_LOGGER,
   OperationalLogger,
   StructuredLogger,
+  NOOP_TELEMETRY,
+  TelemetryPort,
+  TelemetryService,
+  MetricsService,
+  NOOP_OPERATIONAL_METRICS,
+  OperationalMetrics,
+  TraceCarrier,
+  TRACE_SPANS,
 } from '../observability';
 
 /** Событие event log, достаточное для построения read-моделей. */
@@ -11,6 +19,7 @@ export type ProjectionEvent = Readonly<{
   eventId: string;
   correlationId?: string;
   causationId?: string;
+  trace?: TraceCarrier;
   eventType:
     'OrderAccepted' | 'OrderRejected' | 'OrderCancelled' | 'TradeExecuted' | 'SettlementApplied';
   sequence: number;
@@ -84,19 +93,60 @@ export class ProjectionStore {
   private sourceSequence = 0;
 
   private readonly logger: OperationalLogger;
+  private readonly telemetry: TelemetryPort;
+  private readonly metrics: OperationalMetrics;
 
-  /** Использует DI logger в приложении и no-op fallback в чистых unit-тестах. */
-  constructor(@Optional() @Inject(StructuredLogger) logger?: StructuredLogger) {
+  /**
+   * Создаёт projection consumer с observability ports и безопасными fallback.
+   *
+   * Optional DI позволяет тестировать детерминированное построение read model без
+   * Nest application и exporter. В runtime событие продолжает trace producer,
+   * gap увеличивает bounded metric, а application outcome фиксируется logger-ом.
+   *
+   * @param logger Structured operational logger для apply/duplicate/gap событий.
+   * @param telemetry Adapter для consumer span из `ProjectionEvent.trace`.
+   * @param metrics Метрики projection gap и lag без идентификаторов пользователей.
+   */
+  constructor(
+    @Optional() @Inject(StructuredLogger) logger?: StructuredLogger,
+    @Optional() @Inject(TelemetryService) telemetry?: TelemetryService,
+    @Optional() @Inject(MetricsService) metrics?: MetricsService,
+  ) {
     this.logger = logger ?? NOOP_OPERATIONAL_LOGGER;
+    this.telemetry = telemetry ?? NOOP_TELEMETRY;
+    this.metrics = metrics ?? NOOP_OPERATIONAL_METRICS;
   }
 
   /**
    * Применяет одно событие к соответствующей read-модели.
    *
+   * Если событие несёт W3C carrier, `projection.apply` становится дочерним span
+   * исходной команды. При отсутствии carrier создаётся локальный trace. Ни один
+   * вариант не меняет duplicate/gap policy и порядок изменения read model.
+   *
+   * @param event Версионированное событие с последовательностью и public payload.
    * @throws ConflictException Для duplicate event с несовместимой последовательностью.
    * @throws BadRequestException При пропущенной последовательности событий.
    */
   apply(event: ProjectionEvent): void {
+    const operation = (): void => this.applyObserved(event);
+    if (this.telemetry.continueSpan) {
+      return this.telemetry.continueSpan(
+        TRACE_SPANS.PROJECTION_APPLY,
+        event.trace ?? {},
+        { 'event.type': event.eventType },
+        operation,
+      );
+    }
+    return this.telemetry.span(
+      TRACE_SPANS.PROJECTION_APPLY,
+      { 'event.type': event.eventType },
+      operation,
+    );
+  }
+
+  /** Изменяет read model только после открытия projection consumer span. */
+  private applyObserved(event: ProjectionEvent): void {
     if (this.processedEvents.has(event.eventId)) {
       this.logger.info('projections', LOG_EVENTS.PROJECTION_DUPLICATE, {
         eventId: event.eventId,
@@ -107,6 +157,7 @@ export class ProjectionStore {
       return;
     }
     if (event.sequence !== this.appliedSequence + 1) {
+      this.metrics.observeGap('projection');
       this.logger.warn('projections', LOG_EVENTS.PROJECTION_GAP, {
         eventId: event.eventId,
         correlationId: event.correlationId,
@@ -138,6 +189,11 @@ export class ProjectionStore {
     }
     this.processedEvents.add(event.eventId);
     this.appliedSequence = event.sequence;
+    this.metrics.setLag(
+      'projection',
+      'orders',
+      Math.max(0, this.sourceSequence - this.appliedSequence),
+    );
     this.logger.info('projections', LOG_EVENTS.PROJECTION_APPLIED, {
       eventId: event.eventId,
       correlationId: event.correlationId,
@@ -209,6 +265,7 @@ export class ProjectionStore {
       throw new Error('Invalid projection source sequence');
     }
     this.sourceSequence = Math.max(this.sourceSequence, sequence);
+    this.metrics.setLag('projection', 'orders', this.sourceSequence - this.appliedSequence);
   }
 
   /** Выполняет migration hook для будущих версий схемы read-моделей. */

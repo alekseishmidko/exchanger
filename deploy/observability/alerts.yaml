@@ -1,0 +1,46 @@
+groups:
+  - name: exchange-slo
+    interval: 30s
+    rules:
+      - alert: ExchangeAvailabilitySloBurn
+        expr: sum(rate(exchange_http_requests_total{status_class=~"5.."}[5m])) / clamp_min(sum(rate(exchange_http_requests_total[5m])), 0.001) > 0.005
+        for: 5m
+        labels: { severity: critical, owner: platform }
+        annotations:
+          runbook_url: https://runbooks.example.com/exchange/availability
+          diagnostic_context: Check REST RED dashboard, trace exemplars, dependency USE signals and readiness.
+      - alert: ExchangeCommandAcceptanceDegraded
+        expr: sum(rate(exchange_command_total{outcome="rejected",reason!="validation"}[10m])) / clamp_min(sum(rate(exchange_command_total[10m])), 0.001) > 0.01
+        for: 10m
+        labels: { severity: warning, owner: trading }
+        annotations:
+          runbook_url: https://runbooks.example.com/exchange/command-acceptance
+          diagnostic_context: Split expected client validation from authorization, saturation and dependency failures.
+      - alert: ExchangeSettlementCorrectnessViolation
+        expr: increase(exchange_settlement_total{outcome="failed",reason="invariant"}[5m]) > 0 or increase(exchange_reconciliation_differences_total[5m]) > 0
+        for: 0m
+        labels: { severity: critical, owner: ledger }
+        annotations:
+          runbook_url: https://runbooks.example.com/exchange/settlement-correctness
+          diagnostic_context: Stop affected partition, preserve event log and reconcile trade to postings.
+      - alert: ExchangeMarketDataStale
+        expr: max(exchange_market_data_freshness_seconds) > 0.5 or exchange_resource_saturation_ratio{resource="market-data"} > 0.8 or increase(exchange_sequence_gaps_total{component="market-data"}[5m]) > 0
+        for: 2m
+        labels: { severity: warning, owner: market-data }
+        annotations:
+          runbook_url: https://runbooks.example.com/exchange/market-data-freshness
+          diagnostic_context: Inspect fan-out saturation, sequence gaps and client resync rate.
+      - alert: ExchangeProjectionLagHigh
+        expr: max(exchange_projection_lag_events) > 1000
+        for: 5m
+        labels: { severity: warning, owner: projections }
+        annotations:
+          runbook_url: https://runbooks.example.com/exchange/projection-lag
+          diagnostic_context: Compare consumer lag, event-log availability and projection apply latency.
+      - alert: ExchangeTelemetryBlackout
+        expr: up{job="exchange-backend"} == 0 or increase(exchange_telemetry_export_failures_total[10m]) > 10
+        for: 5m
+        labels: { severity: warning, owner: platform }
+        annotations:
+          runbook_url: https://runbooks.example.com/exchange/observability-blackout
+          diagnostic_context: Business readiness must remain independent; inspect collector queue and storage capacity.

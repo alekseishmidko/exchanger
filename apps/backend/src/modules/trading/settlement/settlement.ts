@@ -1,7 +1,16 @@
 import { AssetId, createId, Decimal, AccountId, OperationId } from '../../shared-kernel';
 import { Ledger, OperationResult } from '../../ledger';
 import { EventLog } from '../event-log';
-import { LOG_EVENTS, NOOP_OPERATIONAL_LOGGER, OperationalLogger } from '../../observability';
+import {
+  LOG_EVENTS,
+  NOOP_OPERATIONAL_LOGGER,
+  NOOP_TELEMETRY,
+  NOOP_OPERATIONAL_METRICS,
+  OperationalMetrics,
+  OperationalLogger,
+  TelemetryPort,
+  TRACE_SPANS,
+} from '../../observability';
 
 /** Данные заявки, необходимые для предварительного резервирования. */
 export type OrderToReserve = Readonly<{
@@ -58,11 +67,27 @@ export class SettlementService {
   private readonly reservations = new Map<string, ReservationResult>();
   private readonly applied = new Map<string, SettlementApplied>();
 
+  /**
+   * Создаёт settlement orchestrator поверх ledger и durable event-log ports.
+   *
+   * `feeScale` задаёт единое детерминированное округление комиссий. Telemetry и
+   * metrics наблюдают весь settlement, но не получают account IDs, суммы или
+   * цены как labels/attributes. No-op defaults сохраняют чистоту domain tests.
+   *
+   * @param ledger Ledger boundary для сбалансированных idempotent postings.
+   * @param eventLog Append-only журнал результата settlement.
+   * @param feeScale Число знаков после запятой при округлении maker/taker fee.
+   * @param logger Operational success/failure события settlement.
+   * @param telemetry Port для `settlement.apply` span.
+   * @param metrics Счётчики applied/failed settlement с bounded reason.
+   */
   constructor(
     private readonly ledger: Ledger,
     private readonly eventLog: EventLog,
     private readonly feeScale = 8,
     private readonly logger: OperationalLogger = NOOP_OPERATIONAL_LOGGER,
+    private readonly telemetry: TelemetryPort = NOOP_TELEMETRY,
+    private readonly metrics: OperationalMetrics = NOOP_OPERATIONAL_METRICS,
   ) {}
 
   /** Резервирует base либо quote+fee до допуска заявки в matching engine. */
@@ -126,8 +151,33 @@ export class SettlementService {
     }
   }
 
-  /** Применяет trade ровно один раз и публикует SettlementApplied. */
+  /**
+   * Применяет trade ровно один раз и публикует `SettlementApplied`.
+   *
+   * Span охватывает вычисление posting matrix, ledger commits и append события.
+   * Успешная метрика увеличивается только после завершения Promise; исключение
+   * сохраняется вызывающему коду и учитывается как settlement failure.
+   *
+   * @param event Исполненная сделка с maker/taker accounts, assets и fee policy.
+   * @returns Идемпотентный результат со всеми идентификаторами проводок.
+   */
   async settleTrade(event: TradeExecuted): Promise<SettlementApplied> {
+    try {
+      const result = await this.telemetry.span(
+        TRACE_SPANS.SETTLEMENT_APPLY,
+        { 'trade.side': event.makerSide },
+        () => this.settleTradeObserved(event),
+      );
+      this.metrics.observeSettlement('applied');
+      return result;
+    } catch (error) {
+      this.metrics.observeSettlement('failed', 'invariant');
+      throw error;
+    }
+  }
+
+  /** Создаёт полный posting set и событие внутри settlement tracing boundary. */
+  private async settleTradeObserved(event: TradeExecuted): Promise<SettlementApplied> {
     const previous = this.applied.get(event.tradeId);
     if (previous) return previous;
     const makerIsBuyer = event.makerSide === 'BUY';

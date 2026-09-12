@@ -3,6 +3,7 @@ import { MarketDataHub } from './market-data';
 import { ConfigService } from '@nestjs/config';
 import { GatewayModule } from '../gateway/gateway.module';
 import { MarketDataGateway } from './market-data.gateway';
+import { MetricsService } from '../observability';
 
 /**
  * Составляет market-data boundary: domain producers работают с `MarketDataHub`,
@@ -19,11 +20,12 @@ import { MarketDataGateway } from './market-data.gateway';
   providers: [
     {
       provide: MarketDataHub,
-      inject: [ConfigService],
-      useFactory: (config: ConfigService): MarketDataHub =>
+      inject: [ConfigService, MetricsService],
+      useFactory: (config: ConfigService, metrics: MetricsService): MarketDataHub =>
         new MarketDataHub(
           Number(config.get<string | number>('WEBSOCKET_MAX_SUBSCRIBERS', 1000)),
           Number(config.get<string | number>('WEBSOCKET_MAX_PENDING', 100)),
+          metrics,
         ),
     },
     MarketDataGateway,

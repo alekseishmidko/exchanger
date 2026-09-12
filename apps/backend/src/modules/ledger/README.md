@@ -1,5 +1,11 @@
 # Ledger module
 
+## Observability boundary
+
+Atomic posting set измеряется span `ledger.commit`. В trace и metrics запрещены
+amount, accountId и posting payload; correctness контролируется settlement result
+и reconciliation difference, а не раскрытием финансовых данных.
+
 ## Назначение
 
 Чистое доменное ядро для точных денежных операций: активов, счетов, available/reserved balances, double-entry postings, reservations и idempotency. Текущая реализация in-memory и предназначена для проверки инвариантов до добавления PostgreSQL adapter.

@@ -208,8 +208,8 @@
 11. [x] `admin`: instrument configuration, limits, circuit breaker и audit.
 12. [ ] нагрузочное, failure, security и recovery тестирование всей системы.
 13. [x] полнота transport API: REST/OpenAPI для внешних сценариев и AsyncAPI для WebSocket.
-14. [ ] единое structured logging во всех модулях и transport/application boundaries.
-15. [ ] observability: metrics, traces, dashboards, alerts и проверяемые SLO.
+14. [x] единое structured logging во всех модулях и transport/application boundaries.
+15. [x] observability: metrics, traces, dashboards, alerts и проверяемые SLO.
 16. [ ] реалистичное HTTP/WebSocket/processing нагрузочное тестирование.
 17. [ ] resilience, chaos и восстановление при деградации зависимостей.
 18. [ ] adversarial, fuzz, race и нестандартные граничные сценарии.
@@ -766,36 +766,36 @@ dashboards и alerting хранится как код и воспроизвод�
 
 Инструментирование:
 
-- [ ] определены SLI/SLO для availability, command acceptance, settlement correctness, market-data freshness и projection lag;
-- [ ] OpenTelemetry context распространяется через HTTP, WebSocket, command envelope, event log и consumers;
-- [ ] spans покрывают admission, sequencer wait, matching, settlement, ledger commit, event append и projection apply;
-- [ ] RED metrics покрывают REST/WebSocket, USE metrics — runtime, PostgreSQL, pools, event loop и consumers;
-- [ ] бизнес-метрики отражают accepted/rejected orders, trades, settlement failures, reconciliation differences, gaps и circuit breaker state;
-- [ ] histogram buckets соответствуют latency budgets и позволяют вычислять p50/p95/p99;
-- [ ] labels не содержат userId, orderId, commandId и другие unbounded значения;
-- [ ] установлены cardinality limits и защита от telemetry overload;
-- [ ] logs связаны с traces через traceId/spanId, metrics — через exemplars где возможно;
-- [ ] exporter имеет bounded queue/timeout и не блокирует торговый hot path;
-- [ ] readiness не зависит от доступности observability backend;
-- [ ] dashboards и alert rules версионируются и проверяются автоматически.
+- [x] определены SLI/SLO для availability, command acceptance, settlement correctness, market-data freshness и projection lag;
+- [x] OpenTelemetry context распространяется через HTTP, WebSocket, command envelope, event log и consumers;
+- [x] spans покрывают admission, sequencer wait, matching, settlement, ledger commit, event append и projection apply;
+- [x] RED metrics покрывают REST/WebSocket, USE metrics — runtime, PostgreSQL, pools, event loop и consumers;
+- [x] бизнес-метрики отражают accepted/rejected orders, trades, settlement failures, reconciliation differences, gaps и circuit breaker state;
+- [x] histogram buckets соответствуют latency budgets и позволяют вычислять p50/p95/p99;
+- [x] labels не содержат userId, orderId, commandId и другие unbounded значения;
+- [x] установлены cardinality limits и защита от telemetry overload;
+- [x] logs связаны с traces через traceId/spanId, metrics — через exemplars где возможно;
+- [x] exporter имеет bounded queue/timeout и не блокирует торговый hot path;
+- [x] readiness не зависит от доступности observability backend;
+- [x] dashboards и alert rules версионируются и проверяются автоматически.
 
 Тесты и эксплуатационная проверка:
 
-- [ ] integration test подтверждает непрерывный trace полного command flow;
-- [ ] metric contract tests проверяют имена, типы, единицы и разрешённые labels;
-- [ ] cardinality test с уникальными IDs не создаёт неограниченные series;
-- [ ] exporter failure не останавливает приложение и отражается internal metric;
-- [ ] synthetic traffic переводит каждый alert в firing и обратно в resolved;
-- [ ] dashboards проверены на пустом, нормальном и деградировавшем окружении;
-- [ ] каждый alert содержит owner, severity, runbook URL и diagnostic context;
-- [ ] измерены ingestion volume, retention и допустимая потеря non-critical telemetry.
+- [x] integration test подтверждает непрерывный trace полного command flow;
+- [x] metric contract tests проверяют имена, типы, единицы и разрешённые labels;
+- [x] cardinality test с уникальными IDs не создаёт неограниченные series;
+- [x] exporter failure не останавливает приложение и отражается internal metric;
+- [x] synthetic traffic переводит каждый alert в firing и обратно в resolved;
+- [x] dashboards проверены на пустом, нормальном и деградировавшем окружении;
+- [x] каждый alert содержит owner, severity, runbook URL и diagnostic context;
+- [x] измерены ingestion volume, retention и допустимая потеря non-critical telemetry.
 
 Документация:
 
-- [ ] созданы `docs/observability/metrics.md`, `tracing.md`, `slo.md` и `alerts.md`;
-- [ ] зафиксированы dashboard catalog, ownership и escalation policy;
-- [ ] описано различие client error, saturation, dependency failure и invariant violation;
-- [ ] добавлен observability blackout runbook.
+- [x] созданы `docs/observability/metrics.md`, `tracing.md`, `slo.md` и `alerts.md`;
+- [x] зафиксированы dashboard catalog, ownership и escalation policy;
+- [x] описано различие client error, saturation, dependency failure и invariant violation;
+- [x] добавлен observability blackout runbook.
 
 **Gate:** дежурный инженер обнаруживает и локализует проблему от клиентского
 запроса до зависимости без подключения отладчика.
