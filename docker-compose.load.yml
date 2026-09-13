@@ -9,6 +9,10 @@ services:
   k6:
     image: grafana/k6:2.1.0
     working_dir: /scripts
+    # На Linux bind mount сохраняет числовые права host. k6 запускается с UID/GID
+    # пользователя, создавшего artifacts, поэтому GitHub runner может читать и
+    # загружать raw output без chown и привилегированного контейнера.
+    user: '${LOAD_GENERATOR_UID:-0}:${LOAD_GENERATOR_GID:-0}'
     environment:
       LOAD_PROFILE: ${LOAD_PROFILE:-smoke}
       LOAD_RUN_ID: ${LOAD_RUN_ID:-local}

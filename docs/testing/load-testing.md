@@ -29,9 +29,11 @@ place/cancel, но не выполняет matching и settlement. Ledger и eve
 
 Generated output сохраняется в ignored-каталог `artifacts/load/<runId>/`. API
 keys, authorization headers и response payloads в metadata и отчёты не
-записываются. Wrapper создаёт только этот уникальный каталог доступным для UID
-контейнера k6: это необходимо для Linux bind mount в GitHub Actions и не меняет
-права исходного дерева проекта.
+записываются. Wrapper передаёт текущие числовые UID/GID в Compose, поэтому процесс
+k6 работает от имени владельца host-каталога. Дополнительно только уникальный
+runId-каталог получает права на запись как fallback для Docker-окружений без
+POSIX UID API. Это устраняет `permission denied` на Linux/GitHub Actions и не
+меняет права исходного дерева проекта.
 
 ## Команды запуска
 

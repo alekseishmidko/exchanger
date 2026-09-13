@@ -25,6 +25,8 @@ const composeFiles = [
   'docker-compose.load.yml',
 ];
 const startedAt = new Date();
+const generatorUid = String(process.getuid?.() ?? 0);
+const generatorGid = String(process.getgid?.() ?? 0);
 
 /** Выполняет subprocess без shell и возвращает его exit code. */
 function run(command, args, environment = {}) {
@@ -147,6 +149,8 @@ const metadata = {
     logicalCpuCount: cpus().length,
     totalMemoryBytes: totalmem(),
     separateContainer: true,
+    containerUid: generatorUid,
+    containerGid: generatorGid,
   },
   topology: 'k6 container → Docker network → NestJS backend; Prometheus/OTel sidecars',
   dataset: {
@@ -173,6 +177,11 @@ const environment = {
   LOAD_PROFILE: profile,
   LOAD_RUN_ID: runId,
   LOAD_RESULT_DIR: resultDirectory,
+  // Linux bind mount проверяет UID/GID процесса внутри контейнера. Передача
+  // идентификаторов runner позволяет k6 создавать результаты от имени владельца
+  // host-каталога и устраняет permission denied в GitHub Actions.
+  LOAD_GENERATOR_UID: generatorUid,
+  LOAD_GENERATOR_GID: generatorGid,
 };
 let loadExit = 1;
 let postFailures = [];
