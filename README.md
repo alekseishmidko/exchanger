@@ -76,6 +76,10 @@ telemetry contracts, cardinality, dashboards и alerts без Docker выпол�
 через `pnpm observability:check`; подробности — в
 [observability guide](docs/observability/alerts.md).
 
+Короткий REST/WebSocket load profile запускается командой `pnpm load:smoke`.
+Профили average/stress/spike/soak/breakpoint, thresholds и ограничения текущего
+reference runtime описаны в [руководстве по нагрузочному тестированию](docs/testing/load-testing.md).
+
 Для Docker development Swagger UI открыт по `http://localhost:5001/docs`.
 WebSocket namespace доступен по `http://localhost:5001/market-data`.
 

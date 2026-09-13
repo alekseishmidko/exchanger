@@ -1,0 +1,58 @@
+name: Realistic load profiles
+
+on:
+  schedule:
+    - cron: '0 1 * * 0'
+  release:
+    types: [published]
+  workflow_dispatch:
+
+concurrency:
+  group: load-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  stress-and-soak:
+    name: ${{ matrix.profile }} / ${{ matrix.distribution }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        profile: [stress, soak]
+        distribution: [hot, uniform]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Run production-shaped k6 profile
+        env:
+          LOAD_DISTRIBUTION: ${{ matrix.distribution }}
+          LOAD_ENVIRONMENT: github-actions-scheduled
+        run: node scripts/run-load-test.mjs ${{ matrix.profile }}
+
+      - name: Publish load summary
+        if: always()
+        run: find artifacts/load -name summary.md -exec cat {} \; >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload raw results and reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: k6-${{ matrix.profile }}-${{ matrix.distribution }}-${{ github.sha }}
+          path: artifacts/load/
+          retention-days: 30
+          if-no-files-found: warn
+
+      - name: Show SUT logs on failure
+        if: failure()
+        run: docker compose -f docker-compose.development.yml -f docker-compose.observability.yml -f docker-compose.load.yml logs backend
+
+      - name: Stop environment
+        if: always()
+        run: docker compose -f docker-compose.development.yml -f docker-compose.observability.yml -f docker-compose.load.yml down --volumes

@@ -30,6 +30,7 @@
 - [Failure matrix](testing/failure-matrix.md)
 - [Security review](security-review.md)
 - [Pilot performance baseline](testing/pilot-performance.md)
+- [Реалистичное нагрузочное тестирование](testing/load-testing.md)
 - [PostgreSQL backup/restore runbook](runbooks/postgres-backup-restore.md)
 - [Event-log archive/restore runbook](runbooks/event-log-archive-restore.md)
 - [Runbook verification log](runbooks/verification-log.md)

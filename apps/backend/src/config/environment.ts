@@ -128,6 +128,19 @@ export function validateEnvironment(config: EnvironmentConfig): EnvironmentConfi
     }
   }
 
+  for (const key of ['GATEWAY_RATE_LIMIT', 'GATEWAY_RATE_WINDOW_MS'] as const) {
+    const value = config[key];
+    if (
+      value !== undefined &&
+      ((typeof value !== 'string' && typeof value !== 'number') || !/^\d+$/.test(`${value}`))
+    ) {
+      throw new Error(`${key} must be a positive integer`);
+    }
+    if (value !== undefined && Number(value) < 1) {
+      throw new Error(`${key} must be a positive integer`);
+    }
+  }
+
   for (const key of [
     'OTEL_BSP_MAX_QUEUE_SIZE',
     'OTEL_BSP_MAX_EXPORT_BATCH_SIZE',
