@@ -59,6 +59,9 @@ jobs:
       - name: Observability configuration and telemetry contracts
         run: pnpm observability:check
 
+      - name: Load suite contract
+        run: pnpm load:check
+
       - name: Tests
         run: pnpm test
 
@@ -107,3 +110,45 @@ jobs:
       - name: Stop development environment
         if: always()
         run: docker compose -f docker-compose.development.yml down --volumes
+
+  load-quick:
+    name: k6 ${{ matrix.profile }} profile
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        profile: [smoke, average]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Run isolated k6 profile
+        env:
+          LOAD_DURATION: 15s
+          LOAD_ENVIRONMENT: github-actions-quick
+        run: node scripts/run-load-test.mjs ${{ matrix.profile }}
+
+      - name: Publish load summary
+        if: always()
+        run: find artifacts/load -name summary.md -exec cat {} \; >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload load artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: k6-${{ matrix.profile }}-${{ github.sha }}
+          path: artifacts/load/
+          if-no-files-found: warn
+
+      - name: Show backend logs on failure
+        if: failure()
+        run: docker compose -f docker-compose.development.yml -f docker-compose.observability.yml -f docker-compose.load.yml logs backend
+
+      - name: Stop load environment
+        if: always()
+        run: docker compose -f docker-compose.development.yml -f docker-compose.observability.yml -f docker-compose.load.yml down --volumes

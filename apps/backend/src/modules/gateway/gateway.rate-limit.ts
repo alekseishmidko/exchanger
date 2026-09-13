@@ -1,4 +1,5 @@
-import { HttpException, Injectable } from '@nestjs/common';
+import { HttpException, Injectable, Optional } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 
 /**
  * Счётчик одного fixed window для API key.
@@ -19,8 +20,20 @@ type RateWindow = { startedAt: number; count: number };
 @Injectable()
 export class RateLimitService {
   private readonly windows = new Map<string, RateWindow>();
-  private readonly limit = 60;
-  private readonly windowMs = 60_000;
+  private readonly limit: number;
+  private readonly windowMs: number;
+
+  /**
+   * Создаёт fixed-window policy из валидированной конфигурации.
+   * Fallback сохраняет прежнюю production policy в unit-тестах, а load Compose
+   * может поднять лимит для одного изолированного synthetic credential.
+   */
+  constructor(@Optional() config?: ConfigService) {
+    this.limit = Number(config?.get<string | number>('GATEWAY_RATE_LIMIT', 60) ?? 60);
+    this.windowMs = Number(
+      config?.get<string | number>('GATEWAY_RATE_WINDOW_MS', 60_000) ?? 60_000,
+    );
+  }
 
   /** Проверяет окно, увеличивает счётчик и выбрасывает безопасный HTTP 429 при превышении. */
   check(keyId: string, now = Date.now()): void {

@@ -1,0 +1,31 @@
+services:
+  backend:
+    environment:
+      # CI использует один development credential; высокий предел изолирован
+      # load overlay и не меняет production rate-limit policy.
+      GATEWAY_RATE_LIMIT: ${LOAD_GATEWAY_RATE_LIMIT:-100000}
+      GATEWAY_RATE_WINDOW_MS: ${LOAD_GATEWAY_RATE_WINDOW_MS:-60000}
+
+  k6:
+    image: grafana/k6:2.1.0
+    working_dir: /scripts
+    environment:
+      LOAD_PROFILE: ${LOAD_PROFILE:-smoke}
+      LOAD_RUN_ID: ${LOAD_RUN_ID:-local}
+      LOAD_BASE_URL: ${LOAD_BASE_URL:-http://backend:5000}
+      LOAD_WS_URL: ${LOAD_WS_URL:-ws://backend:5000}
+      LOAD_API_KEY: ${LOAD_API_KEY:-dev-key}
+      LOAD_ACCOUNT_ID: ${LOAD_ACCOUNT_ID:-dev-user}
+      LOAD_DISTRIBUTION: ${LOAD_DISTRIBUTION:-hot}
+      LOAD_DURATION: ${LOAD_DURATION:-}
+      LOAD_REQUEST_TIMEOUT: ${LOAD_REQUEST_TIMEOUT:-5s}
+      LOAD_WS_SESSION_MS: ${LOAD_WS_SESSION_MS:-1500}
+      LOAD_STARTUP_ATTEMPTS: ${LOAD_STARTUP_ATTEMPTS:-60}
+    volumes:
+      - ./tests/load:/scripts:ro
+      - ${LOAD_RESULT_DIR:-./artifacts/load/current}:/results
+    command:
+      - run
+      - --out
+      - json=/results/raw.json
+      - /scripts/main.js

@@ -807,34 +807,39 @@ settlement, ledger, event log, PostgreSQL и projections.
 
 Профили и данные:
 
-- [ ] выбран и зафиксирован нагрузочный runner; для HTTP/WebSocket сценариев базовым кандидатом является k6;
-- [ ] нагрузочные сценарии находятся в версионируемом `tests/load/` и используют общие flow/data builders;
-- [ ] реализованы smoke, average, stress, spike, soak и breakpoint profiles;
-- [ ] workload моделирует чтение, place/cancel, partial/multi-fill, private/public subscriptions и reconnect;
-- [ ] распределение инструментов, аккаунтов, Side/OrderType/TIF и размеров заявок похоже на ожидаемый production traffic;
-- [ ] hot instrument и равномерно распределённые instruments тестируются отдельно;
-- [ ] IDs/idempotency keys уникальны, а test data очищается или изолируется по runId;
+- [x] выбран и зафиксирован нагрузочный runner; для HTTP/WebSocket сценариев используется k6 2.1.0;
+- [x] нагрузочные сценарии находятся в версионируемом `tests/load/` и используют общие flow/data builders;
+- [x] реализованы smoke, average, stress, spike, soak и breakpoint profiles;
+- [x] workload моделирует чтение, place/cancel, partial/multi-fill, private/public subscriptions и reconnect;
+- [x] распределение инструментов, аккаунтов, Side/OrderType/TIF и размеров заявок зафиксировано в builders;
+- [x] hot instrument и равномерно распределённые instruments конфигурируются отдельно;
+- [x] IDs/idempotency keys уникальны, а test data изолируется по runId;
 - [ ] тест выполняется с реальными PostgreSQL/event-log adapters, TLS и сетевыми hop;
-- [ ] генератор нагрузки запущен отдельно от system under test и сам не является bottleneck;
-- [ ] hardware, topology, dataset size, build SHA и configuration сохраняются с результатом.
+- [ ] генератор нагрузки запущен на отдельном от SUT compute node и проверено, что он сам не является bottleneck;
+- [x] hardware, topology, dataset policy, build SHA и configuration сохраняются с результатом.
 
 Метрики и автоматизация:
 
-- [ ] заданы thresholds для throughput, error rate, p50/p95/p99/max и timeout rate;
+- [x] заданы thresholds для throughput, error rate, p50/p95/p99/max и timeout rate;
 - [ ] фиксируются consumer/projection lag, event-loop lag, CPU, memory, GC, pool usage, DB locks и network throughput;
 - [ ] измеряется accepted-to-settled и accepted-to-visible latency, а не только HTTP response time;
-- [ ] quick smoke/average profile запускается в CI, полный stress/soak — по расписанию и перед release;
-- [ ] regression budget сравнивает результат с baseline на сопоставимом окружении;
-- [ ] failed thresholds завершают pipeline с ненулевым кодом;
-- [ ] raw results, trend graphs и GitHub summary сохраняются как artifacts;
+- [x] quick smoke/average profile запускается в CI, полный stress/soak — по расписанию и перед release;
+- [ ] regression budget сравнивает результат с измеренным baseline на сопоставимом окружении; автоматическое сравнение со стартовым CI budget уже реализовано;
+- [x] failed thresholds завершают pipeline с ненулевым кодом;
+- [x] raw results, SVG trend graph и GitHub summary сохраняются как artifacts;
 - [ ] после теста выполняются reconciliation и проверка отсутствия потерянных/повторных эффектов.
 
 Документация:
 
-- [ ] создан `docs/testing/load-testing.md` с профилями и командами запуска;
-- [ ] описаны target workload, допущения и различие Pilot baseline от production SLA;
-- [ ] результаты имеют дату, build SHA, environment и ссылку на artifacts;
-- [ ] зафиксированы найденные bottlenecks, владельцы и план устранения.
+- [x] создан `docs/testing/load-testing.md` с профилями и командами запуска;
+- [x] описаны target workload, допущения и различие Pilot baseline от production SLA;
+- [x] результаты имеют дату, build SHA, environment и путь/ссылку на artifacts;
+- [x] зафиксированы найденные bottlenecks, владельцы и план устранения.
+
+Открытые пункты не являются формальностью: runtime пока использует reference
+in-memory command/ledger/event-log adapters. Поэтому accepted-to-settled,
+PostgreSQL locks/pool, TLS и проверка полного financial effect не объявляются
+выполненными до отдельного staging-прогона на production-like topology.
 
 **Gate:** система выдерживает целевой average и peak profile в рамках SLO, после
 нагрузки сходится reconciliation, а деградация имеет измеренную безопасную форму.

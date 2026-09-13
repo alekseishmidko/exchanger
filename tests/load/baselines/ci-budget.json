@@ -1,0 +1,14 @@
+{
+  "name": "github-hosted-reference-budget",
+  "environment": "github-actions-ubuntu-latest",
+  "profile": "smoke-or-average-short",
+  "maximumRegressionPercent": 20,
+  "metrics": {
+    "p95Ms": 300,
+    "p99Ms": 800,
+    "maxMs": 5000,
+    "errorRate": 0.01,
+    "timeoutRate": 0.005
+  },
+  "note": "Это стартовый regression budget, а не измеренный production baseline. После первого стабильного staging-прогона файл заменяется подписанным baseline того же hardware/topology."
+}
