@@ -23,8 +23,9 @@
     "observability:check": "corepack pnpm --filter @exchange/backend test -- src/modules/observability/metrics.spec.ts src/modules/observability/tracing.spec.ts src/modules/observability/observability-config.spec.ts --runInBand",
     "docker:observability": "docker compose -f docker-compose.development.yml -f docker-compose.observability.yml up --build",
     "docker:observability:down": "docker compose -f docker-compose.development.yml -f docker-compose.observability.yml down --volumes",
-    "api:flows": "node scripts/run-api-flows.mjs",
-    "api:flows:development": "docker compose -f docker-compose.development.yml up -d --build && node scripts/run-api-flows.mjs",
+    "api:flows": "node scripts/run-api-flows-development.mjs",
+    "api:flows:check": "node scripts/run-api-flows.mjs",
+    "api:flows:development": "node scripts/run-api-flows-development.mjs",
     "postgres:backup-restore": "node scripts/verify-postgres-backup-restore.mjs",
     "load:check": "node scripts/check-load-suite.mjs",
     "load:smoke": "node scripts/run-load-test.mjs smoke",
@@ -32,6 +33,9 @@
     "load:stress": "node scripts/run-load-test.mjs stress",
     "load:spike": "node scripts/run-load-test.mjs spike",
     "load:soak": "node scripts/run-load-test.mjs soak",
-    "load:breakpoint": "node scripts/run-load-test.mjs breakpoint"
+    "load:breakpoint": "node scripts/run-load-test.mjs breakpoint",
+    "chaos:check": "node scripts/check-chaos-suite.mjs",
+    "chaos:component": "corepack pnpm --filter @exchange/backend test -- test/resilience-chaos.spec.ts --runInBand",
+    "chaos:observability": "node scripts/run-chaos-test.mjs observability-outage"
   }
 }

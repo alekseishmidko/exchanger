@@ -1,0 +1,58 @@
+name: Resilience chaos game day
+
+on:
+  schedule:
+    - cron: '0 3 * * 3'
+  workflow_dispatch:
+
+concurrency:
+  group: chaos-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  observability-outage:
+    name: Observability outage under load
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      CHAOS_ENVIRONMENT: github-actions-chaos
+      CHAOS_ACK: isolated-test-only
+      CHAOS_RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+      CHAOS_SEED: ${{ github.run_id }}-${{ github.run_attempt }}
+      COMPOSE_PROJECT_NAME: exchange-chaos-${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.15.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Validate deterministic chaos contracts
+        run: pnpm chaos:check && pnpm chaos:component
+
+      - name: Inject observability outage under average load
+        run: pnpm chaos:observability
+
+      - name: Publish chaos summary
+        if: always()
+        run: find artifacts/chaos -name summary.md -exec cat {} \; >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload timeline, reports and sanitized diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: chaos-observability-${{ github.sha }}-${{ github.run_attempt }}
+          path: artifacts/chaos/
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: Emergency cleanup
+        if: always()
+        run: docker compose -f docker-compose.development.yml -f docker-compose.observability.yml -f docker-compose.load.yml down --volumes --remove-orphans

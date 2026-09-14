@@ -41,6 +41,8 @@ export const acceptedToVisible = new Trend('load_accepted_to_visible_ms', true);
 export const websocketSuccess = new Rate('load_websocket_success');
 /** Доля повторов, которые вернули отличный от первого business result. */
 export const duplicateEffectRate = new Rate('load_duplicate_effect_rate');
+/** Доля accepted-команд, не найденных через публичную query boundary. */
+export const acceptedVisibilityFailureRate = new Rate('load_accepted_visibility_failure_rate');
 
 const restScenario = { ...selected.rest, exec: 'restWorkload', tags: { contour: 'rest' } };
 const websocketScenario = {
@@ -69,6 +71,7 @@ export const options = {
     load_accepted_to_visible_ms: ['p(95)<1000', 'p(99)<2000', 'max<5000'],
     load_websocket_success: ['rate>0.99'],
     load_duplicate_effect_rate: ['rate==0'],
+    load_accepted_visibility_failure_rate: ['rate==0'],
   },
   systemTags: ['status', 'method', 'name', 'scenario'],
   discardResponseBodies: false,
@@ -149,6 +152,7 @@ export function restWorkload(data) {
       'принятая команда видима': (value) =>
         value.status === 200 && value.body.includes(command.orderId),
     });
+    acceptedVisibilityFailureRate.add(!found);
     if (found) acceptedToVisible.add(Date.now() - startedAt);
     if (context.iteration % 5 === 0) {
       const cancel = cancelOrderData(
@@ -259,6 +263,7 @@ export function handleSummary(data) {
     acceptedCommands: metric('load_accepted_commands', 'count'),
     acceptedCommandsPerSecond: metric('load_accepted_commands', 'rate'),
     duplicateEffectRate: metric('load_duplicate_effect_rate', 'rate'),
+    acceptedVisibilityFailureRate: metric('load_accepted_visibility_failure_rate', 'rate'),
   };
   const markdown = `## k6 ${selectedProfile} load profile\n\n| p50 | p95 | p99 | max | error rate | timeouts | accepted |\n| ---: | ---: | ---: | ---: | ---: | ---: | ---: |\n| ${report.p50Ms} ms | ${report.p95Ms} ms | ${report.p99Ms} ms | ${report.maxMs} ms | ${report.errorRate} | ${report.timeoutRate} | ${report.acceptedCommands} |\n`;
   return {

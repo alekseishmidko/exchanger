@@ -32,18 +32,28 @@ function delay(milliseconds) {
  */
 async function waitForReadiness() {
   const deadline = Date.now() + startupTimeoutMs;
+  let lastObservation = 'запрос ещё не выполнялся';
   while (Date.now() < deadline) {
     try {
       const response = await fetch(`${baseUrl}/health/ready`, {
         signal: AbortSignal.timeout(requestTimeoutMs),
       });
       if (response.status === 200) return;
-    } catch {
+      lastObservation = `HTTP ${response.status}`;
+    } catch (error) {
       // Процесс может ещё не слушать порт; следующая попытка ограничена deadline.
+      const cause = error instanceof Error && 'cause' in error ? error.cause : undefined;
+      const code =
+        cause && typeof cause === 'object' && 'code' in cause
+          ? String(cause.code)
+          : 'NETWORK_ERROR';
+      lastObservation = code;
     }
     await delay(1000);
   }
-  throw new Error(`Приложение не стало ready за ${startupTimeoutMs} ms`);
+  throw new Error(
+    `Приложение ${baseUrl} не стало ready за ${startupTimeoutMs} ms; последнее состояние: ${lastObservation}. Для автоматического запуска используйте pnpm api:flows`,
+  );
 }
 
 /**
