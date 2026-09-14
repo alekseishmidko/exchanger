@@ -32,6 +32,7 @@ if (failures.length === 0) {
     'load_timeout_rate',
     'load_accepted_to_visible_ms',
     'load_duplicate_effect_rate',
+    'load_accepted_visibility_failure_rate',
   ]) {
     if (!main.includes(threshold)) failures.push(`Отсутствует threshold ${threshold}`);
   }

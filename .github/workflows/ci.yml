@@ -62,6 +62,9 @@ jobs:
       - name: Load suite contract
         run: pnpm load:check
 
+      - name: Chaos suite contract and deterministic invariants
+        run: pnpm chaos:check && pnpm chaos:component
+
       - name: Tests
         run: pnpm test
 
@@ -85,9 +88,6 @@ jobs:
         with:
           node-version: 22
 
-      - name: Start development environment
-        run: docker compose -f docker-compose.development.yml up -d --build
-
       - name: Run black-box API flows
         run: pnpm api:flows
 
@@ -102,14 +102,6 @@ jobs:
           name: development-api-flow-reports
           path: artifacts/api-flows/
           if-no-files-found: warn
-
-      - name: Show backend logs on failure
-        if: failure()
-        run: docker compose -f docker-compose.development.yml logs backend
-
-      - name: Stop development environment
-        if: always()
-        run: docker compose -f docker-compose.development.yml down --volumes
 
   load-quick:
     name: k6 ${{ matrix.profile }} profile

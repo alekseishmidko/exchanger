@@ -10,13 +10,17 @@ Docker port mapping, startup configuration, guards, DTO validation и routing,
 Поднять Compose и выполнить все проверки одной командой:
 
 ```bash
-pnpm api:flows:development
+pnpm api:flows
 ```
+
+Команда создаёт отдельный Compose project, ожидает readiness, выполняет весь
+pipeline и удаляет containers/volumes в `finally`. Поэтому прерванный или
+неуспешный flow не оставляет общее development-окружение в неизвестном состоянии.
 
 Если development-контейнер уже запущен:
 
 ```bash
-pnpm api:flows
+pnpm api:flows:check
 ```
 
 По умолчанию используются `http://localhost:5001` и development API key
@@ -25,7 +29,7 @@ pnpm api:flows
 ```bash
 API_FLOW_BASE_URL=https://dev.exchange.example.com \
 API_FLOW_API_KEY="$EXCHANGE_SMOKE_API_KEY" \
-pnpm api:flows
+pnpm api:flows:check
 ```
 
 API key не печатается и не сохраняется. Для удалённого CI-окружения его следует

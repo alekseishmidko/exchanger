@@ -851,40 +851,46 @@ ordering и idempotency-инвариантов во время частичны�
 
 Сценарии:
 
-- [ ] fault injection разрешён только в изолированном test/staging окружении;
+- [x] fault injection разрешён только в изолированном test/staging окружении;
 - [ ] проверены latency, timeout, reset и packet loss для PostgreSQL, event log и внешних adapters;
 - [ ] проверены pool exhaustion, deadlock, lock contention и временная read-only БД;
-- [ ] проверены consumer crash до/после commit, duplicate delivery, gap и poison event;
+- [x] проверены consumer crash до/после commit, duplicate delivery, gap и poison event;
 - [ ] process/container kill выполняется во время place, match, settlement и projection apply;
 - [ ] rolling restart не нарушает partition ownership и monotonic sequence;
 - [ ] retry storm, reconnect storm и thundering herd не обходят rate/backpressure limits;
 - [ ] WebSocket slow consumers и массовый reconnect не влияют на matching latency;
 - [ ] disk pressure, memory pressure и event-loop stall приводят к контролируемой деградации;
-- [ ] clock skew и leap/timezone boundaries не меняют deterministic ordering/effectiveAt policy;
-- [ ] observability backend outage не блокирует business flow;
+- [x] clock skew и leap/timezone boundaries не меняют deterministic ordering/effectiveAt policy;
+- [x] observability backend outage не блокирует business flow;
 - [ ] circuit breaker, pause и recovery transitions проверены под продолжающейся нагрузкой.
 
 Проверки результата:
 
 - [ ] ни одна accepted command не потеряна и не применена дважды;
-- [ ] sequence, ledger balance и immutable audit trail остаются корректными;
+- [x] sequence, ledger balance и immutable audit trail остаются корректными;
 - [ ] readiness отражает деградацию и не маскирует отказ критичной зависимости;
-- [ ] backlog после восстановления уменьшается, а не растёт бесконечно;
+- [x] backlog после восстановления уменьшается, а не растёт бесконечно;
 - [ ] практически измерены RTO/RPO для каждого класса отказа;
-- [ ] reconciliation автоматически выполняется после каждого chaos scenario;
+- [x] reconciliation автоматически выполняется после каждого автоматизированного chaos scenario;
 - [ ] failure не создаёт утечку stack trace, credential или private event;
-- [ ] сценарии детерминированы, имеют seed/timeline и сохраняют artifacts.
+- [x] сценарии детерминированы, имеют seed/timeline и сохраняют artifacts.
 
 Документация:
 
-- [ ] failure matrix содержит injection method, expected behavior, alert и owner;
-- [ ] обновлены recovery/replay, dependency outage и reconciliation runbooks;
-- [ ] описаны stop conditions, blast-radius limits и emergency abort chaos-тестов;
+- [x] failure matrix содержит injection method, expected behavior, alert и owner;
+- [x] обновлены recovery/replay, dependency outage и reconciliation runbooks;
+- [x] описаны stop conditions, blast-radius limits и emergency abort chaos-тестов;
 - [ ] результаты game day подписаны участниками и содержат follow-up actions.
 
 **Gate:** при отказе одной критичной зависимости система либо продолжает работу в
 заявленном degraded mode, либо безопасно прекращает admission без потери принятой
 команды и без нарушения финансовых инвариантов.
+
+Автоматизирован `observability-outage` под продолжающимся k6 workload, а
+event-log/sequencer/projection/ledger faults покрыты deterministic component
+suite. PostgreSQL network/contention и backend `SIGKILL` остаются blocked, потому
+что development composition root использует in-memory adapters. Gate этапа не
+закрывается до production-like durable topology и подписанного game day.
 
 ### Этап 18. Adversarial и нестандартные граничные сценарии
 
