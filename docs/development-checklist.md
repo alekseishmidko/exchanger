@@ -212,6 +212,7 @@
 15. [x] observability: metrics, traces, dashboards, alerts и проверяемые SLO.
 16. [ ] реалистичное HTTP/WebSocket/processing нагрузочное тестирование.
 17. [ ] resilience, chaos и восстановление при деградации зависимостей.
+    - [ ] этап 17A: durable runtime и production-like infrastructure для снятия chaos-блокировок.
 18. [ ] adversarial, fuzz, race и нестандартные граничные сценарии.
 19. [ ] capacity planning и итоговая production-readiness qualification.
 
@@ -891,6 +892,127 @@ event-log/sequencer/projection/ledger faults покрыты deterministic compon
 suite. PostgreSQL network/contention и backend `SIGKILL` остаются blocked, потому
 что development composition root использует in-memory adapters. Gate этапа не
 закрывается до production-like durable topology и подписанного game day.
+
+### Этап 17A. Durable runtime и infrastructure для закрытия resilience gate
+
+Цель — заменить reference in-memory boundaries на реальные durable adapters и
+связать operational controls с admission path. Этот этап является обязательным
+prerequisite для оставшихся проверок этапа 17: добавление новых mock fault-тестов
+без фактической persistence не считается выполнением.
+
+Архитектура и решения:
+
+- [x] выбран production event-log transport и принят ADR с обоснованием Kafka/Redpanda, PostgreSQL log/outbox или другого решения;
+- [x] ADR фиксирует transaction boundary между command journal, ledger, outbox/event log и consumer offset;
+- [x] определены source of truth, consistency model и ownership для commands, orders, balances, postings, events, snapshots, offsets, idempotency и audit;
+- [x] `TradingCommandPort`, ledger, event-log, projections и audit зависят от application/infrastructure ports, а не от конкретного PostgreSQL/broker client;
+- [x] in-memory adapters доступны только для unit/component tests и не могут случайно включиться в staging/production;
+- [x] startup блокируется, если production-like environment сконфигурирован с in-memory command, ledger, event-log, idempotency или audit adapter;
+- [x] все новые публичные interfaces, adapters, repositories и методы имеют подробный JSDoc на русском языке с принципом работы, инвариантами и примерами.
+
+Durable command и idempotency path:
+
+- [x] command считается accepted только после durable append/commit, а ошибка до commit никогда не возвращает клиенту success;
+- [x] command journal хранит commandId, idempotency key digest, payload hash, owner, instrument, sequence, status, correlation/causation metadata и timestamps;
+- [x] idempotency record хранится в PostgreSQL/shared durable store и атомарно связывает ключ, identity, payload hash и прежний public result;
+- [x] concurrent duplicate requests сериализуются unique constraint/transaction policy и не создают второй business effect;
+- [x] повтор после process restart возвращает прежний public result либо безопасный pending/recovery status;
+- [x] accepted, processing, applied, rejected и recovery transitions являются монотонными и аудируемыми;
+- [x] retry policy имеет bounded attempts/backoff/jitter и не допускает retry storm или бесконечный pending state.
+
+Ledger, settlement и event log:
+
+- [x] PostgreSQL ledger repository сохраняет accounts, balances, reservations, postings, operations и compensation links транзакционно;
+- [x] debit/credit posting set, balance mutation и idempotency record фиксируются одной atomic transaction;
+- [x] constraints/locking policy запрещают отрицательный available, `reserved > total` и несбалансированный posting set;
+- [x] settlement создаёт `TradeExecuted`, полный posting set и `SettlementApplied` без окна потери между DB и event log;
+- [x] реализован transactional outbox либо эквивалентный log-first protocol с crash-safe publisher recovery;
+- [x] event append дедуплицируется по eventId, consumer effect — по eventId/operationId, а offset commit следует только после business commit;
+- [x] poison events имеют retry metadata, quarantine/DLQ, operator action и безопасный replay без редактирования исходного события;
+- [ ] audit records хранятся append-only с tamper-evident chain, retention и отдельными правами записи;
+- [x] migrations имеют reversible up/down там, где это безопасно, forward-only policy для audit/ledger данных и проверку compatibility rolling deployment.
+
+Append-only trigger, hash chain и retention для audit реализованы и проверены.
+Пункт остаётся открытым до выделения отдельной database role для записи audit в
+production topology: использование owner/superuser приложения не считается
+достаточным разделением прав.
+
+Sequencer, ownership и recovery:
+
+- [ ] instrument partition ownership хранится как lease с fencing token/epoch, поэтому старый owner не может писать после передачи partition;
+- [ ] sequence резервируется и фиксируется монотонно вместе с durable command state;
+- [ ] snapshot содержит version, instrumentId, last sequence, checksum и boundary event offset;
+- [ ] snapshot создаётся без пропуска in-flight accepted commands и восстанавливается только после проверки checksum/version;
+- [ ] restart выполняет snapshot restore и ordered replay до durable high watermark перед открытием admission;
+- [ ] rolling restart передаёт ownership без двух активных writers и без starvation других instruments;
+- [ ] graceful shutdown прекращает admission, завершает либо сохраняет in-flight work, фиксирует offsets и освобождает lease;
+- [ ] projection хранит processed event IDs и offset в одной transaction с read-model mutation, а rebuild работает параллельно через versioned shadow tables/swap.
+
+Admission, risk controls и readiness:
+
+- [ ] `AdminService` и Gateway используют общий durable admission-control port для freeze, instrument pause и circuit breaker;
+- [ ] `GatewayController` проверяет admission policy до durable acceptance place/cancel command и возвращает стабильный безопасный rejection code;
+- [ ] circuit breaker/pause transition имеет dual control, idempotency, effectiveAt, audit metadata и компенсационный resume;
+- [ ] состояние control plane восстанавливается до открытия HTTP/WebSocket admission после restart;
+- [ ] PostgreSQL, event log, lease/ownership store и другие критичные dependencies зарегистрированы в `HEALTH_DEPENDENCIES`;
+- [ ] readiness возвращает `503` при невозможности безопасно принять команду, но liveness не зависит от БД, broker и observability;
+- [ ] observability exporter остаётся некритичной dependency с bounded queue/timeout и не влияет на readiness;
+- [ ] dependency probes имеют bounded timeout, не содержат destructive queries и не создают дополнительную перегрузку при outage.
+
+Production-like test topology:
+
+- [ ] `docker-compose`/staging поднимает backend, PostgreSQL, выбранный event log, migrations, observability и fault proxy одной командой;
+- [ ] PostgreSQL и event-log traffic проходит через Toxiproxy либо эквивалентный управляемый fault boundary;
+- [ ] fault proxy недоступен из production profile и требует того же explicit safety interlock, что chaos runner;
+- [ ] topology поддерживает latency, bandwidth limit, timeout, reset, packet loss и temporary disconnect для каждой dependency отдельно;
+- [ ] PostgreSQL profile позволяет воспроизвести pool exhaustion, deadlock, lock contention, read-only mode, failover и disk pressure;
+- [ ] backend запускается минимум в двух replicas для проверки rolling restart, lease/fencing и thundering herd;
+- [ ] load generator находится вне SUT containers, использует TLS/network hops и сохраняет build SHA, topology и resource limits;
+- [ ] CPU, memory, disk, file-descriptor и event-loop pressure имеют bounded injection method и emergency abort.
+
+Обязательные тесты:
+
+- [x] integration tests PostgreSQL repositories выполняются против настоящего PostgreSQL, включая concurrent duplicate и transaction rollback;
+- [x] migration tests проверяют clean up, upgrade с предыдущей schema, rollback policy и сохранность ledger/audit данных;
+- [ ] crash-point tests покрывают до/после command commit, outbox append, publish, ledger commit, offset commit и snapshot boundary;
+- [ ] `SIGKILL` после accepted response подтверждает RPO=0 и прежний idempotent result после restart;
+- [ ] process kill во время reserve, match, settlement и projection apply не оставляет частичного финансового эффекта;
+- [ ] network fault tests покрывают PostgreSQL/event-log latency, timeout, reset, packet loss и восстановление connection pool;
+- [ ] contention tests покрывают pool exhaustion, deadlock retry, lock timeout и временную read-only БД;
+- [ ] rolling restart tests подтверждают один active owner, fencing старого owner и непрерывный monotonic sequence;
+- [ ] circuit breaker, freeze, pause/resume и recovery transitions проверяются под продолжающейся command-нагрузкой;
+- [ ] retry/reconnect storm, thundering herd и slow WebSocket consumers не обходят rate limits/backpressure и не ухудшают matching p99 сверх budget;
+- [ ] disk/memory/event-loop pressure приводит к documented degraded mode либо закрытию admission без OOM/corruption;
+- [ ] readiness/liveness contract tests проверяют каждую critical/non-critical dependency отдельно;
+- [ ] после каждого scenario автоматически сравниваются accepted commands, events, ledger postings, offsets, sequence, projections и audit chain;
+- [ ] canary tests проверяют отсутствие credential, stack trace, financial payload и private WebSocket event в response/logs/artifacts;
+- [ ] каждый scenario имеет deterministic seed/timeline, stop conditions, cleanup verification и машиночитаемые RTO/RPO.
+
+CI, staging и эксплуатационная приёмка:
+
+- [ ] PR pipeline запускает repository/migration/crash-point component tests без privileged fault injection;
+- [ ] scheduled staging pipeline запускает network, resource, process-kill, rolling restart и storm scenarios;
+- [ ] CI всегда сохраняет timeline, dependency/container logs, k6 result, metrics snapshot, reconciliation и cleanup status;
+- [ ] failed cleanup, invariant violation, RPO больше нуля или secret/private-data leak всегда завершают pipeline ошибкой;
+- [ ] alerts реально переходят в firing/resolved для каждого failure class и содержат owner/runbook URL;
+- [ ] измерены RTO/RPO отдельно для PostgreSQL outage, event-log outage, backend kill, owner failover, projection rebuild и observability blackout;
+- [ ] проведён game day на release-candidate build, а operator и независимый reviewer подписали результаты;
+- [ ] follow-up actions содержат severity, owner, deadline и ссылку на issue; критичные findings блокируют release.
+
+Документация:
+
+- [ ] созданы ADR durable command/event/transaction model и ADR partition lease/fencing;
+- [ ] описаны database/event-log schemas, indexes, isolation levels, lock ordering, retention и capacity assumptions;
+- [ ] обновлены failure matrix, SLO/alerts, deployment, backup/restore, replay, dependency outage и reconciliation runbooks;
+- [ ] создан game-day template с environment/build SHA, seed, timeline, RTO/RPO, alerts, findings, signatures и go/no-go решением;
+- [ ] module README перечисляют production adapters, health dependencies, recovery order и запрещённые обходы boundaries.
+
+**Gate:** staging/production composition root не содержит in-memory state на
+критическом write path; accepted command переживает `SIGKILL` с RPO=0 и
+идемпотентным результатом, PostgreSQL/event-log failures корректно управляют
+readiness/admission, rolling ownership не допускает двух writers, а полный набор
+оставшихся сценариев этапа 17 выполняется на production-like topology. После
+этого этап 17 повторяется целиком и закрывается подписанным game-day report.
 
 ### Этап 18. Adversarial и нестандартные граничные сценарии
 

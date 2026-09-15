@@ -9,6 +9,11 @@ import { AdminModule } from './modules/admin';
 import { InstrumentsModule } from './modules/trading/instruments';
 import { LedgerModule } from './modules/ledger';
 import { ObservabilityModule } from './modules/observability';
+import { RuntimeSafetyService } from './config/runtime-safety.service';
+import { PostgresModule } from './infrastructure/postgres';
+import { EventLogModule } from './modules/trading/event-log';
+import { AuditModule } from './modules/audit';
+import { SettlementModule } from './modules/trading/settlement';
 
 /** Корневой composition root приложения и глобальной конфигурации. */
 @Module({
@@ -18,6 +23,9 @@ import { ObservabilityModule } from './modules/observability';
       envFilePath: [...environmentFilePaths(__dirname)],
       validate: validateEnvironment,
     }),
+    PostgresModule,
+    EventLogModule,
+    AuditModule,
     ObservabilityModule,
     HealthModule,
     GatewayModule,
@@ -25,7 +33,9 @@ import { ObservabilityModule } from './modules/observability';
     MarketDataModule,
     InstrumentsModule,
     LedgerModule,
+    SettlementModule,
     AdminModule,
   ],
+  providers: [RuntimeSafetyService],
 })
 export class AppModule {}

@@ -5,6 +5,7 @@ import {
   ForbiddenException,
   Get,
   Headers,
+  Inject,
   Param,
   Post,
   Req,
@@ -27,7 +28,7 @@ import {
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
 import { z } from 'zod';
-import { AuditLog } from '../audit';
+import { AUDIT_LOG_PORT, AuditLogPort } from '../audit';
 import {
   ApiKeyMetadataPageResponseDto,
   ApiKeyMetadataResponseDto,
@@ -38,7 +39,7 @@ import {
 } from './auth.dto';
 import { ApiKeyGuard, ApiKeyPrincipal, ApiKeyRegistry, assertAdminAccess } from './gateway.auth';
 import { issueApiKeySchema, mutateApiKeySchema } from './auth.validation';
-import { IdempotencyStore } from './gateway.idempotency';
+import { IDEMPOTENCY_STORE_PORT, IdempotencyStorePort } from './gateway.idempotency.port';
 import { RateLimitService } from './gateway.rate-limit';
 import { ZodValidationPipe } from './gateway.validation';
 
@@ -63,11 +64,23 @@ type AuthenticationRequest = Readonly<{ principal: ApiKeyPrincipal }>;
 @ApiSecurity('ApiKeyAuth')
 @ApiUnauthorizedResponse({ description: 'API-ключ отсутствует или недействителен.' })
 export class AuthenticationController {
+  /**
+   * Собирает authentication transport boundary из application ports.
+   *
+   * Registry отвечает только за API-key lifecycle, idempotency port подавляет
+   * повтор write-команд, rate limiter ограничивает principal, а audit port
+   * сохраняет административный след без прямого доступа controller к storage.
+   *
+   * @param registry Реестр безопасной metadata API keys.
+   * @param idempotency Порт дедупликации write-запросов.
+   * @param rateLimit Общий rate limiter authentication endpoints.
+   * @param audit Append-only порт административного аудита.
+   */
   constructor(
     private readonly registry: ApiKeyRegistry,
-    private readonly idempotency: IdempotencyStore,
+    @Inject(IDEMPOTENCY_STORE_PORT) private readonly idempotency: IdempotencyStorePort,
     private readonly rateLimit: RateLimitService,
-    private readonly audit: AuditLog,
+    @Inject(AUDIT_LOG_PORT) private readonly audit: AuditLogPort,
   ) {}
 
   /**
@@ -117,7 +130,7 @@ export class AuthenticationController {
     const key = this.requireIdempotencyKey(idempotencyKey);
     return this.idempotency.execute(`${request.principal.keyId}:${key}`, body, async () => {
       const issued = this.registry.issue(body);
-      this.audit.append(
+      await this.audit.append(
         { actorId: request.principal.userId, role: 'ADMIN' },
         'ACTION_APPLIED',
         'ISSUE_API_KEY',
@@ -165,7 +178,7 @@ export class AuthenticationController {
       { keyId, ...body },
       async () => {
         const issued = this.registry.rotate(keyId);
-        this.audit.append(
+        await this.audit.append(
           { actorId: request.principal.userId, role: 'ADMIN' },
           'ACTION_APPLIED',
           'ROTATE_API_KEY',
@@ -199,7 +212,7 @@ export class AuthenticationController {
       { keyId, ...body },
       async () => {
         const metadata = this.registry.revoke(keyId);
-        this.audit.append(
+        await this.audit.append(
           { actorId: request.principal.userId, role: 'ADMIN' },
           'ACTION_APPLIED',
           'REVOKE_API_KEY',

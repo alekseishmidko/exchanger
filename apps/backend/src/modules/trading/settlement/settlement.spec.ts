@@ -48,7 +48,7 @@ function trade(tradeId: string, makerSide: 'BUY' | 'SELL', quantity = '2'): Trad
 describe('SettlementService', () => {
   it('reserves before placement and settles buy/sell with maker/taker fees', async () => {
     const { ledger, service } = setup();
-    service.reserveBeforePlace({
+    await service.reserveBeforePlace({
       orderId: 'buy-order',
       accountId: buyer,
       side: 'BUY',
@@ -58,7 +58,7 @@ describe('SettlementService', () => {
       price: Decimal.from('100'),
       feeRate: Decimal.from('0.01'),
     });
-    service.reserveBeforePlace({
+    await service.reserveBeforePlace({
       orderId: 'sell-order',
       accountId: seller,
       side: 'SELL',
@@ -80,7 +80,7 @@ describe('SettlementService', () => {
 
   it('supports multi-fill settlement and exactly-once duplicate event handling', async () => {
     const { ledger, service } = setup();
-    service.reserveBeforePlace({
+    await service.reserveBeforePlace({
       orderId: 'buy-order',
       accountId: buyer,
       side: 'BUY',
@@ -90,7 +90,7 @@ describe('SettlementService', () => {
       price: Decimal.from('100'),
       feeRate: Decimal.from('0.01'),
     });
-    service.reserveBeforePlace({
+    await service.reserveBeforePlace({
       orderId: 'sell-order',
       accountId: seller,
       side: 'SELL',
@@ -108,9 +108,9 @@ describe('SettlementService', () => {
     expect(ledger.getPostings()).toHaveLength(20);
   });
 
-  it('rejects insufficient balance before matching', () => {
+  it('rejects insufficient balance before matching', async () => {
     const { service } = setup();
-    expect(() =>
+    await expect(
       service.reserveBeforePlace({
         orderId: 'too-large',
         accountId: buyer,
@@ -121,12 +121,12 @@ describe('SettlementService', () => {
         price: Decimal.from('100'),
         feeRate: Decimal.from('0.01'),
       }),
-    ).toThrow('Insufficient available balance');
+    ).rejects.toThrow('Insufficient available balance');
   });
 
   it('reconciles all settlement postings', async () => {
     const { ledger, service } = setup();
-    service.reserveBeforePlace({
+    await service.reserveBeforePlace({
       orderId: 'buy-order',
       accountId: buyer,
       side: 'BUY',
@@ -136,7 +136,7 @@ describe('SettlementService', () => {
       price: Decimal.from('100'),
       feeRate: Decimal.from('0.01'),
     });
-    service.reserveBeforePlace({
+    await service.reserveBeforePlace({
       orderId: 'sell-order',
       accountId: seller,
       side: 'SELL',

@@ -25,6 +25,23 @@ describe('environment validation', () => {
     );
   });
 
+  /** Production-like runtime не запускает durable adapters без connection URL. */
+  it('requires PostgreSQL URL for a fully configured production runtime', () => {
+    expect(() =>
+      validateEnvironment({
+        NODE_ENV: 'production',
+        PORT: '5000',
+        SERVICE_NAME: 'exchange-backend',
+        RUNTIME_PROFILE: 'production',
+        COMMAND_STORE_ADAPTER: 'postgres',
+        LEDGER_STORE_ADAPTER: 'postgres',
+        EVENT_LOG_ADAPTER: 'postgres-outbox',
+        IDEMPOTENCY_STORE_ADAPTER: 'postgres',
+        AUDIT_STORE_ADAPTER: 'postgres',
+      }),
+    ).toThrow('POSTGRES_URL is required for production-like runtime');
+  });
+
   it('rejects an invalid Swagger flag', () => {
     expect(() =>
       validateEnvironment({

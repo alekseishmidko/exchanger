@@ -6,6 +6,15 @@ export type GatewayOrderType = 'LIMIT' | 'MARKET';
 export type GatewayTimeInForce = 'GTC' | 'IOC' | 'FOK';
 
 /**
+ * Стабильный DI-токен application boundary отправки trading-команд.
+ *
+ * HTTP controller внедряет этот Symbol вместо строкового имени и concrete core.
+ * В component profile token связан с reference adapter; durable runtime должен
+ * связать его с command journal/sequencer adapter.
+ */
+export const TRADING_COMMAND_PORT = Symbol('TRADING_COMMAND_PORT');
+
+/**
  * Команда размещения после authentication, DTO validation и object authorization.
  *
  * Gateway сохраняет decimal values строками и добавляет `userId` из principal,
@@ -49,9 +58,10 @@ export interface TradingCommandPort {
   cancelOrder(command: GatewayCancelOrderCommand): Promise<GatewayCommandResult>;
   /** Возвращает bounded page заявок для query API. */
   listOrders(
+    userId: string,
     limit: number,
     cursor?: string,
-  ): Readonly<{ items: readonly GatewayCommandResult[]; nextCursor: string | null }>;
+  ): Promise<Readonly<{ items: readonly GatewayCommandResult[]; nextCursor: string | null }>>;
 }
 
 /** Безопасный внешний результат без ledger, order book и других внутренних объектов. */
@@ -69,7 +79,10 @@ export type GatewayCommandResult = Readonly<{
  * sequencer, сохраняя тот же `TradingCommandPort`.
  */
 export class InMemoryTradingCommandPort implements TradingCommandPort {
-  private readonly orders = new Map<string, GatewayCommandResult>();
+  private readonly orders = new Map<
+    string,
+    Readonly<{ ownerId: string; result: GatewayCommandResult }>
+  >();
 
   /** Принимает заявку после прохождения gateway admission и возвращает safe result. */
   async placeOrder(command: GatewayPlaceOrderCommand): Promise<GatewayCommandResult> {
@@ -79,7 +92,7 @@ export class InMemoryTradingCommandPort implements TradingCommandPort {
       orderId: command.clientOrderId,
       status: 'ACCEPTED',
     } as const;
-    this.orders.set(command.clientOrderId, result);
+    this.orders.set(command.clientOrderId, { ownerId: command.userId, result });
     return result;
   }
 
@@ -91,16 +104,20 @@ export class InMemoryTradingCommandPort implements TradingCommandPort {
       orderId: command.orderId,
       status: 'CANCEL_ACCEPTED',
     } as const;
-    this.orders.set(command.orderId, result);
+    this.orders.set(command.orderId, { ownerId: command.userId, result });
     return result;
   }
 
   /** Возвращает страницу принятых заявок с opaque cursor. */
-  listOrders(
+  async listOrders(
+    userId: string,
     limit: number,
     cursor?: string,
-  ): Readonly<{ items: readonly GatewayCommandResult[]; nextCursor: string | null }> {
-    const all = [...this.orders.values()];
+  ): Promise<Readonly<{ items: readonly GatewayCommandResult[]; nextCursor: string | null }>> {
+    await Promise.resolve();
+    const all = [...this.orders.values()]
+      .filter(({ ownerId }) => ownerId === userId)
+      .map(({ result }) => result);
     const start = cursor ? Number(cursor) : 0;
     const items = all.slice(start, start + limit);
     const nextCursor = start + items.length < all.length ? String(start + items.length) : null;

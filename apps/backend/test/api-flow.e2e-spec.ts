@@ -7,6 +7,7 @@ import {
   GatewayCancelOrderCommand,
   GatewayCommandResult,
   GatewayPlaceOrderCommand,
+  TRADING_COMMAND_PORT,
   TradingCommandPort,
 } from '../src/modules/gateway/gateway.types';
 import { ProjectionStore } from '../src/modules/projections/projection';
@@ -20,7 +21,10 @@ import { MatchingEngine } from '../src/modules/trading/matching-engine/matching-
  */
 class ProjectingTradingPort implements TradingCommandPort {
   private readonly engine = new MatchingEngine();
-  private readonly results = new Map<string, GatewayCommandResult>();
+  private readonly results = new Map<
+    string,
+    Readonly<{ ownerId: string; result: GatewayCommandResult }>
+  >();
   private projectionSequence = 0;
 
   constructor(private readonly projections: ProjectionStore) {}
@@ -55,7 +59,7 @@ class ProjectingTradingPort implements TradingCommandPort {
       orderId: command.clientOrderId,
       status: 'ACCEPTED',
     } as const;
-    this.results.set(result.orderId, result);
+    this.results.set(result.orderId, { ownerId: command.userId, result });
     return result;
   }
 
@@ -80,13 +84,16 @@ class ProjectingTradingPort implements TradingCommandPort {
       orderId: command.orderId,
       status: 'CANCEL_ACCEPTED',
     } as const;
-    this.results.set(result.orderId, result);
+    this.results.set(result.orderId, { ownerId: command.userId, result });
     return result;
   }
 
   /** Возвращает bounded reference page для Gateway query endpoint. */
-  listOrders(limit: number, cursor?: string) {
-    const values = [...this.results.values()];
+  async listOrders(userId: string, limit: number, cursor?: string) {
+    await Promise.resolve();
+    const values = [...this.results.values()]
+      .filter(({ ownerId }) => ownerId === userId)
+      .map(({ result }) => result);
     const start = Number(cursor ?? 0);
     const items = values.slice(start, start + limit);
     return {
@@ -106,7 +113,7 @@ describe('HTTP command to domain and projection flow', () => {
       .useValue(new ApiKeyRegistry([{ keyId: 'flow-key', role: 'trader', userId: 'user-1' }]))
       .overrideProvider(ProjectionStore)
       .useValue(projections)
-      .overrideProvider('TRADING_COMMAND_PORT')
+      .overrideProvider(TRADING_COMMAND_PORT)
       .useValue(new ProjectingTradingPort(projections))
       .compile();
     app = moduleRef.createNestApplication<NestFastifyApplication>(new FastifyAdapter());

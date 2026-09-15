@@ -5,6 +5,7 @@ import {
   Get,
   Headers,
   HttpException,
+  Inject,
   Param,
   Post,
   Query,
@@ -28,7 +29,7 @@ import {
 import { z } from 'zod';
 import { AuditActor } from '../audit';
 import { ApiKeyGuard, ApiKeyPrincipal, assertAdministrativeAccess } from '../gateway/gateway.auth';
-import { IdempotencyStore } from '../gateway/gateway.idempotency';
+import { IDEMPOTENCY_STORE_PORT, IdempotencyStorePort } from '../gateway/gateway.idempotency.port';
 import { RateLimitService } from '../gateway/gateway.rate-limit';
 import { ZodValidationPipe } from '../gateway/gateway.validation';
 import { Decimal, createId } from '../shared-kernel';
@@ -74,9 +75,21 @@ type AdminRequest = { principal: ApiKeyPrincipal };
 @ApiBadRequestResponse({ description: 'DTO или административная domain policy отклонили команду.' })
 @ApiConflictResponse({ description: 'Idempotency-Key использован с другим payload.' })
 export class AdminController {
+  /**
+   * Собирает защищённую administrative HTTP boundary.
+   *
+   * Controller выполняет transport validation и authorization, после чего
+   * вызывает `AdminService`. Idempotency и rate-limit переданы отдельными
+   * ports/services, поэтому ни один endpoint не редактирует audit/control state
+   * напрямую.
+   *
+   * @param admin Application service dual-control операций.
+   * @param idempotency Порт атомарной дедупликации административных команд.
+   * @param rateLimit Ограничитель запросов по проверенному API key.
+   */
   constructor(
     private readonly admin: AdminService,
-    private readonly idempotency: IdempotencyStore,
+    @Inject(IDEMPOTENCY_STORE_PORT) private readonly idempotency: IdempotencyStorePort,
     private readonly rateLimit: RateLimitService,
   ) {}
 
@@ -274,7 +287,7 @@ export class AdminController {
   @Get('reconciliation')
   @ApiOperation({ summary: 'Получить reconciliation status' })
   @ApiOkResponse({ type: ReconciliationResponseDto })
-  getReconciliation(@Req() request: AdminRequest): ReconciliationResponseDto {
+  async getReconciliation(@Req() request: AdminRequest): Promise<ReconciliationResponseDto> {
     assertAdministrativeAccess(request.principal);
     return this.admin.getDashboard(this.actor(request.principal));
   }
@@ -291,11 +304,11 @@ export class AdminController {
   @ApiOperation({ summary: 'Получить страницу событий административного аудита' })
   @ApiOkResponse({ type: AuditRecordPageResponseDto })
   @ApiBadRequestResponse({ description: 'limit/cursor имеют недопустимое значение.' })
-  getAuditEvents(
+  async getAuditEvents(
     @Req() request: AdminRequest,
     @Query('limit') rawLimit?: string,
     @Query('cursor') rawCursor?: string,
-  ): AuditRecordPageResponseDto {
+  ): Promise<AuditRecordPageResponseDto> {
     const limit = rawLimit === undefined ? 50 : Number(rawLimit);
     const cursor = rawCursor === undefined ? 0 : Number(rawCursor);
     if (
@@ -310,7 +323,7 @@ export class AdminController {
         message: 'Pagination parameters are invalid',
       });
     }
-    const records = this.admin.getAuditRecords(this.actor(request.principal));
+    const records = await this.admin.getAuditRecords(this.actor(request.principal));
     const items = records.slice(cursor, cursor + limit);
     return {
       items,
@@ -342,7 +355,7 @@ export class AdminController {
     principal: ApiKeyPrincipal,
     key: string | undefined,
     payload: unknown,
-    operation: () => T,
+    operation: () => T | Promise<T>,
   ): Promise<T> {
     assertAdministrativeAccess(principal);
     this.rateLimit.check(principal.keyId);

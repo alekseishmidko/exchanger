@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { Inject, Injectable, Optional } from '@nestjs/common';
 import { LOG_EVENTS, StructuredLogger } from '../observability';
+import type { AuditLogPort } from './audit.port';
 
 /** Роли сотрудников, имеющих доступ к административному контуру. */
 export type AdministrativeRole = 'ADMIN' | 'RISK_MANAGER' | 'AUDITOR' | 'SUPPORT';
@@ -58,9 +59,17 @@ export type AuditRecord = Readonly<{
  * ```
  */
 @Injectable()
-export class AuditLog {
+export class AuditLog implements AuditLogPort {
   private readonly records: AuditRecord[] = [];
 
+  /**
+   * Создаёт reference audit adapter с необязательным operational logger.
+   *
+   * Operational log сообщает о факте append/integrity failure, но не заменяет
+   * immutable audit record и не получает его чувствительные details.
+   *
+   * @param logger Централизованный redacting logger; в pure tests отсутствует.
+   */
   constructor(@Optional() @Inject(StructuredLogger) private readonly logger?: StructuredLogger) {}
 
   /**

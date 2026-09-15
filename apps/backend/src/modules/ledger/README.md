@@ -8,11 +8,16 @@ amount, accountId и posting payload; correctness контролируется s
 
 ## Назначение
 
-Чистое доменное ядро для точных денежных операций: активов, счетов, available/reserved balances, double-entry postings, reservations и idempotency. Текущая реализация in-memory и предназначена для проверки инвариантов до добавления PostgreSQL adapter.
+Доменное ядро точных денежных операций и два adapter: in-memory для
+unit/component tests и `PostgresLedgerAdapter` для production-like runtime.
+PostgreSQL реализация транзакционно хранит accounts, balances, reservations,
+double-entry postings, operations, idempotent results и compensation links.
 
 ## Границы
 
-Модуль не зависит от NestJS, HTTP, базы данных, брокера и системных часов. Сохранение, транзакционность и восстановление в БД будут реализованы отдельным adapter-слоем.
+Domain classes не зависят от NestJS, HTTP, БД, broker и системных часов.
+Application layer использует `LEDGER_PORT`; конкретный PostgreSQL client
+изолирован в infrastructure adapter и выбирается composition root.
 
 ## Публичный контракт
 
@@ -62,3 +67,11 @@ strict runtime validation, затем application service создаёт typed I
 `ledger.command.applied` пишется после атомарного изменения состояния;
 `ledger.command.rejected` — при нарушении инварианта. Amount, account owner,
 баланс и postings не логируются; расследование использует command ID и audit.
+
+## Durable transaction
+
+Operation ID сериализует конкурентные retries. Balance mutation, две postings,
+operation result и reservation/compensation link входят в один commit. Deferred
+database trigger проверяет баланс debit/credit, а immutable trigger запрещает
+перезапись проводок. Подробный алгоритм и запуск PostgreSQL suite описаны в
+[`docs/durable-runtime.md`](../../../../../docs/durable-runtime.md).

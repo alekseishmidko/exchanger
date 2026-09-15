@@ -3,6 +3,7 @@ import { Account, Asset } from './asset-account';
 import { Balance } from './balance';
 import { assertBalancedPostings, Posting } from './posting';
 import { NOOP_TELEMETRY, TelemetryPort, TRACE_SPANS } from '../observability';
+import type { LedgerPort } from './ledger.port';
 
 /** Результат идемпотентной операции ledger. */
 export type OperationResult = Readonly<{
@@ -14,7 +15,7 @@ export type OperationResult = Readonly<{
 export type IdempotencyRecord = Readonly<OperationResult>;
 
 /** In-memory aggregate ledger для детерминированных доменных тестов. */
-export class Ledger {
+export class Ledger implements LedgerPort {
   private readonly balances = new Map<string, Balance>();
   private readonly postings: Posting[] = [];
   private readonly operations = new Map<OperationId, OperationResult>();
@@ -47,6 +48,11 @@ export class Ledger {
     this.accounts.set(account.id, account);
   }
 
+  /** Возвращает owner account либо `null` для отсутствующего identifier. */
+  getAccountOwner(accountId: AccountId): string | null {
+    return this.accounts.get(accountId)?.ownerId ?? null;
+  }
+
   /** Создаёт нулевой баланс счёта по активу. */
   openBalance(accountId: AccountId, assetId: AssetId): void {
     this.requireAccount(accountId);
@@ -56,6 +62,16 @@ export class Ledger {
       throw new Error('Balance already exists');
     }
     this.balances.set(key, Balance.empty());
+  }
+
+  /** Возвращает отсортированные asset IDs всех открытых balances account. */
+  listBalanceAssetIds(accountId: AccountId): readonly AssetId[] {
+    this.requireAccount(accountId);
+    const prefix = `${accountId}:`;
+    return [...this.balances.keys()]
+      .filter((key) => key.startsWith(prefix))
+      .map((key) => createId<'AssetId'>(key.slice(prefix.length)))
+      .sort();
   }
 
   /** Возвращает неизменяемый snapshot баланса. */

@@ -13,6 +13,7 @@ import {
   TraceCarrier,
   TRACE_SPANS,
 } from '../observability';
+import type { ProjectionStorePort } from './projection.port';
 
 /** Событие event log, достаточное для построения read-моделей. */
 export type ProjectionEvent = Readonly<{
@@ -82,7 +83,7 @@ export type ProjectionMetrics = Readonly<{
  * структуру проекции независимо от версии исходных domain events.
  */
 @Injectable()
-export class ProjectionStore {
+export class ProjectionStore implements ProjectionStorePort {
   /** Версия схемы текущих read-моделей. */
   static readonly schemaVersion = 1;
   private readonly orders = new Map<string, OrderView>();

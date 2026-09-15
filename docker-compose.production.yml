@@ -1,4 +1,46 @@
 services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: exchange
+      POSTGRES_USER: exchange
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U exchange -d exchange"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  migrate:
+    image: postgres:16-alpine
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGHOST: postgres
+      PGDATABASE: exchange
+      PGUSER: exchange
+      PGPASSWORD: "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}"
+    command:
+      - sh
+      - -ec
+      - |
+        psql -v ON_ERROR_STOP=1 -c 'CREATE TABLE IF NOT EXISTS schema_migrations (version TEXT PRIMARY KEY, applied_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp())'
+        if ! psql -tAc "SELECT 1 FROM schema_migrations WHERE version='001_ledger'" | grep -q 1; then
+          psql -v ON_ERROR_STOP=1 -1 -f /migrations/001_ledger_up.sql
+          psql -v ON_ERROR_STOP=1 -c "INSERT INTO schema_migrations(version) VALUES ('001_ledger')"
+        fi
+        if ! psql -tAc "SELECT 1 FROM schema_migrations WHERE version='002_durable_runtime'" | grep -q 1; then
+          psql -v ON_ERROR_STOP=1 -1 -f /migrations/002_durable_runtime_up.sql
+          psql -v ON_ERROR_STOP=1 -c "INSERT INTO schema_migrations(version) VALUES ('002_durable_runtime')"
+        fi
+    volumes:
+      - ./apps/backend/src/modules/ledger/infrastructure/migrations/001_ledger_up.sql:/migrations/001_ledger_up.sql:ro
+      - ./apps/backend/src/infrastructure/postgres/migrations/002_durable_runtime_up.sql:/migrations/002_durable_runtime_up.sql:ro
+
   backend:
     build:
       context: .
@@ -10,6 +52,14 @@ services:
         required: true
       - path: .env.production
         required: false
+    environment:
+      POSTGRES_URL: "postgres://exchange:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/exchange"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
     ports:
       - "5000:5000"
     restart: unless-stopped
+
+volumes:
+  postgres-data:

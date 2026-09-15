@@ -1,4 +1,4 @@
-import { Controller, Get, Query, Req, UseGuards } from '@nestjs/common';
+import { Controller, Get, Inject, Query, Req, UseGuards } from '@nestjs/common';
 import {
   ApiBadRequestResponse,
   ApiOkResponse,
@@ -9,14 +9,8 @@ import {
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
 import { ApiKeyGuard, ApiKeyPrincipal } from '../gateway/gateway.auth';
-import {
-  BalanceView,
-  OrderView,
-  ProjectionMetrics,
-  ProjectionPage,
-  ProjectionStore,
-  TradeView,
-} from './projection';
+import { BalanceView, OrderView, ProjectionMetrics, ProjectionPage, TradeView } from './projection';
+import { PROJECTION_STORE_PORT, ProjectionStorePort } from './projection.port';
 import {
   BalanceProjectionPageDto,
   OrderProjectionPageDto,
@@ -34,7 +28,16 @@ type ProjectionRequest = { principal: ApiKeyPrincipal };
 @ApiSecurity('ApiKeyAuth')
 @ApiUnauthorizedResponse({ description: 'API-ключ отсутствует или недействителен.' })
 export class ProjectionsController {
-  constructor(private readonly projections: ProjectionStore) {}
+  /**
+   * Создаёт query transport adapter поверх versioned projection port.
+   *
+   * В каждый query передаётся userId только из проверенного principal. Controller
+   * не получает repository/client, поэтому не может снять ownership filter или
+   * выполнить произвольный запрос к read-model таблицам.
+   *
+   * @param projections Порт owner-isolated read models и lag metrics.
+   */
+  constructor(@Inject(PROJECTION_STORE_PORT) private readonly projections: ProjectionStorePort) {}
 
   /** Возвращает историю заявок только текущего пользователя. */
   @Get('orders')

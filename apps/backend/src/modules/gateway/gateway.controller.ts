@@ -33,10 +33,11 @@ import { ApiKeyGuard, ApiKeyPrincipal, assertObjectAccess } from './gateway.auth
 import {
   GatewayCancelOrderCommand,
   GatewayPlaceOrderCommand,
+  TRADING_COMMAND_PORT,
   TradingCommandPort,
 } from './gateway.types';
 import { cancelOrderDtoSchema, placeOrderDtoSchema, ZodValidationPipe } from './gateway.validation';
-import { IdempotencyStore } from './gateway.idempotency';
+import { IDEMPOTENCY_STORE_PORT, IdempotencyStorePort } from './gateway.idempotency.port';
 import { RateLimitService } from './gateway.rate-limit';
 import {
   LOG_EVENTS,
@@ -89,9 +90,9 @@ export class GatewayController {
    * @param logger Необязательный operational logger с no-op fallback.
    */
   constructor(
-    @Inject('TRADING_COMMAND_PORT')
+    @Inject(TRADING_COMMAND_PORT)
     private readonly trading: TradingCommandPort,
-    private readonly idempotency: IdempotencyStore,
+    @Inject(IDEMPOTENCY_STORE_PORT) private readonly idempotency: IdempotencyStorePort,
     private readonly rateLimit: RateLimitService,
     private readonly metrics: MetricsService,
     private readonly telemetry: TelemetryService,
@@ -231,11 +232,11 @@ export class GatewayController {
   @ApiOkResponse({ type: GatewayOrderPageResponseDto })
   @ApiBadRequestResponse({ description: 'Некорректный limit или cursor.' })
   @ApiTooManyRequestsResponse({ description: 'Превышен лимит запросов API-ключа.' })
-  listOrders(
+  async listOrders(
     @Req() request: GatewayRequest,
     @Query('limit') limitValue?: string,
     @Query('cursor') cursor?: string,
-  ): Readonly<{ items: readonly unknown[]; nextCursor: string | null }> {
+  ): Promise<Readonly<{ items: readonly unknown[]; nextCursor: string | null }>> {
     this.rateLimit.check(request.principal.keyId);
     const limit = Number(limitValue ?? 50);
     if (!Number.isInteger(limit) || limit < 1 || limit > 100 || (cursor && !/^\d+$/.test(cursor))) {
@@ -244,7 +245,7 @@ export class GatewayController {
         message: 'Pagination parameters are invalid',
       });
     }
-    return this.trading.listOrders(limit, cursor);
+    return this.trading.listOrders(request.principal.userId, limit, cursor);
   }
 
   /** Возвращает только класс ошибки, не message/stack с потенциальным payload. */
