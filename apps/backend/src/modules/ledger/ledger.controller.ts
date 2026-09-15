@@ -4,6 +4,7 @@ import {
   Controller,
   Get,
   Headers,
+  Inject,
   Param,
   Post,
   Req,
@@ -31,7 +32,7 @@ import {
   assertAdminAccess,
   assertObjectAccess,
 } from '../gateway/gateway.auth';
-import { IdempotencyStore } from '../gateway/gateway.idempotency';
+import { IDEMPOTENCY_STORE_PORT, IdempotencyStorePort } from '../gateway/gateway.idempotency.port';
 import { RateLimitService } from '../gateway/gateway.rate-limit';
 import { ZodValidationPipe } from '../gateway/gateway.validation';
 import {
@@ -61,9 +62,20 @@ type LedgerRequest = { principal: ApiKeyPrincipal };
 @ApiUnauthorizedResponse({ description: 'API-ключ отсутствует или недействителен.' })
 @ApiForbiddenResponse({ description: 'Нет доступа к аккаунту или admin-команде.' })
 export class LedgerController {
+  /**
+   * Создаёт account/balance transport adapter поверх application boundary.
+   *
+   * Controller не получает `Ledger` или PostgreSQL client. Денежная команда
+   * проходит object/role authorization, idempotency и rate limiting, после чего
+   * передаётся единственному `LedgerApplicationService`.
+   *
+   * @param application Авторизованный application API ledger-сценариев.
+   * @param idempotency Порт защиты от повторного денежного эффекта.
+   * @param rateLimit Ограничитель нагрузки по API key.
+   */
   constructor(
     private readonly application: LedgerApplicationService,
-    private readonly idempotency: IdempotencyStore,
+    @Inject(IDEMPOTENCY_STORE_PORT) private readonly idempotency: IdempotencyStorePort,
     private readonly rateLimit: RateLimitService,
   ) {}
 
@@ -98,11 +110,11 @@ export class LedgerController {
   @ApiParam({ name: 'accountId', example: 'account-1' })
   @ApiOkResponse({ type: AccountResponseDto })
   @ApiNotFoundResponse({ description: 'Аккаунт не найден.' })
-  getAccount(
+  async getAccount(
     @Req() request: LedgerRequest,
     @Param('accountId') accountId: string,
-  ): AccountResponseDto {
-    const account = this.application.getAccount(accountId);
+  ): Promise<AccountResponseDto> {
+    const account = await this.application.getAccount(accountId);
     assertObjectAccess(request.principal, account.ownerId);
     return account;
   }
@@ -111,12 +123,12 @@ export class LedgerController {
   @Get(':accountId/balances')
   @ApiOperation({ summary: 'Получить балансы аккаунта' })
   @ApiOkResponse({ type: AccountBalancesResponseDto })
-  getBalances(
+  async getBalances(
     @Req() request: LedgerRequest,
     @Param('accountId') accountId: string,
-  ): AccountBalancesResponseDto {
-    this.authorizeAccount(request.principal, accountId);
-    return { items: [...this.application.getBalances(accountId)] };
+  ): Promise<AccountBalancesResponseDto> {
+    await this.authorizeAccount(request.principal, accountId);
+    return { items: [...(await this.application.getBalances(accountId))] };
   }
 
   /** Возвращает один balance snapshot в точных decimal strings. */
@@ -124,12 +136,12 @@ export class LedgerController {
   @ApiOperation({ summary: 'Получить баланс аккаунта по активу' })
   @ApiOkResponse({ type: BalanceResponseDto })
   @ApiNotFoundResponse({ description: 'Аккаунт или баланс не найден.' })
-  getBalance(
+  async getBalance(
     @Req() request: LedgerRequest,
     @Param('accountId') accountId: string,
     @Param('assetId') assetId: string,
-  ): BalanceResponseDto {
-    this.authorizeAccount(request.principal, accountId);
+  ): Promise<BalanceResponseDto> {
+    await this.authorizeAccount(request.principal, accountId);
     return this.application.getBalance(accountId, assetId);
   }
 
@@ -157,8 +169,8 @@ export class LedgerController {
   }
 
   /** Проверяет owner account перед любым чтением финансового snapshot. */
-  private authorizeAccount(principal: ApiKeyPrincipal, accountId: string): void {
-    assertObjectAccess(principal, this.application.getAccount(accountId).ownerId);
+  private async authorizeAccount(principal: ApiKeyPrincipal, accountId: string): Promise<void> {
+    assertObjectAccess(principal, (await this.application.getAccount(accountId)).ownerId);
   }
 
   /** Выполняет rate limit и общую idempotency boundary write-запросов. */
@@ -166,7 +178,7 @@ export class LedgerController {
     principal: ApiKeyPrincipal,
     key: string | undefined,
     payload: unknown,
-    operation: () => T,
+    operation: () => T | Promise<T>,
   ): Promise<T> {
     this.rateLimit.check(principal.keyId);
     const idempotencyKey = this.requireIdempotencyKey(key);

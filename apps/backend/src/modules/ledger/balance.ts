@@ -12,6 +12,22 @@ export class Balance {
     return new Balance(Decimal.from('0'), Decimal.from('0'));
   }
 
+  /**
+   * Восстанавливает immutable value object из trusted persistence snapshot.
+   *
+   * Метод повторно проверяет неотрицательность обеих частей, поэтому повреждённая
+   * строка БД не может незаметно попасть в application response.
+   *
+   * @param available Точный доступный остаток.
+   * @param reserved Точный зарезервированный остаток.
+   * @returns Проверенный balance snapshot.
+   */
+  static restore(available: Decimal, reserved: Decimal): Balance {
+    Balance.requireNonNegative(available, 'Available balance cannot be negative');
+    Balance.requireNonNegative(reserved, 'Reserved balance cannot be negative');
+    return new Balance(available, reserved);
+  }
+
   /** Зачисляет положительную сумму в available. */
   credit(amount: Decimal): Balance {
     Balance.requirePositive(amount);

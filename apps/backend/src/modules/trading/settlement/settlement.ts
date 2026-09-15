@@ -1,6 +1,14 @@
-import { AssetId, createId, Decimal, AccountId, OperationId } from '../../shared-kernel';
-import { Ledger, OperationResult } from '../../ledger';
-import { EventLog } from '../event-log';
+import {
+  AssetId,
+  createId,
+  Decimal,
+  AccountId,
+  OperationId,
+  AtomicExecutionPort,
+  DIRECT_ATOMIC_EXECUTION,
+} from '../../shared-kernel';
+import { LedgerPort, OperationResult } from '../../ledger';
+import { EventLogPort } from '../event-log';
 import {
   LOG_EVENTS,
   NOOP_OPERATIONAL_LOGGER,
@@ -44,6 +52,22 @@ export type TradeExecuted = Readonly<{
   baseAssetId: AssetId;
 }>;
 
+/**
+ * JSON-представление `TradeExecuted` для durable event log.
+ *
+ * Decimal-поля намеренно представлены строками: например, цена `100.25`
+ * сохраняется как `"100.25"`, а не как IEEE-754 number и не как внутренний
+ * объект `Decimal` с `bigint`, который JSON не умеет сериализовать.
+ */
+export type TradeExecutedPayload = Readonly<
+  Omit<TradeExecuted, 'quantity' | 'price' | 'makerFee' | 'takerFee'> & {
+    quantity: string;
+    price: string;
+    makerFee: string;
+    takerFee: string;
+  }
+>;
+
 /** Событие завершённого settlement с ссылками на ledger postings. */
 export type SettlementApplied = Readonly<{
   eventId: string;
@@ -80,46 +104,57 @@ export class SettlementService {
    * @param logger Operational success/failure события settlement.
    * @param telemetry Port для `settlement.apply` span.
    * @param metrics Счётчики applied/failed settlement с bounded reason.
+   * @param atomic Transaction boundary полного posting/outbox use case.
    */
   constructor(
-    private readonly ledger: Ledger,
-    private readonly eventLog: EventLog,
+    private readonly ledger: LedgerPort,
+    private readonly eventLog: EventLogPort,
     private readonly feeScale = 8,
     private readonly logger: OperationalLogger = NOOP_OPERATIONAL_LOGGER,
     private readonly telemetry: TelemetryPort = NOOP_TELEMETRY,
     private readonly metrics: OperationalMetrics = NOOP_OPERATIONAL_METRICS,
+    private readonly atomic: AtomicExecutionPort = DIRECT_ATOMIC_EXECUTION,
   ) {}
 
   /** Резервирует base либо quote+fee до допуска заявки в matching engine. */
-  reserveBeforePlace(order: OrderToReserve): ReservationResult {
+  async reserveBeforePlace(order: OrderToReserve): Promise<ReservationResult> {
     const existing = this.reservations.get(order.orderId);
     if (existing) return existing;
+    const result = await this.atomic.execute(() => this.reserveBeforePlaceAtomic(order));
+    this.reservations.set(order.orderId, result);
+    return result;
+  }
+
+  /**
+   * Выполняет все операции reserve одной заявки внутри общей transaction.
+   *
+   * Для SELL это особенно важно: резерв base и резерв quote-комиссии либо
+   * фиксируются вместе, либо оба откатываются. Метод не изменяет process-local
+   * cache — он обновляется вызывающим методом только после успешного commit.
+   */
+  private async reserveBeforePlaceAtomic(order: OrderToReserve): Promise<ReservationResult> {
     const notional = order.quantity.multiply(order.price);
     const fee = notional.multiply(order.feeRate).round(this.feeScale);
     const operations: OperationId[] = [];
     if (order.side === 'BUY') {
       const total = notional.add(fee);
       const operationId = createId<'OperationId'>(`reserve-${order.orderId}-quote`);
-      this.ledger.reserve(operationId, order.accountId, order.quoteAssetId, total);
+      await this.ledger.reserve(operationId, order.accountId, order.quoteAssetId, total);
       operations.push(operationId);
-      const result = { orderId: order.orderId, reserved: total, fee, operationIds: operations };
-      this.reservations.set(order.orderId, result);
-      return result;
+      return { orderId: order.orderId, reserved: total, fee, operationIds: operations };
     }
     const baseOperationId = createId<'OperationId'>(`reserve-${order.orderId}-base`);
-    this.ledger.reserve(baseOperationId, order.accountId, order.baseAssetId, order.quantity);
+    await this.ledger.reserve(baseOperationId, order.accountId, order.baseAssetId, order.quantity);
     operations.push(baseOperationId);
     const feeOperationId = createId<'OperationId'>(`reserve-${order.orderId}-fee`);
-    this.ledger.reserve(feeOperationId, order.accountId, order.quoteAssetId, fee);
+    await this.ledger.reserve(feeOperationId, order.accountId, order.quoteAssetId, fee);
     operations.push(feeOperationId);
-    const result = {
+    return {
       orderId: order.orderId,
       reserved: order.quantity,
       fee,
       operationIds: operations,
     };
-    this.reservations.set(order.orderId, result);
-    return result;
   }
 
   /** Публикует TradeExecuted с retry на временный timeout event log. */
@@ -129,7 +164,7 @@ export class SettlementService {
         await this.eventLog.append({
           eventId: event.eventId,
           eventType: 'TradeExecuted',
-          payload: event,
+          payload: this.serializeTrade(event),
           ...(event.correlationId ? { correlationId: event.correlationId } : {}),
           ...(event.causationId ? { causationId: event.causationId } : {}),
         });
@@ -163,11 +198,12 @@ export class SettlementService {
    */
   async settleTrade(event: TradeExecuted): Promise<SettlementApplied> {
     try {
-      const result = await this.telemetry.span(
-        TRACE_SPANS.SETTLEMENT_APPLY,
-        { 'trade.side': event.makerSide },
-        () => this.settleTradeObserved(event),
+      const result = await this.atomic.execute(() =>
+        this.telemetry.span(TRACE_SPANS.SETTLEMENT_APPLY, { 'trade.side': event.makerSide }, () =>
+          this.settleTradeObserved(event),
+        ),
       );
+      this.applied.set(event.tradeId, result);
       this.metrics.observeSettlement('applied');
       return result;
     } catch (error) {
@@ -190,7 +226,7 @@ export class SettlementService {
     const value = event.quantity.multiply(event.price);
     const operationIds: OperationResult[] = [];
     operationIds.push(
-      this.ledger.settleReservedTransfer(
+      await this.ledger.settleReservedTransfer(
         createId<'OperationId'>(`settle-${event.tradeId}-base`),
         sellerAccountId,
         buyerAccountId,
@@ -199,7 +235,7 @@ export class SettlementService {
       ),
     );
     operationIds.push(
-      this.ledger.settleReservedTransfer(
+      await this.ledger.settleReservedTransfer(
         createId<'OperationId'>(`settle-${event.tradeId}-quote`),
         buyerAccountId,
         sellerAccountId,
@@ -209,10 +245,10 @@ export class SettlementService {
     );
     if (!buyerFee.isZero()) {
       operationIds.push(
-        this.ledger.settleReservedTransfer(
+        await this.ledger.settleReservedTransfer(
           createId<'OperationId'>(`settle-${event.tradeId}-buyer-fee`),
           buyerAccountId,
-          this.feeAccount(event.feeAssetId),
+          await this.feeAccount(event.feeAssetId),
           event.feeAssetId,
           buyerFee,
         ),
@@ -220,10 +256,10 @@ export class SettlementService {
     }
     if (!sellerFee.isZero()) {
       operationIds.push(
-        this.ledger.settleReservedTransfer(
+        await this.ledger.settleReservedTransfer(
           createId<'OperationId'>(`settle-${event.tradeId}-seller-fee`),
           sellerAccountId,
-          this.feeAccount(event.feeAssetId),
+          await this.feeAccount(event.feeAssetId),
           event.feeAssetId,
           sellerFee,
         ),
@@ -237,7 +273,6 @@ export class SettlementService {
       tradeId: event.tradeId,
       postingIds: operationIds.flatMap(({ postingIds }) => postingIds.map(String)),
     };
-    this.applied.set(event.tradeId, result);
     await this.eventLog.append({
       eventId: result.eventId,
       eventType: 'SettlementApplied',
@@ -258,15 +293,46 @@ export class SettlementService {
   async consumeTrades(maxRetries = 3): Promise<void> {
     await this.eventLog.consume(async (event) => {
       if (event.eventType === 'TradeExecuted') {
-        await this.settleTrade(event.payload as TradeExecuted);
+        await this.settleTrade(this.deserializeTrade(event.payload));
       }
     }, maxRetries);
   }
 
-  private feeAccount(assetId: AssetId): AccountId {
+  /**
+   * Преобразует domain event в стабильный JSON payload без floating point.
+   * Повторная сериализация одинакового события даёт одинаковые decimal strings.
+   */
+  private serializeTrade(event: TradeExecuted): TradeExecutedPayload {
+    return {
+      ...event,
+      quantity: event.quantity.toString(),
+      price: event.price.toString(),
+      makerFee: event.makerFee.toString(),
+      takerFee: event.takerFee.toString(),
+    };
+  }
+
+  /**
+   * Восстанавливает точные domain decimals после чтения JSONB/event transport.
+   * Некорректная decimal-строка приводит к исключению и штатному retry/DLQ,
+   * поэтому poison payload не может незаметно попасть в ledger posting.
+   */
+  private deserializeTrade(payload: unknown): TradeExecuted {
+    const event = payload as TradeExecutedPayload;
+    return {
+      ...event,
+      quantity: Decimal.from(event.quantity),
+      price: Decimal.from(event.price),
+      makerFee: Decimal.from(event.makerFee),
+      takerFee: Decimal.from(event.takerFee),
+    };
+  }
+
+  /** Находит заранее provisioned fee account для заданного asset. */
+  private async feeAccount(assetId: AssetId): Promise<AccountId> {
     const accountId = createId<'AccountId'>(`fees-${assetId}`);
     try {
-      this.ledger.getBalance(accountId, assetId);
+      await this.ledger.getBalance(accountId, assetId);
     } catch {
       throw new Error('Fee account must be provisioned before settlement');
     }

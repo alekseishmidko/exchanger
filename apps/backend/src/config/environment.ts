@@ -1,4 +1,5 @@
 import { resolve } from 'node:path';
+import { validateRuntimeAdapters } from './runtime-adapters';
 
 /** Допустимые режимы запуска backend-приложения. */
 export type Environment = 'development' | 'production' | 'test';
@@ -189,5 +190,37 @@ export function validateEnvironment(config: EnvironmentConfig): EnvironmentConfi
     throw new Error('WEBSOCKET_ALLOWED_ORIGINS must be a non-empty comma-separated list');
   }
 
-  return config;
+  const runtimeAdapters = validateRuntimeAdapters(config);
+  if (runtimeAdapters.RUNTIME_PROFILE !== 'component') {
+    const postgresUrl = config['POSTGRES_URL'];
+    if (typeof postgresUrl !== 'string') {
+      throw new Error('POSTGRES_URL is required for production-like runtime');
+    }
+    try {
+      const parsed = new URL(postgresUrl);
+      if (!['postgres:', 'postgresql:'].includes(parsed.protocol) || !parsed.hostname) {
+        throw new Error('invalid PostgreSQL URL');
+      }
+    } catch {
+      throw new Error('POSTGRES_URL must be an absolute PostgreSQL URL');
+    }
+  }
+
+  for (const key of [
+    'POSTGRES_POOL_MAX',
+    'POSTGRES_CONNECTION_TIMEOUT_MS',
+    'POSTGRES_IDLE_TIMEOUT_MS',
+  ] as const) {
+    const value = config[key];
+    const normalized =
+      typeof value === 'string' || typeof value === 'number' ? `${value}` : undefined;
+    if (
+      value !== undefined &&
+      (normalized === undefined || !/^\d+$/.test(normalized) || Number(normalized) < 1)
+    ) {
+      throw new Error(`${key} must be a positive integer`);
+    }
+  }
+
+  return { ...config, ...runtimeAdapters };
 }

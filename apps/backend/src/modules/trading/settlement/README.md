@@ -25,9 +25,17 @@ Settlement связывает `TradeExecuted` с ledger: резервирует 
 
 Insufficient balance отклоняет reserve до matching. Event-log timeout retry-ится ограниченное число раз; poison event после исчерпания retries попадает в DLQ. Duplicate `TradeExecuted` возвращает прежний `SettlementApplied` и не создаёт новые postings.
 
-## Границы
+## Durable boundary
 
-Текущая реализация содержит in-memory reference adapter. Durable persistence, transaction boundary и external broker adapter подключаются через event-log/ledger ports без изменения settlement policy.
+`SettlementService` зависит только от `LedgerPort`, `EventLogPort` и
+`AtomicExecutionPort`. В production-like runtime `PostgresAtomicExecution`
+объединяет posting matrix и `SettlementApplied` outbox row одним commit. Ошибка
+append откатывает все ledger effects; локальный result cache обновляется только
+после commit. SELL reserve base+fee также атомарен.
+
+Decimal values `TradeExecuted` сериализуются строками и восстанавливаются перед
+расчётом. Это исключает IEEE-754 и ошибку JSON serialization внутреннего
+`bigint`. Poison payload не применяется к ledger и попадает в DLQ.
 
 ## Operational log events
 

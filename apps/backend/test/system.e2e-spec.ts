@@ -44,7 +44,7 @@ describe('Exchange system E2E', () => {
 
     const eventLog = new EventLog();
     const settlement = new SettlementService(ledger, eventLog, 2);
-    settlement.reserveBeforePlace({
+    await settlement.reserveBeforePlace({
       orderId: 'buy-order',
       accountId: buyer,
       side: 'BUY',
@@ -54,7 +54,7 @@ describe('Exchange system E2E', () => {
       price: Decimal.from('100'),
       feeRate: Decimal.from('0.01'),
     });
-    settlement.reserveBeforePlace({
+    await settlement.reserveBeforePlace({
       orderId: 'sell-order',
       accountId: seller,
       side: 'SELL',

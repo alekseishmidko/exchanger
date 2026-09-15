@@ -1,5 +1,11 @@
 import { ForbiddenException, Inject, Injectable, Optional } from '@nestjs/common';
-import { AuditActor, AuditLog, AdministrativeRole, AuditRecord } from '../audit';
+import {
+  AUDIT_LOG_PORT,
+  AuditActor,
+  AuditLogPort,
+  AdministrativeRole,
+  AuditRecord,
+} from '../audit';
 import { Decimal } from '../shared-kernel';
 import { Instrument, InstrumentCatalogService, InstrumentRules } from '../trading/instruments';
 import { LOG_EVENTS, MetricsService, StructuredLogger } from '../observability';
@@ -110,7 +116,7 @@ export class AdminService {
    * @param metrics Необязательные circuit-breaker/reconciliation метрики.
    */
   constructor(
-    private readonly audit: AuditLog,
+    @Inject(AUDIT_LOG_PORT) private readonly audit: AuditLogPort,
     private readonly instruments: InstrumentCatalogService = new InstrumentCatalogService(),
     @Optional() @Inject(StructuredLogger) private readonly logger?: StructuredLogger,
     @Optional() @Inject(MetricsService) private readonly metrics?: MetricsService,
@@ -123,12 +129,12 @@ export class AdminService {
    * fee/risk policy и emergency stop требуют dual control и возвращают
    * `PENDING_APPROVAL` до отдельного вызова `approve` другим сотрудником.
    */
-  request(command: AdminCommand, actor: AuditActor, now = new Date()): AdminResult {
+  async request(command: AdminCommand, actor: AuditActor, now = new Date()): Promise<AdminResult> {
     const previous = this.results.get(command.commandId);
     if (previous) return previous;
-    this.assertRole(command.type, actor, command.commandId, command.targetId);
+    await this.assertRole(command.type, actor, command.commandId, command.targetId);
     this.commands.set(command.commandId, command);
-    this.audit.append(
+    await this.audit.append(
       actor,
       'ACTION_REQUESTED',
       command.type,
@@ -146,7 +152,7 @@ export class AdminService {
     this.apply(command);
     const result = this.result(command, 'APPLIED', [actor.actorId]);
     this.results.set(command.commandId, result);
-    this.audit.append(
+    await this.audit.append(
       actor,
       'ACTION_APPLIED',
       command.type,
@@ -168,18 +174,18 @@ export class AdminService {
    * @throws ForbiddenException Если approver совпадает с инициатором или его роль
    * не разрешает соответствующее действие.
    */
-  approve(commandId: string, actor: AuditActor, now = new Date()): AdminResult {
+  async approve(commandId: string, actor: AuditActor, now = new Date()): Promise<AdminResult> {
     const current = this.results.get(commandId);
     if (current?.status === 'APPLIED') return current;
     const pending = this.pending.get(commandId);
     if (!pending) throw new Error('Pending administrative action does not exist');
-    this.assertRole(pending.command.type, actor, commandId, pending.command.targetId);
+    await this.assertRole(pending.command.type, actor, commandId, pending.command.targetId);
     if (pending.requestedBy.actorId === actor.actorId)
       throw new ForbiddenException({
         code: 'DUAL_CONTROL_REQUIRED',
         message: 'Independent approval is required',
       });
-    this.audit.append(
+    await this.audit.append(
       actor,
       'ACTION_APPROVED',
       pending.command.type,
@@ -195,7 +201,7 @@ export class AdminService {
     ]);
     this.pending.delete(commandId);
     this.results.set(commandId, result);
-    this.audit.append(
+    await this.audit.append(
       actor,
       'ACTION_APPLIED',
       pending.command.type,
@@ -220,12 +226,12 @@ export class AdminService {
    * Freeze компенсируется unfreeze, emergency stop — resume. Policy/configuration
    * компенсируются только новой версией policy/rules через обычный dual-control flow.
    */
-  compensate(
+  async compensate(
     compensationId: string,
     originalCommandId: string,
     actor: AuditActor,
     now = new Date(),
-  ): AdminResult {
+  ): Promise<AdminResult> {
     const previous = this.results.get(compensationId);
     if (previous) return previous;
     const original = this.commands.get(originalCommandId);
@@ -236,12 +242,12 @@ export class AdminService {
       type: reverseType,
       targetId: original.targetId,
     } as AdminCommand;
-    this.assertRole(reverseType, actor, compensationId, original.targetId);
+    await this.assertRole(reverseType, actor, compensationId, original.targetId);
     this.apply(command);
     this.commands.set(compensationId, command);
     const result = this.result(command, 'APPLIED', [actor.actorId]);
     this.results.set(compensationId, result);
-    this.audit.append(
+    await this.audit.append(
       actor,
       'COMPENSATION_APPLIED',
       reverseType,
@@ -273,15 +279,11 @@ export class AdminService {
   }
 
   /** Строит reconciliation dashboard и фиксирует факт проверки в audit log. */
-  getDashboard(actor: AuditActor, now = new Date()): ReconciliationDashboard {
-    this.assertRole(
-      'RECONCILIATION',
-      actor,
-      `reconcile-${this.audit.getRecords().length + 1}`,
-      'system',
-    );
+  async getDashboard(actor: AuditActor, now = new Date()): Promise<ReconciliationDashboard> {
+    const records = await this.audit.getRecords();
+    await this.assertRole('RECONCILIATION', actor, `reconcile-${records.length + 1}`, 'system');
     const dashboard = {
-      auditIntegrity: this.audit.verifyIntegrity(),
+      auditIntegrity: await this.audit.verifyIntegrity(records),
       pendingApprovals: this.pending.size,
       frozenUsers: this.frozenUsers.size,
       frozenAccounts: this.frozenAccounts.size,
@@ -294,11 +296,11 @@ export class AdminService {
       riskPolicyVersions: this.riskPolicies.map(({ version }) => version),
     };
     if (!dashboard.auditIntegrity) this.metrics?.observeReconciliationDifference('ledger');
-    this.audit.append(
+    await this.audit.append(
       actor,
       'RECONCILIATION_EXECUTED',
       'RECONCILIATION',
-      `reconcile-${this.audit.getRecords().length + 1}`,
+      `reconcile-${records.length + 1}`,
       'system',
       { auditIntegrity: dashboard.auditIntegrity },
       now,
@@ -318,7 +320,7 @@ export class AdminService {
    * `getAuditRecords({ actorId: 'auditor-1', role: 'AUDITOR' })` возвращает
    * записи в порядке их монотонного `sequence`, не раскрывая API-key secrets.
    */
-  getAuditRecords(actor: AuditActor): readonly AuditRecord[] {
+  async getAuditRecords(actor: AuditActor): Promise<readonly AuditRecord[]> {
     if (actor.role !== 'ADMIN' && actor.role !== 'AUDITOR') {
       throw new ForbiddenException({
         code: 'AUDIT_READ_FORBIDDEN',
@@ -372,12 +374,12 @@ export class AdminService {
     }
   }
 
-  private assertRole(
+  private async assertRole(
     type: AdminCommand['type'] | 'RECONCILIATION',
     actor: AuditActor,
     commandId: string,
     targetId: string,
-  ): void {
+  ): Promise<void> {
     const allowed: Record<AdminCommand['type'] | 'RECONCILIATION', readonly AdministrativeRole[]> =
       {
         CONFIGURE_INSTRUMENT: ['ADMIN', 'RISK_MANAGER'],
@@ -394,7 +396,7 @@ export class AdminService {
         RECONCILIATION: ['ADMIN', 'AUDITOR'],
       };
     if (!allowed[type].includes(actor.role)) {
-      this.audit.append(actor, 'ACTION_REJECTED', type, commandId, targetId, {
+      await this.audit.append(actor, 'ACTION_REJECTED', type, commandId, targetId, {
         reason: 'ROLE_FORBIDDEN',
       });
       this.logger?.warn('admin', LOG_EVENTS.ADMIN_ACTION_REJECTED, {

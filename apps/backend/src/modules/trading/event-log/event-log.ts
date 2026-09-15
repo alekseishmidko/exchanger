@@ -9,6 +9,7 @@ import {
   TraceCarrier,
   TRACE_SPANS,
 } from '../../observability';
+import type { EventLogPort } from './event-log.port';
 
 /**
  * Минимальное immutable событие для durable event log adapter.
@@ -50,7 +51,7 @@ export class EventLogTimeout extends Error {
 }
 
 /** Append-only log с offset, retry и dead-letter semantics для adapters. */
-export class EventLog {
+export class EventLog implements EventLogPort {
   private readonly events: LogEvent[] = [];
   private readonly deadLetters: LogEvent[] = [];
   private offset = 0;

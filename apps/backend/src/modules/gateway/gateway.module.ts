@@ -4,9 +4,15 @@ import { AuditModule } from '../audit';
 import { ApiKeyGuard, ApiKeyRegistry, ApiKeyRole } from './gateway.auth';
 import { GatewayController } from './gateway.controller';
 import { IdempotencyStore } from './gateway.idempotency';
+import { IDEMPOTENCY_STORE_PORT } from './gateway.idempotency.port';
 import { RateLimitService } from './gateway.rate-limit';
-import { InMemoryTradingCommandPort } from './gateway.types';
+import { InMemoryTradingCommandPort, TRADING_COMMAND_PORT } from './gateway.types';
 import { AuthenticationController } from './auth.controller';
+import { POSTGRES_TRANSACTION, PostgresTransactionManager } from '../../infrastructure/postgres';
+import { PostgresIdempotencyStore } from './postgres-idempotency.store';
+import { PostgresTradingCommandAdapter } from './postgres-trading-command.adapter';
+import type { IdempotencyStorePort } from './gateway.idempotency.port';
+import type { TradingCommandPort } from './gateway.types';
 
 /**
  * Composition root Gateway-модуля.
@@ -55,9 +61,37 @@ import { AuthenticationController } from './auth.controller';
     },
     ApiKeyGuard,
     IdempotencyStore,
+    {
+      provide: IDEMPOTENCY_STORE_PORT,
+      inject: [ConfigService, POSTGRES_TRANSACTION],
+      useFactory: (
+        config: ConfigService,
+        transactions: PostgresTransactionManager,
+      ): IdempotencyStorePort =>
+        config.getOrThrow('IDEMPOTENCY_STORE_ADAPTER') === 'postgres'
+          ? new PostgresIdempotencyStore(transactions)
+          : new IdempotencyStore(),
+    },
     RateLimitService,
-    { provide: 'TRADING_COMMAND_PORT', useClass: InMemoryTradingCommandPort },
+    {
+      provide: TRADING_COMMAND_PORT,
+      inject: [ConfigService, POSTGRES_TRANSACTION],
+      useFactory: (
+        config: ConfigService,
+        transactions: PostgresTransactionManager,
+      ): TradingCommandPort =>
+        config.getOrThrow('COMMAND_STORE_ADAPTER') === 'postgres'
+          ? new PostgresTradingCommandAdapter(transactions)
+          : new InMemoryTradingCommandPort(),
+    },
   ],
-  exports: [ApiKeyGuard, ApiKeyRegistry, IdempotencyStore, RateLimitService],
+  exports: [
+    ApiKeyGuard,
+    ApiKeyRegistry,
+    IdempotencyStore,
+    IDEMPOTENCY_STORE_PORT,
+    TRADING_COMMAND_PORT,
+    RateLimitService,
+  ],
 })
 export class GatewayModule {}

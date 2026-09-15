@@ -1,5 +1,6 @@
 import { ConflictException, Injectable } from '@nestjs/common';
 import { createHash } from 'node:crypto';
+import type { IdempotencyStorePort } from './gateway.idempotency.port';
 
 /**
  * Неизменяемая запись результата команды, сохранённая по ключу идемпотентности.
@@ -52,7 +53,7 @@ type IdempotencyRecord = Readonly<{ fingerprint: string; result: unknown }>;
  * ```
  */
 @Injectable()
-export class IdempotencyStore {
+export class IdempotencyStore implements IdempotencyStorePort {
   /**
    * Локальный индекс `idempotency key → результат`.
    *

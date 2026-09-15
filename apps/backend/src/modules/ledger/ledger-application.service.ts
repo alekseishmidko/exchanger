@@ -6,10 +6,10 @@ import {
   NotFoundException,
   Optional,
 } from '@nestjs/common';
-import { AuditActor, AuditLog } from '../audit';
+import { AUDIT_LOG_PORT, AuditActor, AuditLogPort } from '../audit';
 import { Decimal, createId } from '../shared-kernel';
 import { Account, Asset } from './asset-account';
-import { Ledger } from './ledger';
+import { LEDGER_PORT, LedgerPort } from './ledger.port';
 import { LOG_EVENTS, StructuredLogger } from '../observability';
 
 /** Описание asset при открытии нулевого баланса нового аккаунта. */
@@ -43,14 +43,22 @@ export type LedgerCommandAudit = Readonly<{
  */
 @Injectable()
 export class LedgerApplicationService {
-  private readonly ledger = new Ledger();
-  private readonly accounts = new Map<string, AccountSnapshot>();
-  private readonly accountAssets = new Map<string, Set<string>>();
-  private readonly assets = new Map<string, OpenBalanceDefinition>();
   private readonly commandAudit: LedgerCommandAudit[] = [];
 
+  /**
+   * Создаёт ledger application boundary на заменяемых infrastructure ports.
+   *
+   * `ledger` отвечает за денежные инварианты и идемпотентные posting sets,
+   * `audit` — за неизменяемый административный след. Operational logger сообщает
+   * outcome, но не получает суммы или полные финансовые payloads.
+   *
+   * @param ledger Transactional порт денежных операций.
+   * @param audit Append-only порт business audit.
+   * @param logger Необязательный redacting operational logger.
+   */
   constructor(
-    private readonly audit: AuditLog,
+    @Inject(LEDGER_PORT) private readonly ledger: LedgerPort,
+    @Inject(AUDIT_LOG_PORT) private readonly audit: AuditLogPort,
     @Optional() @Inject(StructuredLogger) private readonly logger?: StructuredLogger,
   ) {}
 
@@ -58,14 +66,14 @@ export class LedgerApplicationService {
    * Регистрирует аккаунт и набор нулевых балансов одной application-командой.
    * Все конфликты проверяются до мутации domain state.
    */
-  createAccount(
+  async createAccount(
     commandId: string,
     accountId: string,
     ownerId: string,
     balances: readonly OpenBalanceDefinition[],
     actorId: string,
-  ): AccountSnapshot {
-    if (this.accounts.has(accountId)) {
+  ): Promise<AccountSnapshot> {
+    if (await this.ledger.getAccountOwner(createId<'AccountId'>(accountId))) {
       throw new ConflictException({
         code: 'ACCOUNT_ALREADY_EXISTS',
         message: 'Account already exists',
@@ -81,30 +89,22 @@ export class LedgerApplicationService {
       });
     }
     for (const definition of balances) {
-      const existing = this.assets.get(definition.assetId);
-      if (existing && (existing.code !== definition.code || existing.scale !== definition.scale)) {
+      try {
+        await this.ledger.registerAsset(
+          new Asset(createId<'AssetId'>(definition.assetId), definition.code, definition.scale),
+        );
+      } catch {
         throw new ConflictException({
           code: 'ASSET_DEFINITION_CONFLICT',
           message: 'Asset definition conflicts with the catalog',
         });
       }
     }
-
-    for (const definition of balances) {
-      if (!this.assets.has(definition.assetId)) {
-        this.ledger.registerAsset(
-          new Asset(createId<'AssetId'>(definition.assetId), definition.code, definition.scale),
-        );
-        this.assets.set(definition.assetId, definition);
-      }
-    }
-    this.ledger.registerAccount(new Account(createId<'AccountId'>(accountId), ownerId));
+    await this.ledger.registerAccount(new Account(createId<'AccountId'>(accountId), ownerId));
     for (const { assetId } of balances) {
-      this.ledger.openBalance(createId<'AccountId'>(accountId), createId<'AssetId'>(assetId));
+      await this.ledger.openBalance(createId<'AccountId'>(accountId), createId<'AssetId'>(assetId));
     }
     const snapshot = { accountId, ownerId } as const;
-    this.accounts.set(accountId, snapshot);
-    this.accountAssets.set(accountId, new Set(balances.map(({ assetId }) => assetId)));
     this.commandAudit.push({ commandId, actorId, action: 'CREATE_ACCOUNT', targetId: accountId });
     this.logger?.info('ledger', LOG_EVENTS.LEDGER_COMMAND_APPLIED, {
       commandId,
@@ -114,32 +114,33 @@ export class LedgerApplicationService {
   }
 
   /** Возвращает account snapshot для последующей object-level authorization. */
-  getAccount(accountId: string): AccountSnapshot {
-    const account = this.accounts.get(accountId);
-    if (!account) {
+  async getAccount(accountId: string): Promise<AccountSnapshot> {
+    const ownerId = await this.ledger.getAccountOwner(createId<'AccountId'>(accountId));
+    if (!ownerId) {
       throw new NotFoundException({ code: 'ACCOUNT_NOT_FOUND', message: 'Account was not found' });
     }
-    return account;
+    return { accountId, ownerId };
   }
 
   /** Возвращает все балансы аккаунта в детерминированном порядке assetId. */
-  getBalances(accountId: string): readonly BalanceSnapshot[] {
-    this.getAccount(accountId);
-    return [...(this.accountAssets.get(accountId) ?? [])]
-      .sort()
-      .map((assetId) => this.getBalance(accountId, assetId));
+  async getBalances(accountId: string): Promise<readonly BalanceSnapshot[]> {
+    await this.getAccount(accountId);
+    const assets = await this.ledger.listBalanceAssetIds(createId<'AccountId'>(accountId));
+    return Promise.all(assets.map((assetId) => this.getBalance(accountId, assetId)));
   }
 
   /** Преобразует immutable Balance value object в decimal-string snapshot. */
-  getBalance(accountId: string, assetId: string): BalanceSnapshot {
-    this.getAccount(accountId);
-    if (!this.accountAssets.get(accountId)?.has(assetId)) {
+  async getBalance(accountId: string, assetId: string): Promise<BalanceSnapshot> {
+    await this.getAccount(accountId);
+    let balance;
+    try {
+      balance = await this.ledger.getBalance(
+        createId<'AccountId'>(accountId),
+        createId<'AssetId'>(assetId),
+      );
+    } catch {
       throw new NotFoundException({ code: 'BALANCE_NOT_FOUND', message: 'Balance was not found' });
     }
-    const balance = this.ledger.getBalance(
-      createId<'AccountId'>(accountId),
-      createId<'AssetId'>(assetId),
-    );
     return {
       accountId,
       assetId,
@@ -152,27 +153,28 @@ export class LedgerApplicationService {
    * Выполняет одну allow-listed balance-команду и записывает admin audit event.
    * Повтор operationId безопасен за счёт idempotency record внутри Ledger.
    */
-  changeBalance(
+  async changeBalance(
     commandId: string,
     accountId: string,
     assetId: string,
     action: 'CREDIT' | 'DEBIT' | 'RESERVE' | 'RELEASE',
     amount: string,
     actor: AuditActor,
-  ): BalanceSnapshot {
+  ): Promise<BalanceSnapshot> {
     const typedAccountId = createId<'AccountId'>(accountId);
     const typedAssetId = createId<'AssetId'>(assetId);
     const operationId = createId<'OperationId'>(commandId);
     const decimal = Decimal.from(amount);
-    this.getBalance(accountId, assetId);
+    await this.getBalance(accountId, assetId);
     try {
       if (action === 'CREDIT')
-        this.ledger.credit(operationId, typedAccountId, typedAssetId, decimal);
-      if (action === 'DEBIT') this.ledger.debit(operationId, typedAccountId, typedAssetId, decimal);
+        await this.ledger.credit(operationId, typedAccountId, typedAssetId, decimal);
+      if (action === 'DEBIT')
+        await this.ledger.debit(operationId, typedAccountId, typedAssetId, decimal);
       if (action === 'RESERVE')
-        this.ledger.reserve(operationId, typedAccountId, typedAssetId, decimal);
+        await this.ledger.reserve(operationId, typedAccountId, typedAssetId, decimal);
       if (action === 'RELEASE')
-        this.ledger.release(operationId, typedAccountId, typedAssetId, decimal);
+        await this.ledger.release(operationId, typedAccountId, typedAssetId, decimal);
     } catch {
       this.logger?.warn('ledger', LOG_EVENTS.LEDGER_COMMAND_REJECTED, {
         commandId,
@@ -183,7 +185,7 @@ export class LedgerApplicationService {
         message: 'Balance command violates ledger invariants',
       });
     }
-    this.audit.append(
+    await this.audit.append(
       actor,
       'ACTION_APPLIED',
       `LEDGER_${action}`,
