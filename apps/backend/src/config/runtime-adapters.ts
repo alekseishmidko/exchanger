@@ -20,6 +20,9 @@ export const DURABLE_ADAPTER_KEYS = [
   'EVENT_LOG_ADAPTER',
   'IDEMPOTENCY_STORE_ADAPTER',
   'AUDIT_STORE_ADAPTER',
+  'SEQUENCER_STORE_ADAPTER',
+  'PROJECTION_STORE_ADAPTER',
+  'ADMISSION_CONTROL_ADAPTER',
 ] as const;
 
 /**
@@ -42,6 +45,9 @@ export type RuntimeAdapterConfiguration = Readonly<{
   EVENT_LOG_ADAPTER: 'memory' | 'postgres-outbox';
   IDEMPOTENCY_STORE_ADAPTER: 'memory' | 'postgres';
   AUDIT_STORE_ADAPTER: 'memory' | 'postgres';
+  SEQUENCER_STORE_ADAPTER: 'memory' | 'postgres';
+  PROJECTION_STORE_ADAPTER: 'memory' | 'postgres';
+  ADMISSION_CONTROL_ADAPTER: 'memory' | 'postgres';
 }>;
 
 const allowedValues: Readonly<Record<DurableAdapterKey, readonly string[]>> = {
@@ -50,6 +56,9 @@ const allowedValues: Readonly<Record<DurableAdapterKey, readonly string[]>> = {
   EVENT_LOG_ADAPTER: ['memory', 'postgres-outbox'],
   IDEMPOTENCY_STORE_ADAPTER: ['memory', 'postgres'],
   AUDIT_STORE_ADAPTER: ['memory', 'postgres'],
+  SEQUENCER_STORE_ADAPTER: ['memory', 'postgres'],
+  PROJECTION_STORE_ADAPTER: ['memory', 'postgres'],
+  ADMISSION_CONTROL_ADAPTER: ['memory', 'postgres'],
 };
 
 /**
@@ -71,6 +80,9 @@ const allowedValues: Readonly<Record<DurableAdapterKey, readonly string[]>> = {
  *   EVENT_LOG_ADAPTER: 'postgres-outbox',
  *   IDEMPOTENCY_STORE_ADAPTER: 'postgres',
  *   AUDIT_STORE_ADAPTER: 'postgres',
+ *   SEQUENCER_STORE_ADAPTER: 'postgres',
+ *   PROJECTION_STORE_ADAPTER: 'postgres',
+ *   ADMISSION_CONTROL_ADAPTER: 'postgres',
  * });
  * ```
  *

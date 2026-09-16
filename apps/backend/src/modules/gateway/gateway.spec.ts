@@ -3,6 +3,7 @@ import { FastifyAdapter, NestFastifyApplication } from '@nestjs/platform-fastify
 import request from 'supertest';
 import { AppModule } from '../../app.module';
 import { ApiKeyRegistry } from './gateway.auth';
+import { ADMISSION_CONTROL_PORT, AdmissionControlPort } from '../admin/admission-control.port';
 
 /**
  * E2E-проверки внешнего Gateway-контракта.
@@ -259,5 +260,36 @@ describe('Gateway command API', () => {
       .expect((response) =>
         expect((response.body as { code: string }).code).toBe('PAGINATION_INVALID'),
       );
+  });
+
+  /** Operational control отклоняет place до idempotency callback и trading port. */
+  it('enforces the shared admission control before durable command acceptance', async () => {
+    const controls = app.get<AdmissionControlPort>(ADMISSION_CONTROL_PORT);
+    await controls.apply({
+      commandId: 'pause-btc-gateway',
+      type: 'INSTRUMENT',
+      targetId: 'BTC-USD',
+      state: 'PAUSED',
+      effectiveAt: new Date(0),
+      actorId: 'risk-1',
+      reasonCode: 'PAUSE_INSTRUMENT',
+    });
+    await request(app.getHttpServer())
+      .post('/api/v1/orders')
+      .set('x-api-key', 'dev-key')
+      .set('idempotency-key', 'blocked-command-key')
+      .send({ ...order, commandId: 'blocked-command' })
+      .expect(409)
+      .expect(({ body }) => expect((body as { code: string }).code).toBe('INSTRUMENT_PAUSED'));
+    await controls.apply({
+      commandId: 'resume-btc-gateway',
+      type: 'INSTRUMENT',
+      targetId: 'BTC-USD',
+      state: 'ALLOW',
+      effectiveAt: new Date(1),
+      actorId: 'risk-2',
+      reasonCode: 'ACTIVATE_INSTRUMENT',
+      compensationFor: 'pause-btc-gateway',
+    });
   });
 });

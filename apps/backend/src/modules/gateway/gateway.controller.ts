@@ -54,6 +54,7 @@ import {
   GatewayOrderPageResponseDto,
   PlaceOrderRequestDto,
 } from './gateway.dto';
+import { ADMISSION_CONTROL_PORT, AdmissionControlPort } from '../admin/admission-control.port';
 
 /** Минимальная форма request после выполнения ApiKeyGuard. */
 type GatewayRequest = { principal: ApiKeyPrincipal };
@@ -96,6 +97,7 @@ export class GatewayController {
     private readonly rateLimit: RateLimitService,
     private readonly metrics: MetricsService,
     private readonly telemetry: TelemetryService,
+    @Inject(ADMISSION_CONTROL_PORT) private readonly admission: AdmissionControlPort,
     @Optional() @Inject(StructuredLogger) logger?: StructuredLogger,
   ) {
     this.logger = logger ?? NOOP_OPERATIONAL_LOGGER;
@@ -133,6 +135,11 @@ export class GatewayController {
       userId: request.principal.userId,
       limitPrice: body.limitPrice ?? null,
     };
+    await this.admission.assertAllowed({
+      userId: command.userId,
+      accountId: command.accountId,
+      instrumentId: command.instrumentId,
+    });
     return this.telemetry.span(TRACE_SPANS.COMMAND_ADMISSION, { 'command.type': 'place' }, () =>
       this.idempotency.execute(`${request.principal.keyId}:${key}`, command, async () => {
         try {
@@ -191,6 +198,11 @@ export class GatewayController {
       idempotencyKey: key,
       userId: request.principal.userId,
     };
+    await this.admission.assertAllowed({
+      userId: command.userId,
+      accountId: command.accountId,
+      instrumentId: command.instrumentId,
+    });
     return this.telemetry.span(TRACE_SPANS.COMMAND_ADMISSION, { 'command.type': 'cancel' }, () =>
       this.idempotency.execute(`${request.principal.keyId}:${key}`, command, async () => {
         try {

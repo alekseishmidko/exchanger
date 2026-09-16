@@ -35,9 +35,9 @@ describe('AdminService', () => {
       risk1,
     );
     expect(first.status).toBe('APPLIED');
-    expect(service.canAdmit('user-1', 'account-1', 'BTC-USD')).toBe(false);
+    await expect(service.canAdmit('user-1', 'account-1', 'BTC-USD')).resolves.toBe(false);
     await service.compensate('compensate-1', 'freeze-1', risk1);
-    expect(service.canAdmit('user-1', 'account-1', 'BTC-USD')).toBe(true);
+    await expect(service.canAdmit('user-1', 'account-1', 'BTC-USD')).resolves.toBe(true);
     expect(audit.getRecords().map(({ eventType }) => eventType)).toContain('COMPENSATION_APPLIED');
   });
 
@@ -48,7 +48,7 @@ describe('AdminService', () => {
     await expect(service.approve('stop-1', admin1)).rejects.toThrow(ForbiddenException);
     expect((await service.approve('stop-1', admin2)).status).toBe('APPLIED');
     expect((await service.approve('stop-1', admin2)).status).toBe('APPLIED');
-    expect(service.canAdmit('user-1', 'account-1', 'BTC-USD')).toBe(false);
+    await expect(service.canAdmit('user-1', 'account-1', 'BTC-USD')).resolves.toBe(false);
   });
 
   it('selects fee and risk policy by effective time and validates monotonic versions', async () => {

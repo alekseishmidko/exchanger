@@ -13,6 +13,8 @@ import { PostgresIdempotencyStore } from './postgres-idempotency.store';
 import { PostgresTradingCommandAdapter } from './postgres-trading-command.adapter';
 import type { IdempotencyStorePort } from './gateway.idempotency.port';
 import type { TradingCommandPort } from './gateway.types';
+import { AdmissionControlModule } from '../admin/admission-control.module';
+import { SEQUENCER_STORE_PORT, SequencerModule, SequencerStorePort } from '../trading/sequencer';
 
 /**
  * Composition root Gateway-модуля.
@@ -25,7 +27,7 @@ import type { TradingCommandPort } from './gateway.types';
  * получает default credentials.
  */
 @Module({
-  imports: [AuditModule],
+  imports: [AuditModule, SequencerModule, AdmissionControlModule],
   controllers: [AuthenticationController, GatewayController],
   providers: [
     {
@@ -75,13 +77,19 @@ import type { TradingCommandPort } from './gateway.types';
     RateLimitService,
     {
       provide: TRADING_COMMAND_PORT,
-      inject: [ConfigService, POSTGRES_TRANSACTION],
+      inject: [ConfigService, POSTGRES_TRANSACTION, SEQUENCER_STORE_PORT],
       useFactory: (
         config: ConfigService,
         transactions: PostgresTransactionManager,
+        sequencer: SequencerStorePort,
       ): TradingCommandPort =>
         config.getOrThrow('COMMAND_STORE_ADAPTER') === 'postgres'
-          ? new PostgresTradingCommandAdapter(transactions)
+          ? new PostgresTradingCommandAdapter(
+              transactions,
+              sequencer,
+              config.getOrThrow('INSTANCE_ID'),
+              Number(config.get('PARTITION_LEASE_TTL_MS', '15000')),
+            )
           : new InMemoryTradingCommandPort(),
     },
   ],

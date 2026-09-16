@@ -42,8 +42,11 @@ exactly-once business effect достигается unique event/operation IDs �
 4. Outbox delivery не входит в финансовую транзакцию. Publisher может отправить
    событие повторно между broker acknowledgement и отметкой delivery; eventId
    делает повтор безопасным.
-5. Audit append административной команды входит в транзакцию изменения control
-   state. Последующая WORM-репликация асинхронна и не разрешает update/delete.
+5. Audit append и durable control history содержат общий command ID, actor и
+   reason для reconciliation. Сейчас это две последовательные durable boundary;
+   объединение их в одну PostgreSQL transaction либо transactional outbox для
+   audit является обязательным до заявления atomic audit/control effect.
+   Последующая WORM-репликация остаётся отдельным deployment control.
 
 Транзакции одного инструмента используют monotonic sequence и fencing epoch.
 Ledger блокирует строки в стабильном порядке `(asset_id, account_id)`, чтобы

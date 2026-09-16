@@ -55,6 +55,7 @@ class PostgresPoolLifecycle implements OnApplicationShutdown {
             config.get<string>('POSTGRES_CONNECTION_TIMEOUT_MS', '2000'),
           ),
           idleTimeoutMillis: Number(config.get<string>('POSTGRES_IDLE_TIMEOUT_MS', '30000')),
+          query_timeout: Number(config.get<string>('POSTGRES_QUERY_TIMEOUT_MS', '2000')),
           application_name: config.get<string>('SERVICE_NAME', 'exchange-backend'),
         }),
     },

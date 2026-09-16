@@ -38,6 +38,10 @@ describe('environment validation', () => {
         EVENT_LOG_ADAPTER: 'postgres-outbox',
         IDEMPOTENCY_STORE_ADAPTER: 'postgres',
         AUDIT_STORE_ADAPTER: 'postgres',
+        SEQUENCER_STORE_ADAPTER: 'postgres',
+        PROJECTION_STORE_ADAPTER: 'postgres',
+        ADMISSION_CONTROL_ADAPTER: 'postgres',
+        INSTANCE_ID: 'backend-1',
       }),
     ).toThrow('POSTGRES_URL is required for production-like runtime');
   });

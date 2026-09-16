@@ -939,25 +939,30 @@ production topology: использование owner/superuser приложен
 
 Sequencer, ownership и recovery:
 
-- [ ] instrument partition ownership хранится как lease с fencing token/epoch, поэтому старый owner не может писать после передачи partition;
-- [ ] sequence резервируется и фиксируется монотонно вместе с durable command state;
-- [ ] snapshot содержит version, instrumentId, last sequence, checksum и boundary event offset;
-- [ ] snapshot создаётся без пропуска in-flight accepted commands и восстанавливается только после проверки checksum/version;
+- [x] instrument partition ownership хранится как lease с fencing token/epoch, поэтому старый owner не может писать после передачи partition;
+- [x] sequence резервируется и фиксируется монотонно вместе с durable command state;
+- [x] snapshot содержит version, instrumentId, last sequence, checksum и boundary event offset;
+- [x] snapshot создаётся без пропуска in-flight accepted commands и восстанавливается только после проверки checksum/version;
 - [ ] restart выполняет snapshot restore и ordered replay до durable high watermark перед открытием admission;
 - [ ] rolling restart передаёт ownership без двух активных writers и без starvation других instruments;
-- [ ] graceful shutdown прекращает admission, завершает либо сохраняет in-flight work, фиксирует offsets и освобождает lease;
-- [ ] projection хранит processed event IDs и offset в одной transaction с read-model mutation, а rebuild работает параллельно через versioned shadow tables/swap.
+- [x] graceful shutdown прекращает admission, завершает либо сохраняет in-flight work, фиксирует offsets и освобождает lease;
+- [x] projection хранит processed event IDs и offset в одной transaction с read-model mutation, а rebuild работает параллельно через versioned shadow tables/swap.
+
+Storage-level recovery plan, checksum, contiguous replay и high-watermark gate
+реализованы и проверены на PostgreSQL. Полный restart/rolling пункт остаётся
+открытым до подключения restore/replay к фактическому matching-engine state и
+process-kill теста минимум с двумя backend replicas.
 
 Admission, risk controls и readiness:
 
-- [ ] `AdminService` и Gateway используют общий durable admission-control port для freeze, instrument pause и circuit breaker;
-- [ ] `GatewayController` проверяет admission policy до durable acceptance place/cancel command и возвращает стабильный безопасный rejection code;
-- [ ] circuit breaker/pause transition имеет dual control, idempotency, effectiveAt, audit metadata и компенсационный resume;
-- [ ] состояние control plane восстанавливается до открытия HTTP/WebSocket admission после restart;
-- [ ] PostgreSQL, event log, lease/ownership store и другие критичные dependencies зарегистрированы в `HEALTH_DEPENDENCIES`;
-- [ ] readiness возвращает `503` при невозможности безопасно принять команду, но liveness не зависит от БД, broker и observability;
-- [ ] observability exporter остаётся некритичной dependency с bounded queue/timeout и не влияет на readiness;
-- [ ] dependency probes имеют bounded timeout, не содержат destructive queries и не создают дополнительную перегрузку при outage.
+- [x] `AdminService` и Gateway используют общий durable admission-control port для freeze, instrument pause и circuit breaker;
+- [x] `GatewayController` проверяет admission policy до durable acceptance place/cancel command и возвращает стабильный безопасный rejection code;
+- [x] circuit breaker/pause transition имеет dual control, idempotency, effectiveAt, audit metadata и компенсационный resume;
+- [x] состояние control plane восстанавливается до открытия HTTP/WebSocket admission после restart;
+- [x] PostgreSQL, event log, lease/ownership store и другие критичные dependencies зарегистрированы в `HEALTH_DEPENDENCIES`;
+- [x] readiness возвращает `503` при невозможности безопасно принять команду, но liveness не зависит от БД, broker и observability;
+- [x] observability exporter остаётся некритичной dependency с bounded queue/timeout и не влияет на readiness;
+- [x] dependency probes имеют bounded timeout, не содержат destructive queries и не создают дополнительную перегрузку при outage.
 
 Production-like test topology:
 
@@ -1001,7 +1006,7 @@ CI, staging и эксплуатационная приёмка:
 
 Документация:
 
-- [ ] созданы ADR durable command/event/transaction model и ADR partition lease/fencing;
+- [x] созданы ADR durable command/event/transaction model и ADR partition lease/fencing;
 - [ ] описаны database/event-log schemas, indexes, isolation levels, lock ordering, retention и capacity assumptions;
 - [ ] обновлены failure matrix, SLO/alerts, deployment, backup/restore, replay, dependency outage и reconciliation runbooks;
 - [ ] создан game-day template с environment/build SHA, seed, timeline, RTO/RPO, alerts, findings, signatures и go/no-go решением;

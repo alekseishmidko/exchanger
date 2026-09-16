@@ -50,11 +50,11 @@ export class ProjectionsController {
   @ApiQuery({ name: 'cursor', required: false, schema: { type: 'string', pattern: '^\\d+$' } })
   @ApiOkResponse({ type: OrderProjectionPageDto })
   @ApiBadRequestResponse({ description: 'Некорректные параметры pagination.' })
-  getOrders(
+  async getOrders(
     @Req() request: ProjectionRequest,
     @Query('limit') limit?: string,
     @Query('cursor') cursor?: string,
-  ): ProjectionPage<OrderView> {
+  ): Promise<ProjectionPage<OrderView>> {
     return this.projections.getOrders(request.principal.userId, Number(limit ?? 50), cursor);
   }
 
@@ -69,11 +69,11 @@ export class ProjectionsController {
   @ApiQuery({ name: 'cursor', required: false, schema: { type: 'string', pattern: '^\\d+$' } })
   @ApiOkResponse({ type: TradeProjectionPageDto })
   @ApiBadRequestResponse({ description: 'Некорректные параметры pagination.' })
-  getTrades(
+  async getTrades(
     @Req() request: ProjectionRequest,
     @Query('limit') limit?: string,
     @Query('cursor') cursor?: string,
-  ): ProjectionPage<TradeView> {
+  ): Promise<ProjectionPage<TradeView>> {
     return this.projections.getTrades(request.principal.userId, Number(limit ?? 50), cursor);
   }
 
@@ -88,11 +88,11 @@ export class ProjectionsController {
   @ApiQuery({ name: 'cursor', required: false, schema: { type: 'string', pattern: '^\\d+$' } })
   @ApiOkResponse({ type: BalanceProjectionPageDto })
   @ApiBadRequestResponse({ description: 'Некорректные параметры pagination.' })
-  getBalances(
+  async getBalances(
     @Req() request: ProjectionRequest,
     @Query('limit') limit?: string,
     @Query('cursor') cursor?: string,
-  ): ProjectionPage<BalanceView> {
+  ): Promise<ProjectionPage<BalanceView>> {
     return this.projections.getBalances(request.principal.userId, Number(limit ?? 50), cursor);
   }
 
@@ -100,7 +100,7 @@ export class ProjectionsController {
   @Get('metrics')
   @ApiOperation({ summary: 'Получить lag и версию projection consumer' })
   @ApiOkResponse({ type: ProjectionMetricsResponseDto })
-  getMetrics(): ProjectionMetrics {
+  async getMetrics(): Promise<ProjectionMetrics> {
     return this.projections.getMetrics();
   }
 }

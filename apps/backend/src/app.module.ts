@@ -14,6 +14,8 @@ import { PostgresModule } from './infrastructure/postgres';
 import { EventLogModule } from './modules/trading/event-log';
 import { AuditModule } from './modules/audit';
 import { SettlementModule } from './modules/trading/settlement';
+import { SequencerModule } from './modules/trading/sequencer';
+import { AdmissionControlModule } from './modules/admin/admission-control.module';
 
 /** Корневой composition root приложения и глобальной конфигурации. */
 @Module({
@@ -26,6 +28,8 @@ import { SettlementModule } from './modules/trading/settlement';
     PostgresModule,
     EventLogModule,
     AuditModule,
+    SequencerModule,
+    AdmissionControlModule,
     ObservabilityModule,
     HealthModule,
     GatewayModule,
