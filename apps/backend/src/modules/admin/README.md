@@ -1,5 +1,16 @@
 # Admin и risk
 
+## Durable admission controls
+
+Admin и Gateway используют общий `ADMISSION_CONTROL_PORT`. PostgreSQL adapter
+хранит current freeze/pause/circuit-breaker state и immutable history с version,
+actor, reason, effectiveAt и compensation link. Gateway проверяет control до
+создания idempotency/command records.
+
+`ALLOW` является явной компенсирующей операцией и не удаляет исходную запись.
+Control state читается из PostgreSQL после restart; process-local sets не
+являются source of truth production runtime.
+
 ## Назначение и границы
 
 `AdminService` является единственной write boundary для изменения торговых

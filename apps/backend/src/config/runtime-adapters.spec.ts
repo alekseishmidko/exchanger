@@ -10,6 +10,9 @@ describe('runtime adapter safety', () => {
       EVENT_LOG_ADAPTER: 'memory',
       IDEMPOTENCY_STORE_ADAPTER: 'memory',
       AUDIT_STORE_ADAPTER: 'memory',
+      SEQUENCER_STORE_ADAPTER: 'memory',
+      PROJECTION_STORE_ADAPTER: 'memory',
+      ADMISSION_CONTROL_ADAPTER: 'memory',
     });
   });
 
@@ -51,6 +54,9 @@ describe('runtime adapter safety', () => {
       EVENT_LOG_ADAPTER: 'postgres-outbox',
       IDEMPOTENCY_STORE_ADAPTER: 'postgres',
       AUDIT_STORE_ADAPTER: 'postgres',
+      SEQUENCER_STORE_ADAPTER: 'postgres',
+      PROJECTION_STORE_ADAPTER: 'postgres',
+      ADMISSION_CONTROL_ADAPTER: 'postgres',
     });
     expect(() =>
       assertRuntimeComposition(configured, {
@@ -59,6 +65,9 @@ describe('runtime adapter safety', () => {
         EVENT_LOG_ADAPTER: 'memory',
         IDEMPOTENCY_STORE_ADAPTER: 'memory',
         AUDIT_STORE_ADAPTER: 'memory',
+        SEQUENCER_STORE_ADAPTER: 'memory',
+        PROJECTION_STORE_ADAPTER: 'memory',
+        ADMISSION_CONTROL_ADAPTER: 'memory',
       }),
     ).toThrow('Runtime adapter mismatch for COMMAND_STORE_ADAPTER');
   });

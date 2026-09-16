@@ -9,6 +9,12 @@ import {
 import { Decimal } from '../shared-kernel';
 import { Instrument, InstrumentCatalogService, InstrumentRules } from '../trading/instruments';
 import { LOG_EVENTS, MetricsService, StructuredLogger } from '../observability';
+import {
+  ADMISSION_CONTROL_PORT,
+  AdmissionControlChange,
+  AdmissionControlPort,
+} from './admission-control.port';
+import { MemoryAdmissionControl } from './memory-admission-control';
 
 /** Версионированная комиссия maker/taker, вступающая в силу в заданный момент. */
 export type FeePolicy = Readonly<{
@@ -120,6 +126,9 @@ export class AdminService {
     private readonly instruments: InstrumentCatalogService = new InstrumentCatalogService(),
     @Optional() @Inject(StructuredLogger) private readonly logger?: StructuredLogger,
     @Optional() @Inject(MetricsService) private readonly metrics?: MetricsService,
+    @Optional()
+    @Inject(ADMISSION_CONTROL_PORT)
+    private readonly admission: AdmissionControlPort = new MemoryAdmissionControl(),
   ) {}
 
   /**
@@ -149,7 +158,7 @@ export class AdminService {
       this.results.set(command.commandId, result);
       return result;
     }
-    this.apply(command);
+    await this.apply(command, actor, now);
     const result = this.result(command, 'APPLIED', [actor.actorId]);
     this.results.set(command.commandId, result);
     await this.audit.append(
@@ -194,7 +203,7 @@ export class AdminService {
       { requestedBy: pending.requestedBy.actorId },
       now,
     );
-    this.apply(pending.command);
+    await this.apply(pending.command, actor, now);
     const result = this.result(pending.command, 'APPLIED', [
       pending.requestedBy.actorId,
       actor.actorId,
@@ -243,7 +252,7 @@ export class AdminService {
       targetId: original.targetId,
     } as AdminCommand;
     await this.assertRole(reverseType, actor, compensationId, original.targetId);
-    this.apply(command);
+    await this.apply(command, actor, now, originalCommandId);
     this.commands.set(compensationId, command);
     const result = this.result(command, 'APPLIED', [actor.actorId]);
     this.results.set(compensationId, result);
@@ -260,13 +269,13 @@ export class AdminService {
   }
 
   /** Проверяет admission: frozen identity или circuit breaker запрещает новую заявку. */
-  canAdmit(userId: string, accountId: string, instrumentId: string): boolean {
-    return (
-      !this.frozenUsers.has(userId) &&
-      !this.frozenAccounts.has(accountId) &&
-      !this.stoppedTargets.has('*') &&
-      !this.stoppedTargets.has(instrumentId)
-    );
+  async canAdmit(userId: string, accountId: string, instrumentId: string): Promise<boolean> {
+    try {
+      await this.admission.assertAllowed({ userId, accountId, instrumentId });
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   /** Возвращает fee policy, действующую в указанный момент времени. */
@@ -282,12 +291,21 @@ export class AdminService {
   async getDashboard(actor: AuditActor, now = new Date()): Promise<ReconciliationDashboard> {
     const records = await this.audit.getRecords();
     await this.assertRole('RECONCILIATION', actor, `reconcile-${records.length + 1}`, 'system');
+    const controls = await this.admission.list();
     const dashboard = {
       auditIntegrity: await this.audit.verifyIntegrity(records),
       pendingApprovals: this.pending.size,
-      frozenUsers: this.frozenUsers.size,
-      frozenAccounts: this.frozenAccounts.size,
-      stoppedTargets: [...this.stoppedTargets],
+      frozenUsers: controls.filter(({ type, state }) => type === 'USER' && state === 'FROZEN')
+        .length,
+      frozenAccounts: controls.filter(({ type, state }) => type === 'ACCOUNT' && state === 'FROZEN')
+        .length,
+      stoppedTargets: controls
+        .filter(
+          ({ type, state }) =>
+            (type === 'GLOBAL' || type === 'INSTRUMENT') &&
+            (state === 'OPEN' || state === 'PAUSED'),
+        )
+        .map(({ targetId }) => targetId),
       instrumentStatuses: this.instruments.list().map((instrument) => ({
         instrumentId: instrument.id,
         status: instrument.status,
@@ -330,7 +348,12 @@ export class AdminService {
     return this.audit.getRecords();
   }
 
-  private apply(command: AdminCommand): void {
+  private async apply(
+    command: AdminCommand,
+    actor: AuditActor,
+    effectiveAt: Date,
+    compensationFor?: string,
+  ): Promise<void> {
     switch (command.type) {
       case 'CONFIGURE_INSTRUMENT':
         if (command.rules) this.instruments.addRules(command.targetId, command.rules);
@@ -339,9 +362,11 @@ export class AdminService {
         break;
       case 'ACTIVATE_INSTRUMENT':
         this.instruments.setStatus(command.targetId, 'ACTIVE');
+        await this.applyControl(command, actor, effectiveAt, 'ALLOW', compensationFor);
         break;
       case 'PAUSE_INSTRUMENT':
         this.instruments.setStatus(command.targetId, 'PAUSED');
+        await this.applyControl(command, actor, effectiveAt, 'PAUSED', compensationFor);
         break;
       case 'CHANGE_FEE_POLICY':
         this.assertFee(command.policy);
@@ -353,25 +378,60 @@ export class AdminService {
         break;
       case 'FREEZE_USER':
         this.frozenUsers.add(command.targetId);
+        await this.applyControl(command, actor, effectiveAt, 'FROZEN', compensationFor);
         break;
       case 'UNFREEZE_USER':
         this.frozenUsers.delete(command.targetId);
+        await this.applyControl(command, actor, effectiveAt, 'ALLOW', compensationFor);
         break;
       case 'FREEZE_ACCOUNT':
         this.frozenAccounts.add(command.targetId);
+        await this.applyControl(command, actor, effectiveAt, 'FROZEN', compensationFor);
         break;
       case 'UNFREEZE_ACCOUNT':
         this.frozenAccounts.delete(command.targetId);
+        await this.applyControl(command, actor, effectiveAt, 'ALLOW', compensationFor);
         break;
       case 'EMERGENCY_STOP':
         this.stoppedTargets.add(command.targetId);
+        await this.applyControl(command, actor, effectiveAt, 'OPEN', compensationFor);
         this.metrics?.setCircuitBreaker('trading', 'open');
         break;
       case 'RESUME_TRADING':
         this.stoppedTargets.delete(command.targetId);
+        await this.applyControl(command, actor, effectiveAt, 'ALLOW', compensationFor);
         this.metrics?.setCircuitBreaker('trading', 'closed');
         break;
     }
+  }
+
+  /** Маппит административную команду в общий durable control contract. */
+  private applyControl(
+    command: AdminCommand,
+    actor: AuditActor,
+    effectiveAt: Date,
+    state: AdmissionControlChange['state'],
+    compensationFor?: string,
+  ): Promise<void> {
+    const type: AdmissionControlChange['type'] = command.type.includes('USER')
+      ? 'USER'
+      : command.type.includes('ACCOUNT')
+        ? 'ACCOUNT'
+        : command.type.includes('INSTRUMENT')
+          ? 'INSTRUMENT'
+          : command.targetId === '*'
+            ? 'GLOBAL'
+            : 'INSTRUMENT';
+    return this.admission.apply({
+      commandId: command.commandId,
+      type,
+      targetId: type === 'GLOBAL' ? '*' : command.targetId,
+      state,
+      effectiveAt,
+      actorId: actor.actorId,
+      reasonCode: command.type,
+      ...(compensationFor ? { compensationFor } : {}),
+    });
   }
 
   private async assertRole(

@@ -1,5 +1,16 @@
 # Health module
 
+## Production readiness
+
+`/health/live` проверяет только процесс. `/health/ready` выполняет bounded
+read-only probes PostgreSQL, outbox, partition lease и admission control. Отказ
+critical dependency возвращает 503 без SQL/connection error. Observability
+exporter не является critical dependency.
+
+Deadline задаётся `DEPENDENCY_PROBE_TIMEOUT_MS`; PostgreSQL дополнительно
+ограничен `POSTGRES_QUERY_TIMEOUT_MS`. Probes не выполняют migrations, locks или
+другие destructive queries.
+
 ## Назначение
 
 Предоставляет безопасные liveness/readiness endpoints backend-приложения. Модуль не содержит бизнес-логики и не раскрывает тексты ошибок инфраструктуры.

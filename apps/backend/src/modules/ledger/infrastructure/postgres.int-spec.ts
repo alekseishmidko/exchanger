@@ -12,6 +12,9 @@ import { Account, Asset, PostgresLedgerAdapter } from '../../ledger';
 import { createId, Decimal } from '../../shared-kernel';
 import { PostgresEventLogAdapter, PostgresOutboxPublisher } from '../../trading/event-log';
 import { SettlementService } from '../../trading/settlement';
+import { PostgresSequencerStore } from '../../trading/sequencer';
+import { PostgresAdmissionControl } from '../../admin/postgres-admission-control';
+import { PostgresProjectionStore } from '../../projections/postgres-projection.store';
 
 const postgresUrl = process.env['POSTGRES_URL'];
 const describePostgres = postgresUrl ? describe : describe.skip;
@@ -34,23 +37,37 @@ describePostgres('PostgreSQL durable runtime', () => {
   beforeAll(async () => {
     pool = new Pool({ connectionString: postgresUrl, max: 10 });
     transactions = new PostgresTransactionManager(pool);
+    await pool.query(
+      await readFile(runtimeMigration('003_durable_control_plane_down.sql'), 'utf8'),
+    );
     await pool.query(await readFile(runtimeMigration('002_durable_runtime_down.sql'), 'utf8'));
     await pool.query(await readFile(ledgerMigration('001_ledger_down.sql'), 'utf8'));
     await pool.query(await readFile(ledgerMigration('001_ledger_up.sql'), 'utf8'));
     await pool.query(await readFile(runtimeMigration('002_durable_runtime_up.sql'), 'utf8'));
+    await pool.query(await readFile(runtimeMigration('003_durable_control_plane_up.sql'), 'utf8'));
   });
 
   /** Удаляет данные без удаления schema между независимыми сценариями. */
   beforeEach(async () => {
     await pool.query(`TRUNCATE
+      projection_balances, projection_trades, projection_orders,
+      projection_processed_events, projection_versions,
+      admission_control_history, admission_controls,
+      trading_snapshots, sequencer_partitions, partition_leases,
       dead_letter_events, processed_events, consumer_offsets, outbox_events,
       api_idempotency_records, command_status_history, command_journal,
       audit_records, reservations, ledger_operations, idempotency_records,
       postings, balances, accounts, assets RESTART IDENTITY CASCADE`);
+    await pool.query(`INSERT INTO projection_versions
+      (projection_name, version, schema_version, status, activated_at)
+      VALUES ('query-api', 1, 1, 'ACTIVE', clock_timestamp())`);
   });
 
   /** Проверяет обратимую migration и закрывает pool после cleanup. */
   afterAll(async () => {
+    await pool.query(
+      await readFile(runtimeMigration('003_durable_control_plane_down.sql'), 'utf8'),
+    );
     await pool.query('TRUNCATE audit_records, reservations, ledger_operations CASCADE');
     await pool.query(await readFile(runtimeMigration('002_durable_runtime_down.sql'), 'utf8'));
     await pool.query(await readFile(ledgerMigration('001_ledger_down.sql'), 'utf8'));
@@ -75,8 +92,12 @@ describePostgres('PostgreSQL durable runtime', () => {
       pool.query(await readFile(runtimeMigration('002_durable_runtime_down.sql'), 'utf8')),
     ).rejects.toThrow('forward-only data policy');
     await pool.query('TRUNCATE ledger_operations CASCADE');
+    await pool.query(
+      await readFile(runtimeMigration('003_durable_control_plane_down.sql'), 'utf8'),
+    );
     await pool.query(await readFile(runtimeMigration('002_durable_runtime_down.sql'), 'utf8'));
     await pool.query(await readFile(runtimeMigration('002_durable_runtime_up.sql'), 'utf8'));
+    await pool.query(await readFile(runtimeMigration('003_durable_control_plane_up.sql'), 'utf8'));
     expect(
       (
         await pool.query<{ available: string }>(
@@ -166,6 +187,221 @@ describePostgres('PostgreSQL durable runtime', () => {
     expect(counts.rows[0]).toEqual({ commands: 1, events: 1, keys: 1, transitions: 3 });
     const serialized = JSON.stringify(await pool.query('SELECT * FROM command_journal'));
     expect(serialized).not.toContain('raw-secret-key');
+  });
+
+  /** Lease transfer fencing, snapshot boundary и ordered replay переживают restart. */
+  it('fences the old partition owner and restores snapshot plus ordered replay', async () => {
+    const sequencer = new PostgresSequencerStore(transactions);
+    const ownerOne = await sequencer.acquire('BTC-USD', 'worker-1', 30_000);
+    const trading = new PostgresTradingCommandAdapter(transactions, sequencer, 'worker-1', 30_000);
+    const command = (number: number) => ({
+      commandId: `lease-command-${number}`,
+      idempotencyKey: `lease-key-${number}`,
+      userId: 'user-1',
+      accountId: 'account-1',
+      instrumentId: 'BTC-USD',
+      clientOrderId: `lease-order-${number}`,
+      side: 'BUY' as const,
+      orderType: 'LIMIT' as const,
+      quantity: '1',
+      limitPrice: '100',
+      timeInForce: 'GTC' as const,
+    });
+    await trading.placeOrder(command(1));
+    await trading.placeOrder(command(2));
+    const snapshot = await sequencer.saveSnapshot(ownerOne, 1, { book: 'snapshot-v1' });
+    expect(snapshot.lastSequence).toBe(2);
+    await trading.placeOrder(command(3));
+
+    await expect(sequencer.acquire('BTC-USD', 'worker-2', 30_000)).rejects.toThrow(
+      'PARTITION_ALREADY_OWNED',
+    );
+    await pool.query(
+      "UPDATE partition_leases SET lease_until=clock_timestamp()-interval '1 second' WHERE instrument_id='BTC-USD'",
+    );
+    const ownerTwo = await sequencer.acquire('BTC-USD', 'worker-2', 30_000);
+    expect(ownerTwo.fencingEpoch).toBe(ownerOne.fencingEpoch + 1);
+    await expect(sequencer.reserveSequence(ownerOne)).rejects.toThrow('STALE_FENCING_TOKEN');
+    const recovery = await sequencer.prepareRecovery(ownerTwo, 1);
+    expect(recovery.snapshot?.payload).toEqual({ book: 'snapshot-v1' });
+    expect(recovery.commands.map(({ sequence }) => sequence)).toEqual([3]);
+    expect(recovery.highWatermark).toBe(3);
+    await sequencer.completeRecovery(ownerTwo, 3);
+    const secondTrading = new PostgresTradingCommandAdapter(
+      transactions,
+      sequencer,
+      'worker-2',
+      30_000,
+    );
+    await secondTrading.placeOrder(command(4));
+    expect(
+      (
+        await pool.query<{ sequence: string }>(
+          "SELECT sequence FROM command_journal WHERE command_id='lease-command-4'",
+        )
+      ).rows[0],
+    ).toEqual({ sequence: '4' });
+    await secondTrading.onApplicationShutdown();
+    expect(
+      (await pool.query('SELECT count(*)::int AS count FROM partition_leases')).rows[0],
+    ).toEqual({ count: 0 });
+
+    const ownerThree = await sequencer.acquire('BTC-USD', 'worker-3', 30_000);
+    expect(ownerThree).toMatchObject({
+      fencingEpoch: ownerTwo.fencingEpoch + 1,
+      recoveryRequired: true,
+    });
+    await expect(sequencer.reserveSequence(ownerThree)).rejects.toThrow('PARTITION_NOT_READY');
+    const secondRecovery = await sequencer.prepareRecovery(ownerThree, 1);
+    expect(secondRecovery.highWatermark).toBe(4);
+    await sequencer.completeRecovery(ownerThree, 4);
+    expect(await sequencer.reserveSequence(ownerThree)).toBe(5);
+  });
+
+  /** Sequence reservation откатывается вместе с command journal и outbox failure. */
+  it('rolls back a reserved sequence when durable command append fails', async () => {
+    const sequencer = new PostgresSequencerStore(transactions);
+    const trading = new PostgresTradingCommandAdapter(
+      transactions,
+      sequencer,
+      'worker-rollback',
+      30_000,
+    );
+    await pool.query(
+      `INSERT INTO outbox_events
+        (event_id,aggregate_type,aggregate_id,event_type,payload)
+       VALUES ('event-sequence-rollback','test','test','Conflict','{}')`,
+    );
+    const command = {
+      commandId: 'sequence-rollback',
+      idempotencyKey: 'sequence-rollback-key',
+      userId: 'user-1',
+      accountId: 'account-1',
+      instrumentId: 'ETH-USD',
+      clientOrderId: 'sequence-rollback-order',
+      side: 'BUY' as const,
+      orderType: 'LIMIT' as const,
+      quantity: '1',
+      limitPrice: '100',
+      timeInForce: 'GTC' as const,
+    };
+    await expect(trading.placeOrder(command)).rejects.toThrow();
+    expect(
+      (
+        await pool.query(
+          "SELECT count(*)::int AS count FROM sequencer_partitions WHERE instrument_id='ETH-USD'",
+        )
+      ).rows[0],
+    ).toEqual({ count: 0 });
+    expect(
+      (
+        await pool.query(
+          "SELECT count(*)::int AS count FROM command_journal WHERE command_id='sequence-rollback'",
+        )
+      ).rows[0],
+    ).toEqual({ count: 0 });
+    await pool.query("DELETE FROM outbox_events WHERE event_id='event-sequence-rollback'");
+    await trading.placeOrder(command);
+    expect(
+      (
+        await pool.query<{ sequence: string }>(
+          "SELECT sequence FROM command_journal WHERE command_id='sequence-rollback'",
+        )
+      ).rows[0],
+    ).toEqual({ sequence: '1' });
+  });
+
+  /** Control plane восстанавливается новым adapter и блокирует admission до command append. */
+  it('persists freeze, pause and circuit-breaker controls with compensation', async () => {
+    const controls = new PostgresAdmissionControl(transactions);
+    await controls.apply({
+      commandId: 'freeze-account-1',
+      type: 'ACCOUNT',
+      targetId: 'account-1',
+      state: 'FROZEN',
+      effectiveAt: new Date('2026-09-16T00:00:00.000Z'),
+      actorId: 'risk-1',
+      reasonCode: 'FREEZE_ACCOUNT',
+    });
+    const restarted = new PostgresAdmissionControl(new PostgresTransactionManager(pool));
+    await expect(
+      restarted.assertAllowed(
+        { userId: 'user-1', accountId: 'account-1', instrumentId: 'BTC-USD' },
+        new Date('2026-09-16T00:00:01.000Z'),
+      ),
+    ).rejects.toMatchObject({ rejectionCode: 'ACCOUNT_FROZEN' });
+    await restarted.apply({
+      commandId: 'unfreeze-account-1',
+      type: 'ACCOUNT',
+      targetId: 'account-1',
+      state: 'ALLOW',
+      effectiveAt: new Date('2026-09-16T00:00:02.000Z'),
+      actorId: 'risk-2',
+      reasonCode: 'UNFREEZE_ACCOUNT',
+      compensationFor: 'freeze-account-1',
+    });
+    await expect(
+      restarted.assertAllowed(
+        { userId: 'user-1', accountId: 'account-1', instrumentId: 'BTC-USD' },
+        new Date('2026-09-16T00:00:03.000Z'),
+      ),
+    ).resolves.toBeUndefined();
+    expect(
+      (
+        await pool.query(
+          "SELECT compensation_for FROM admission_control_history WHERE command_id='unfreeze-account-1'",
+        )
+      ).rows[0],
+    ).toEqual({ compensation_for: 'freeze-account-1' });
+  });
+
+  /** Projection mutation, processed event и offset commit-ятся вместе; rebuild переключается атомарно. */
+  it('applies and rebuilds a versioned durable projection without exposing shadow rows', async () => {
+    const projection = new PostgresProjectionStore(transactions);
+    const events = [
+      {
+        eventId: 'projection-order-1',
+        eventType: 'OrderAccepted' as const,
+        sequence: 1,
+        payload: {
+          orderId: 'order-1',
+          userId: 'user-1',
+          accountId: 'account-1',
+          instrumentId: 'BTC-USD',
+          remainingQuantity: '1',
+        },
+      },
+      {
+        eventId: 'projection-trade-1',
+        eventType: 'TradeExecuted' as const,
+        sequence: 2,
+        payload: {
+          tradeId: 'trade-1',
+          instrumentId: 'BTC-USD',
+          makerUserId: 'user-1',
+          takerUserId: 'user-2',
+          makerOrderId: 'order-1',
+          takerOrderId: 'order-2',
+          quantity: '1',
+          price: '100',
+        },
+      },
+    ];
+    await projection.apply(events[0]!);
+    await projection.apply(events[0]!);
+    await projection.apply(events[1]!);
+    expect((await projection.getOrders('user-1')).items).toHaveLength(1);
+    expect((await projection.getOrders('user-2')).items).toHaveLength(0);
+    expect((await projection.getMetrics()).appliedSequence).toBe(2);
+    await projection.rebuild(events);
+    expect((await projection.getTrades('user-1')).items).toHaveLength(1);
+    const versions = await pool.query<{ version: string; status: string }>(
+      "SELECT version,status FROM projection_versions WHERE projection_name='query-api' ORDER BY version",
+    );
+    expect(versions.rows).toEqual([
+      { version: '1', status: 'RETIRED' },
+      { version: '2', status: 'ACTIVE' },
+    ]);
   });
 
   /** Exception после SQL mutation откатывает command, outbox и idempotency row. */

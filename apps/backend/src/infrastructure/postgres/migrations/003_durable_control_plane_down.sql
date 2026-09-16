@@ -1,0 +1,10 @@
+DROP TABLE IF EXISTS projection_balances CASCADE;
+DROP TABLE IF EXISTS projection_trades CASCADE;
+DROP TABLE IF EXISTS projection_orders CASCADE;
+DROP TABLE IF EXISTS projection_processed_events CASCADE;
+DROP TABLE IF EXISTS projection_versions CASCADE;
+DROP TABLE IF EXISTS admission_control_history CASCADE;
+DROP TABLE IF EXISTS admission_controls CASCADE;
+DROP TABLE IF EXISTS trading_snapshots CASCADE;
+DROP TABLE IF EXISTS sequencer_partitions CASCADE;
+DROP TABLE IF EXISTS partition_leases CASCADE;

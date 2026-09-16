@@ -1,5 +1,15 @@
 # Projections и query API
 
+## Durable adapter и rebuild
+
+Production composition использует `PostgresProjectionStore`. Event ID,
+read-model mutation и applied sequence фиксируются одной transaction. Query
+всегда фильтруется по authenticated owner и ACTIVE projection version.
+
+Rebuild пишет в новую BUILDING version и атомарно переключает version pointer;
+частично построенные rows недоступны API. Старую RETIRED version удаляют только
+после reconciliation и retention boundary.
+
 ## Observability boundary
 
 `projection.apply` продолжает trace исходного event, projection lag публикуется

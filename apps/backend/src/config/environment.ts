@@ -191,6 +191,12 @@ export function validateEnvironment(config: EnvironmentConfig): EnvironmentConfi
   }
 
   const runtimeAdapters = validateRuntimeAdapters(config);
+  const instanceId =
+    config['INSTANCE_ID'] ??
+    (runtimeAdapters.RUNTIME_PROFILE === 'component' ? 'component-instance' : undefined);
+  if (typeof instanceId !== 'string' || !/^[A-Za-z0-9._-]{1,128}$/.test(instanceId)) {
+    throw new Error('INSTANCE_ID is required and must be a safe identifier');
+  }
   if (runtimeAdapters.RUNTIME_PROFILE !== 'component') {
     const postgresUrl = config['POSTGRES_URL'];
     if (typeof postgresUrl !== 'string') {
@@ -210,6 +216,9 @@ export function validateEnvironment(config: EnvironmentConfig): EnvironmentConfi
     'POSTGRES_POOL_MAX',
     'POSTGRES_CONNECTION_TIMEOUT_MS',
     'POSTGRES_IDLE_TIMEOUT_MS',
+    'POSTGRES_QUERY_TIMEOUT_MS',
+    'PARTITION_LEASE_TTL_MS',
+    'DEPENDENCY_PROBE_TIMEOUT_MS',
   ] as const) {
     const value = config[key];
     const normalized =
@@ -222,5 +231,5 @@ export function validateEnvironment(config: EnvironmentConfig): EnvironmentConfi
     }
   }
 
-  return { ...config, ...runtimeAdapters };
+  return { ...config, ...runtimeAdapters, INSTANCE_ID: instanceId };
 }
