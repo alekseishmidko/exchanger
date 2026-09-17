@@ -76,6 +76,7 @@ export const options = {
   systemTags: ['status', 'method', 'name', 'scenario'],
   discardResponseBodies: false,
   noConnectionReuse: false,
+  insecureSkipTLSVerify: __ENV.LOAD_TLS_INSECURE_SKIP_VERIFY === 'true',
   summaryTrendStats: ['min', 'med', 'p(90)', 'p(95)', 'p(99)', 'max'],
 };
 

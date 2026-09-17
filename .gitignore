@@ -7,6 +7,7 @@ artifacts/
 !.env.example
 !.env.development.example
 !.env.production.example
+!.env.staging.example
 !.env.test.example
 .env.development
 .env.production

@@ -5,6 +5,12 @@ import { CHAOS_SCENARIOS } from '../tests/chaos/scenarios.mjs';
 const requiredFiles = [
   'tests/chaos/scenarios.mjs',
   'scripts/run-chaos-test.mjs',
+  'scripts/run-staging-resilience.mjs',
+  'scripts/run-staging-resilience-suite.mjs',
+  'docker-compose.staging.yml',
+  '.env.staging.example',
+  'deploy/staging/Caddyfile',
+  'deploy/chaos/Dockerfile',
   'apps/backend/test/resilience-chaos.spec.ts',
   'docs/testing/chaos-testing.md',
   'docs/testing/failure-matrix.md',
@@ -24,11 +30,20 @@ for (const file of requiredFiles) {
 
 if (failures.length === 0) {
   const runner = readFileSync('scripts/run-chaos-test.mjs', 'utf8');
+  const stagingRunner = readFileSync('scripts/run-staging-resilience.mjs', 'utf8');
   for (const guard of ['CHAOS_ENVIRONMENT', 'CHAOS_ACK', 'isolated-test-only']) {
     if (!runner.includes(guard)) failures.push(`Chaos runner не содержит safety guard ${guard}`);
   }
   for (const artifact of ['report.json', 'timeline.json', 'summary.md']) {
     if (!runner.includes(artifact)) failures.push(`Chaos runner не сохраняет ${artifact}`);
+    if (!stagingRunner.includes(artifact)) {
+      failures.push(`Staging resilience runner не сохраняет ${artifact}`);
+    }
+  }
+  for (const guard of ['CHAOS_ENVIRONMENT', 'CHAOS_ACK', 'emergencyAbort']) {
+    if (!stagingRunner.includes(guard)) {
+      failures.push(`Staging resilience runner не содержит safety guard ${guard}`);
+    }
   }
   for (const scenario of CHAOS_SCENARIOS) {
     for (const field of ['id', 'status', 'dependency', 'injection', 'expected', 'alert', 'owner']) {

@@ -1,0 +1,37 @@
+{
+  auto_https disable_redirects
+  admin off
+  # Фильтр применяется к runtime/error logger, поэтому credential не попадёт
+  # в диагностический request даже при 502/503 во время rolling restart.
+  log default {
+    format filter {
+      request>headers>X-Api-Key replace [REDACTED]
+      request>headers>Authorization replace [REDACTED]
+      request>headers>Cookie replace [REDACTED]
+      wrap json
+    }
+  }
+}
+
+https://:443 {
+  tls internal
+  reverse_proxy backend-a:5000 backend-b:5000 {
+    lb_policy first
+    health_uri /health/live
+    health_interval 1s
+    health_timeout 500ms
+    fail_duration 2s
+    max_fails 1
+  }
+}
+
+http://:80 {
+  reverse_proxy backend-a:5000 backend-b:5000 {
+    lb_policy first
+    health_uri /health/live
+    health_interval 1s
+    health_timeout 500ms
+    fail_duration 2s
+    max_fails 1
+  }
+}

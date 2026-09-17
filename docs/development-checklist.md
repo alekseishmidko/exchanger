@@ -966,39 +966,61 @@ Admission, risk controls и readiness:
 
 Production-like test topology:
 
-- [ ] `docker-compose`/staging поднимает backend, PostgreSQL, выбранный event log, migrations, observability и fault proxy одной командой;
-- [ ] PostgreSQL и event-log traffic проходит через Toxiproxy либо эквивалентный управляемый fault boundary;
-- [ ] fault proxy недоступен из production profile и требует того же explicit safety interlock, что chaos runner;
-- [ ] topology поддерживает latency, bandwidth limit, timeout, reset, packet loss и temporary disconnect для каждой dependency отдельно;
+- [x] `docker-compose`/staging поднимает backend, PostgreSQL, выбранный event log, migrations, observability и fault proxy одной командой;
+- [x] PostgreSQL и event-log traffic проходит через Toxiproxy либо эквивалентный управляемый fault boundary;
+- [x] fault proxy недоступен из production profile и требует того же explicit safety interlock, что chaos runner;
+- [x] topology поддерживает latency, bandwidth limit, timeout, reset, packet loss и temporary disconnect для каждой dependency отдельно;
 - [ ] PostgreSQL profile позволяет воспроизвести pool exhaustion, deadlock, lock contention, read-only mode, failover и disk pressure;
-- [ ] backend запускается минимум в двух replicas для проверки rolling restart, lease/fencing и thundering herd;
-- [ ] load generator находится вне SUT containers, использует TLS/network hops и сохраняет build SHA, topology и resource limits;
+- [x] backend запускается минимум в двух replicas для проверки rolling restart, lease/fencing и thundering herd;
+- [x] load generator находится вне SUT containers, использует TLS/network hops и сохраняет build SHA, topology и resource limits;
 - [ ] CPU, memory, disk, file-descriptor и event-loop pressure имеют bounded injection method и emergency abort.
+
+Staging использует PostgreSQL transactional outbox как выбранный event log,
+поэтому database и event-log fault boundary является одной атомарной
+dependency `postgres-outbox`. Toxiproxy API слушает только loopback, а
+fault-agent запускается исключительно профилем `fault-injection` после двойного
+safety interlock. Pool exhaustion, lock contention, deadlock и read-only recovery
+автоматизированы; составной пункт PostgreSQL profile остаётся открытым до
+реального failover и pressure на отдельном data volume.
 
 Обязательные тесты:
 
 - [x] integration tests PostgreSQL repositories выполняются против настоящего PostgreSQL, включая concurrent duplicate и transaction rollback;
 - [x] migration tests проверяют clean up, upgrade с предыдущей schema, rollback policy и сохранность ledger/audit данных;
 - [ ] crash-point tests покрывают до/после command commit, outbox append, publish, ledger commit, offset commit и snapshot boundary;
-- [ ] `SIGKILL` после accepted response подтверждает RPO=0 и прежний idempotent result после restart;
+- [x] `SIGKILL` после accepted response подтверждает RPO=0 и прежний idempotent result после restart;
 - [ ] process kill во время reserve, match, settlement и projection apply не оставляет частичного финансового эффекта;
-- [ ] network fault tests покрывают PostgreSQL/event-log latency, timeout, reset, packet loss и восстановление connection pool;
-- [ ] contention tests покрывают pool exhaustion, deadlock retry, lock timeout и временную read-only БД;
+- [x] network fault tests покрывают PostgreSQL/event-log latency, timeout, reset, packet loss и восстановление connection pool;
+- [x] contention tests покрывают pool exhaustion, deadlock retry, lock timeout и временную read-only БД;
 - [ ] rolling restart tests подтверждают один active owner, fencing старого owner и непрерывный monotonic sequence;
-- [ ] circuit breaker, freeze, pause/resume и recovery transitions проверяются под продолжающейся command-нагрузкой;
+- [x] circuit breaker, freeze, pause/resume и recovery transitions проверяются под продолжающейся command-нагрузкой;
 - [ ] retry/reconnect storm, thundering herd и slow WebSocket consumers не обходят rate limits/backpressure и не ухудшают matching p99 сверх budget;
 - [ ] disk/memory/event-loop pressure приводит к documented degraded mode либо закрытию admission без OOM/corruption;
 - [ ] readiness/liveness contract tests проверяют каждую critical/non-critical dependency отдельно;
-- [ ] после каждого scenario автоматически сравниваются accepted commands, events, ledger postings, offsets, sequence, projections и audit chain;
+- [x] после каждого scenario автоматически сравниваются accepted commands, events, ledger postings, offsets, sequence, projections и audit chain;
 - [ ] canary tests проверяют отсутствие credential, stack trace, financial payload и private WebSocket event в response/logs/artifacts;
-- [ ] каждый scenario имеет deterministic seed/timeline, stop conditions, cleanup verification и машиночитаемые RTO/RPO.
+- [x] каждый scenario имеет deterministic seed/timeline, stop conditions, cleanup verification и машиночитаемые RTO/RPO.
+
+Фактические локальные прогоны `network-faults`, `durable-process-kill`,
+`postgres-contention`, `rolling-ownership` и `controls-under-load` завершились с
+успешными reconciliation и cleanup. Rolling test подтверждает transfer и
+непрерывную sequence, но общий пункт оставлен открытым до явной попытки записи со
+старым fencing token и проверки starvation. Credential canary уже блокирует
+pipeline и выявил/закрыл утечку `X-Api-Key` в Caddy error log; полный составной
+пункт ждёт stack-trace, financial-payload и private-WebSocket canaries.
+
+Dual-control request и approval в автоматическом controls-сценарии выполняются в
+однорепличном окне при продолжающемся command workload. Durable applied state
+виден обеим репликам, однако pending approval всё ещё хранится в памяти
+`AdminService`; cross-replica approval/restart recovery остаётся обязательным
+незакрытым infrastructure requirement.
 
 CI, staging и эксплуатационная приёмка:
 
-- [ ] PR pipeline запускает repository/migration/crash-point component tests без privileged fault injection;
+- [x] PR pipeline запускает repository/migration/crash-point component tests без privileged fault injection;
 - [ ] scheduled staging pipeline запускает network, resource, process-kill, rolling restart и storm scenarios;
 - [ ] CI всегда сохраняет timeline, dependency/container logs, k6 result, metrics snapshot, reconciliation и cleanup status;
-- [ ] failed cleanup, invariant violation, RPO больше нуля или secret/private-data leak всегда завершают pipeline ошибкой;
+- [x] failed cleanup, invariant violation, RPO больше нуля или secret/private-data leak всегда завершают pipeline ошибкой;
 - [ ] alerts реально переходят в firing/resolved для каждого failure class и содержат owner/runbook URL;
 - [ ] измерены RTO/RPO отдельно для PostgreSQL outage, event-log outage, backend kill, owner failover, projection rebuild и observability blackout;
 - [ ] проведён game day на release-candidate build, а operator и независимый reviewer подписали результаты;
