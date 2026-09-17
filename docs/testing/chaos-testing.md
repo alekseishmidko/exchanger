@@ -7,6 +7,12 @@ Chaos suite проверяет поведение системы во время
 average workload, отключает observability stack, проверяет business readiness,
 возвращает telemetry services и выполняет reconciliation.
 
+Durable-сценарии выполняются в отдельном `docker-compose.staging.yml`. Он одной
+командой поднимает PostgreSQL, migrations, PostgreSQL transactional outbox,
+Toxiproxy, две backend replicas, TLS ingress, OpenTelemetry, Prometheus, Tempo,
+Alertmanager и Grafana. k6 запускается отдельным container/profile и не делит
+CPU/memory limit с SUT.
+
 Fault injection разрешён только при одновременном выполнении двух условий:
 
 ```bash
@@ -20,16 +26,57 @@ Production и произвольное имя окружения runner отве
 `artifacts/chaos/<runId>`. Запуск рядом с важным локальным контейнером запрещён,
 поскольку host-порты development topology фиксированы.
 
+Для production-like сценариев используется отдельная команда:
+
+```bash
+CHAOS_ENVIRONMENT=staging \
+CHAOS_ACK=isolated-test-only \
+pnpm resilience:staging
+```
+
+Обычная проверка topology без fault injection запускается одной командой
+`pnpm staging:up`, доступна по `https://localhost:5443` и останавливается через
+`pnpm staging:down`. Сертификат Caddy выпущен локальным internal CA; k6 в этом
+изолированном контуре явно включает `insecureSkipTLSVerify`. Production profile
+не содержит Toxiproxy/fault-agent и не публикует их control API.
+
 ## Каталог и статусы
 
 - `automated` — black-box fault действительно вводится под k6 workload;
 - `component` — fault воспроизводится на application/domain boundary без сети;
+- `staging` — fault вводится в durable двухрепличном Compose-контуре;
 - `blocked` — topology не содержит dependency, необходимую для честной проверки.
 
-Текущий runtime использует in-memory command, ledger и event-log adapters.
-Поэтому SIGKILL с RPO=0, PostgreSQL packet loss/deadlock/read-only и rolling
-partition ownership нельзя объявить пройденными. Полный перечень и владельцы
-зафиксированы в `tests/chaos/scenarios.mjs` и `failure-matrix.md`.
+Staging runtime использует только PostgreSQL adapters. Event log выбран как
+transactional outbox, поэтому DB и event append имеют одну ACID/network boundary
+`postgres-outbox`; им нельзя вводить независимый network fault, не разрушив
+атомарность принятого ADR. Полный перечень и владельцы зафиксированы в
+`tests/chaos/scenarios.mjs` и `failure-matrix.md`.
+
+## Durable staging scenarios
+
+- `network-faults`: latency, bandwidth, timeout, reset, temporary disconnect и
+  100% bounded packet loss; readiness обязана перейти 503 и вернуться 200;
+- `postgres-contention`: table lock/pool pressure, настоящий deadlock и временный
+  database-wide read-only default с обязательным восстановлением;
+- `durable-process-kill`: SIGKILL active replica после accepted response,
+  повтор прежнего idempotency key и takeover второй replica;
+- `rolling-ownership`: A → B → A, возрастающий fencing epoch и непрерывные
+  sequence 1, 2, 3;
+- `controls-under-load`: user freeze/unfreeze и dual-control global stop/resume
+  при продолжающемся command workload.
+
+В `controls-under-load` dual-control request и approval выполняются через одну
+живую admin replica, пока command workload не останавливается. Applied
+freeze/circuit state сохраняется в PostgreSQL и сразу действует для обеих
+реплик. Pending approval пока остаётся process-local состоянием `AdminService`:
+его cross-replica approval и восстановление после restart не доказаны и должны
+быть закрыты отдельным durable admin-action repository до resilience gate.
+
+Каждый сценарий получает чистые volumes. После fault runner сравнивает terminal
+commands, outbox events, sequence gaps, balances, posting sets, offsets,
+projection checkpoints и audit chain. Любое расхождение, RPO больше нуля,
+credential canary в logs или failed cleanup делает pipeline красным.
 
 ## Timeline observability-outage
 
@@ -83,6 +130,20 @@ docker compose \
   -f docker-compose.load.yml \
   down --volumes --remove-orphans
 ```
+
+Для durable staging runner аварийный путь сначала удаляет все Toxiproxy toxics и
+`tc netem qdisc`, затем всегда выполняет:
+
+```bash
+docker compose -f docker-compose.staging.yml \
+  --profile load --profile fault-injection \
+  down --volumes --remove-orphans
+```
+
+Fault-agent имеет только `NET_ADMIN`, разделяет network namespace Toxiproxy и
+не получает Docker socket. Его entrypoint требует одновременно
+`CHAOS_ENVIRONMENT=staging` и `CHAOS_ACK=isolated-test-only`. Network faults
+ограничены PostgreSQL/outbox proxy, packet loss снимается в `finally`.
 
 Перед ручным game day оператор обязан записать точный `COMPOSE_PROJECT_NAME` и
 проверить его через `docker compose ps`. Blast radius ограничен одним ephemeral

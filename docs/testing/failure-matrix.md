@@ -1,6 +1,6 @@
 # Failure matrix
 
-Статус: active. Последнее обновление: 2026-09-15. Машиночитаемый источник
+Статус: active. Последнее обновление: 2026-09-18. Машиночитаемый источник
 готовности сценариев — `tests/chaos/scenarios.mjs`.
 
 | Boundary / отказ                      | Injection method                                                         | Ожидаемое поведение                                              | Alert                                   | Owner            | Автоматизация                                          |
@@ -13,15 +13,19 @@
 | Sequence gap/restart                  | gap command и restore snapshot                                           | admission blocked на gap; duplicate возвращает прежний result    | `TradingSequenceGap`                    | Trading Core     | `resilience-chaos.spec.ts`                             |
 | Projection gap                        | доставить sequence N+1 перед N                                           | projection не меняется до упорядоченного replay                  | `ProjectionGapDetected`                 | Query Platform   | `resilience-chaos.spec.ts`                             |
 | Ledger duplicate                      | повторить reservation operation ID                                       | нет второй reservation/posting, reconciliation сходится          | `LedgerInvariantViolation`              | Ledger           | `resilience-chaos.spec.ts`                             |
-| PostgreSQL network latency/reset/loss | Toxiproxy между application и DB                                         | readiness=503, admission прекращается либо bounded degraded mode | `PostgresCriticalDependencyUnavailable` | Ledger Platform  | **blocked:** runtime не использует PostgreSQL adapter  |
-| Pool exhaustion/deadlock/read-only DB | ограничить pool, conflicting transactions, default_transaction_read_only | bounded timeout/retry без частичного posting set                 | `PostgresPoolSaturation`                | Ledger Platform  | **blocked:** runtime не использует PostgreSQL adapter  |
-| Backend SIGKILL после accepted        | kill container по timeline marker                                        | durable replay, RPO=0, monotonic sequence                        | `TradingPartitionRecoveryFailed`        | Trading Core     | **blocked:** command state in-memory                   |
+| PostgreSQL network latency/reset/loss | Toxiproxy + bounded netem между application и DB/outbox                  | readiness=503, admission прекращается, recovery bounded          | `PostgresCriticalDependencyUnavailable` | Ledger Platform  | `pnpm resilience:network`                              |
+| Pool pressure/deadlock/read-only DB   | table lock, concurrent requests, reverse row locks, database default      | bounded timeout/retry без частичного durable effect              | `PostgresPoolSaturation`                | Ledger Platform  | `pnpm resilience:contention`                           |
+| Backend SIGKILL после accepted        | SIGKILL active replica после сохранения public result                     | прежний result, RPO=0, takeover после lease TTL                  | `TradingPartitionRecoveryFailed`        | Trading Core     | `pnpm resilience:process-kill`                         |
+| Rolling partition ownership           | stop/start backend A → B → A                                              | один lease, fencing старого owner, sequence без gap              | `TradingPartitionRecoveryFailed`        | Trading Core     | `pnpm resilience:rolling`                              |
+| Freeze/circuit breaker под нагрузкой  | freeze/unfreeze и dual-control stop/resume при command loop               | стабильные 409 и восстановление admission                        | `TradingCircuitBreakerOpen`             | Risk Platform    | `pnpm resilience:controls`                             |
 | Slow consumer/reconnect storm         | k6 WebSocket profile + bounded receive                                   | disconnect/backpressure без роста matching p99                   | `WebSocketBackpressure`                 | Market Data      | частично покрыто load suite; operational chaos pending |
 | Audit tampering                       | изменить копию audit chain                                               | integrity=false, admin writes остановлены                        | `AuditIntegrityViolation`               | Security         | `admin.service.spec.ts`                                |
 
-`blocked` — это обязательный красный флаг архитектурной готовности, а не
-пропущенный тест. Такие строки нельзя переводить в `automated`, пока composition
-root действительно не использует соответствующую durable dependency.
+Остаются отдельными незакрытыми qualification-задачами: настоящий PostgreSQL
+primary/standby failover, pressure реального data volume, process kill точно
+внутри matching/settlement/projection callback, WebSocket reconnect storm и
+resource/OOM qualification. Наличие общего runner не является доказательством
+этих сценариев до зелёного artifact конкретного запуска.
 
 ## Общий критерий результата
 

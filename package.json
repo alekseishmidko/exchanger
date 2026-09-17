@@ -12,6 +12,8 @@
     "dev": "corepack pnpm --filter @exchange/backend start:dev",
     "docker:development": "docker compose -f docker-compose.development.yml up --build",
     "docker:production": "docker compose -f docker-compose.production.yml up --build -d",
+    "staging:up": "docker compose -f docker-compose.staging.yml up -d --build",
+    "staging:down": "docker compose -f docker-compose.staging.yml --profile load --profile fault-injection down --volumes --remove-orphans",
     "test": "corepack pnpm -r test",
     "test:cov": "corepack pnpm -r test:cov",
     "lint": "corepack pnpm -r lint",
@@ -36,6 +38,12 @@
     "load:breakpoint": "node scripts/run-load-test.mjs breakpoint",
     "chaos:check": "node scripts/check-chaos-suite.mjs",
     "chaos:component": "corepack pnpm --filter @exchange/backend test -- test/resilience-chaos.spec.ts --runInBand",
-    "chaos:observability": "node scripts/run-chaos-test.mjs observability-outage"
+    "chaos:observability": "node scripts/run-chaos-test.mjs observability-outage",
+    "resilience:network": "node scripts/run-staging-resilience.mjs network-faults",
+    "resilience:process-kill": "node scripts/run-staging-resilience.mjs durable-process-kill",
+    "resilience:contention": "node scripts/run-staging-resilience.mjs postgres-contention",
+    "resilience:rolling": "node scripts/run-staging-resilience.mjs rolling-ownership",
+    "resilience:controls": "node scripts/run-staging-resilience.mjs controls-under-load",
+    "resilience:staging": "node scripts/run-staging-resilience-suite.mjs"
   }
 }

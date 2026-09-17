@@ -1,0 +1,262 @@
+x-backend: &backend
+  build:
+    context: .
+    target: production
+  env_file:
+    - path: .env.staging.example
+      required: true
+  environment: &backend-environment
+    POSTGRES_URL: postgres://exchange:staging-only-password@toxiproxy:8666/exchange
+    BUILD_VERSION: ${BUILD_SHA:-local-dirty}
+  depends_on:
+    migrate:
+      condition: service_completed_successfully
+    toxiproxy-config:
+      condition: service_completed_successfully
+    otel-collector:
+      condition: service_started
+  healthcheck:
+    test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:5000/health/ready >/dev/null"]
+    interval: 2s
+    timeout: 2s
+    retries: 30
+    start_period: 10s
+  cpus: ${STAGING_BACKEND_CPUS:-1.0}
+  mem_limit: ${STAGING_BACKEND_MEMORY:-512m}
+  pids_limit: ${STAGING_BACKEND_PIDS:-256}
+  ulimits:
+    nofile:
+      soft: ${STAGING_BACKEND_NOFILE:-4096}
+      hard: ${STAGING_BACKEND_NOFILE:-4096}
+  restart: unless-stopped
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: exchange
+      POSTGRES_USER: exchange
+      POSTGRES_PASSWORD: staging-only-password
+    command:
+      - postgres
+      - -c
+      - max_connections=${STAGING_POSTGRES_MAX_CONNECTIONS:-64}
+      - -c
+      - log_lock_waits=on
+      - -c
+      - deadlock_timeout=200ms
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U exchange -d exchange"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+    cpus: ${STAGING_POSTGRES_CPUS:-1.0}
+    mem_limit: ${STAGING_POSTGRES_MEMORY:-512m}
+    pids_limit: 256
+    volumes:
+      - staging-postgres-data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  toxiproxy:
+    image: ghcr.io/shopify/toxiproxy:2.12.0
+    labels:
+      com.exchange.environment: isolated-staging
+      com.exchange.chaos: explicit-interlock-required
+    ports:
+      - "127.0.0.1:${TOXIPROXY_HOST_PORT:-8474}:8474"
+    healthcheck:
+      test: ["CMD", "/toxiproxy", "-version"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  toxiproxy-config:
+    image: curlimages/curl:8.12.1
+    depends_on:
+      toxiproxy:
+        condition: service_healthy
+    command:
+      - sh
+      - -ec
+      - |
+        until curl --fail --silent http://toxiproxy:8474/version >/dev/null; do sleep 1; done
+        curl --fail --silent --show-error \
+          -H 'Content-Type: application/json' \
+          -d '{"name":"postgres-outbox","listen":"0.0.0.0:8666","upstream":"postgres:5432"}' \
+          http://toxiproxy:8474/proxies || \
+        curl --fail --silent --show-error http://toxiproxy:8474/proxies/postgres-outbox
+    restart: "no"
+
+  migrate:
+    image: postgres:16-alpine
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGHOST: postgres
+      PGDATABASE: exchange
+      PGUSER: exchange
+      PGPASSWORD: staging-only-password
+    command:
+      - sh
+      - -ec
+      - |
+        psql -v ON_ERROR_STOP=1 -c 'CREATE TABLE IF NOT EXISTS schema_migrations (version TEXT PRIMARY KEY, applied_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp())'
+        if ! psql -tAc "SELECT 1 FROM schema_migrations WHERE version='001_ledger'" | grep -q 1; then
+          psql -v ON_ERROR_STOP=1 -1 -f /migrations/001_ledger_up.sql
+          psql -v ON_ERROR_STOP=1 -c "INSERT INTO schema_migrations(version) VALUES ('001_ledger')"
+        fi
+        if ! psql -tAc "SELECT 1 FROM schema_migrations WHERE version='002_durable_runtime'" | grep -q 1; then
+          psql -v ON_ERROR_STOP=1 -1 -f /migrations/002_durable_runtime_up.sql
+          psql -v ON_ERROR_STOP=1 -c "INSERT INTO schema_migrations(version) VALUES ('002_durable_runtime')"
+        fi
+        if ! psql -tAc "SELECT 1 FROM schema_migrations WHERE version='003_durable_control_plane'" | grep -q 1; then
+          psql -v ON_ERROR_STOP=1 -1 -f /migrations/003_durable_control_plane_up.sql
+          psql -v ON_ERROR_STOP=1 -c "INSERT INTO schema_migrations(version) VALUES ('003_durable_control_plane')"
+        fi
+    volumes:
+      - ./apps/backend/src/modules/ledger/infrastructure/migrations/001_ledger_up.sql:/migrations/001_ledger_up.sql:ro
+      - ./apps/backend/src/infrastructure/postgres/migrations/002_durable_runtime_up.sql:/migrations/002_durable_runtime_up.sql:ro
+      - ./apps/backend/src/infrastructure/postgres/migrations/003_durable_control_plane_up.sql:/migrations/003_durable_control_plane_up.sql:ro
+    restart: "no"
+
+  backend-a:
+    <<: *backend
+    environment:
+      <<: *backend-environment
+      INSTANCE_ID: staging-backend-a
+
+  backend-b:
+    <<: *backend
+    environment:
+      <<: *backend-environment
+      INSTANCE_ID: staging-backend-b
+
+  ingress:
+    image: caddy:2.9.1-alpine
+    ports:
+      - "${STAGING_HTTPS_PORT:-5443}:443"
+      - "127.0.0.1:${STAGING_HTTP_PORT:-5080}:80"
+    volumes:
+      - ./deploy/staging/Caddyfile:/etc/caddy/Caddyfile:ro
+      - staging-caddy-data:/data
+      - staging-caddy-config:/config
+    depends_on:
+      backend-a:
+        condition: service_healthy
+      backend-b:
+        condition: service_healthy
+    cpus: 0.5
+    mem_limit: 128m
+    restart: unless-stopped
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.116.1
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes:
+      - ./deploy/observability/otel-collector.yaml:/etc/otelcol/config.yaml:ro
+    restart: unless-stopped
+
+  tempo:
+    image: grafana/tempo:2.6.1
+    command: ["-config.file=/etc/tempo/config.yaml"]
+    volumes:
+      - ./deploy/observability/tempo.yaml:/etc/tempo/config.yaml:ro
+      - staging-tempo-data:/var/tempo
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    command:
+      - --config.file=/etc/prometheus/prometheus.yaml
+      - --storage.tsdb.retention.time=2d
+      - --storage.tsdb.retention.size=2GB
+    volumes:
+      - ./deploy/staging/prometheus.yaml:/etc/prometheus/prometheus.yaml:ro
+      - ./deploy/observability/alerts.yaml:/etc/prometheus/alerts.yaml:ro
+      - staging-prometheus-data:/prometheus
+    ports:
+      - "127.0.0.1:${STAGING_PROMETHEUS_PORT:-19090}:9090"
+    depends_on:
+      - alertmanager
+    restart: unless-stopped
+
+  alertmanager:
+    image: prom/alertmanager:v0.28.0
+    command: ["--config.file=/etc/alertmanager/alertmanager.yaml"]
+    volumes:
+      - ./deploy/observability/alertmanager.yaml:/etc/alertmanager/alertmanager.yaml:ro
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:11.4.0
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: staging-only-change-me
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+    volumes:
+      - ./deploy/observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./deploy/observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - staging-grafana-data:/var/lib/grafana
+    ports:
+      - "127.0.0.1:${STAGING_GRAFANA_PORT:-13000}:3000"
+    depends_on:
+      - prometheus
+      - tempo
+      - alertmanager
+    restart: unless-stopped
+
+  k6:
+    image: grafana/k6:2.1.0
+    profiles: [load]
+    working_dir: /scripts
+    user: '${LOAD_GENERATOR_UID:-0}:${LOAD_GENERATOR_GID:-0}'
+    environment:
+      LOAD_PROFILE: ${LOAD_PROFILE:-smoke}
+      LOAD_RUN_ID: ${LOAD_RUN_ID:-staging}
+      LOAD_BASE_URL: https://ingress
+      LOAD_WS_URL: wss://ingress
+      LOAD_TLS_INSECURE_SKIP_VERIFY: "true"
+      LOAD_API_KEY: staging-trader-key
+      LOAD_ACCOUNT_ID: staging-user
+      LOAD_DISTRIBUTION: ${LOAD_DISTRIBUTION:-hot}
+      LOAD_DURATION: ${LOAD_DURATION:-15s}
+      LOAD_REQUEST_TIMEOUT: ${LOAD_REQUEST_TIMEOUT:-5s}
+      LOAD_WS_SESSION_MS: ${LOAD_WS_SESSION_MS:-1000}
+      LOAD_STARTUP_ATTEMPTS: ${LOAD_STARTUP_ATTEMPTS:-60}
+    volumes:
+      - ./tests/load:/scripts:ro
+      - ${LOAD_RESULT_DIR:-./artifacts/staging/current/load}:/results
+    depends_on:
+      ingress:
+        condition: service_started
+    cpus: ${STAGING_K6_CPUS:-1.0}
+    mem_limit: ${STAGING_K6_MEMORY:-512m}
+    command: ["run", "--out", "json=/results/raw.json", "/scripts/main.js"]
+
+  fault-agent:
+    build:
+      context: .
+      dockerfile: deploy/chaos/Dockerfile
+    profiles: [fault-injection]
+    network_mode: service:toxiproxy
+    cap_add: [NET_ADMIN]
+    environment:
+      CHAOS_ENVIRONMENT: ${CHAOS_ENVIRONMENT:-refused}
+      CHAOS_ACK: ${CHAOS_ACK:-refused}
+    depends_on:
+      toxiproxy:
+        condition: service_healthy
+    restart: "no"
+
+volumes:
+  staging-postgres-data:
+  staging-caddy-data:
+  staging-caddy-config:
+  staging-tempo-data:
+  staging-prometheus-data:
+  staging-grafana-data:

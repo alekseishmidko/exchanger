@@ -56,3 +56,49 @@ jobs:
       - name: Emergency cleanup
         if: always()
         run: docker compose -f docker-compose.development.yml -f docker-compose.observability.yml -f docker-compose.load.yml down --volumes --remove-orphans
+
+  durable-staging:
+    name: Durable staging resilience suite
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      CHAOS_ENVIRONMENT: github-actions-chaos
+      CHAOS_ACK: isolated-test-only
+      CHAOS_SEED: ${{ github.run_id }}-${{ github.run_attempt }}
+      BUILD_SHA: ${{ github.sha }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.15.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Validate staging topology and safety contracts
+        run: pnpm chaos:check && docker compose -f docker-compose.staging.yml config --quiet
+
+      - name: Execute isolated durable scenarios
+        run: pnpm resilience:staging
+
+      - name: Publish resilience summary
+        if: always()
+        run: find artifacts/resilience -name '*summary.md' -exec cat {} \; >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload timelines and sanitized diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: durable-resilience-${{ github.sha }}-${{ github.run_attempt }}
+          path: artifacts/resilience/
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: Emergency cleanup
+        if: always()
+        run: docker compose -f docker-compose.staging.yml --profile load --profile fault-injection down --volumes --remove-orphans
