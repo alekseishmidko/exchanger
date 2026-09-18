@@ -10,6 +10,8 @@ const requiredFiles = [
   'docker-compose.staging.yml',
   '.env.staging.example',
   'deploy/staging/Caddyfile',
+  'deploy/staging/postgres-primary-init.sh',
+  'deploy/staging/postgres-standby-entrypoint.sh',
   'deploy/chaos/Dockerfile',
   'apps/backend/test/resilience-chaos.spec.ts',
   'docs/testing/chaos-testing.md',

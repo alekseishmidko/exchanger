@@ -6,8 +6,10 @@ import { isDeepStrictEqual } from 'node:util';
 
 const supportedScenarios = new Set([
   'network-faults',
+  'postgres-failover',
   'durable-process-kill',
   'postgres-contention',
+  'resource-pressure',
   'rolling-ownership',
   'controls-under-load',
 ]);
@@ -40,6 +42,7 @@ const adminOneKey = 'staging-admin-key';
 const adminTwoKey = 'staging-admin-2-key';
 const canary = `resilience-canary-${runId}`;
 const startedAt = new Date();
+let databaseService = 'postgres';
 const timeline = [];
 const report = {
   schemaVersion: 1,
@@ -207,10 +210,43 @@ async function emergencyAbort() {
   }
   command(
     'docker',
-    [...compose, '--profile', 'fault-injection', 'exec', '-T', 'fault-agent', 'tc', 'qdisc', 'del', 'dev', 'eth0', 'root'],
+    [
+      ...compose,
+      '--profile',
+      'fault-injection',
+      'exec',
+      '-T',
+      'fault-agent',
+      'tc',
+      'qdisc',
+      'del',
+      'dev',
+      'eth0',
+      'root',
+    ],
     {},
     false,
   );
+  for (const agent of ['pressure-agent-a', 'pressure-agent-b']) {
+    command(
+      'docker',
+      [
+        ...compose,
+        '--profile',
+        'resource-injection',
+        'exec',
+        '-T',
+        agent,
+        'pkill',
+        '-CONT',
+        '-f',
+        'node.*dist/main',
+      ],
+      {},
+      false,
+    );
+  }
+  command('docker', [...compose, 'unpause', 'backend-a', 'backend-b'], {}, false);
 }
 
 /** Проверяет degradation/recovery для одного Toxiproxy toxic. */
@@ -228,7 +264,9 @@ async function verifyToxic(name, type, attributes, expectUnavailable = true) {
   const recoveryStarted = performance.now();
   await toxic(`/proxies/postgres-outbox/toxics/${name}`, 'DELETE');
   const rtoMs = await waitForStatus('/health/ready', 200, 15_000);
-  report.measurements[name] = { rtoMs: Math.max(rtoMs, Math.round(performance.now() - recoveryStarted)) };
+  report.measurements[name] = {
+    rtoMs: Math.max(rtoMs, Math.round(performance.now() - recoveryStarted)),
+  };
   mark('fault.recovered', { name, rtoMs });
 }
 
@@ -294,7 +332,9 @@ async function networkFaults() {
 async function durableProcessKill() {
   const first = await place(`${runId}-accepted`, `${runId}-accepted-key`);
   if (first.status !== 201) throw new Error(`pre-kill command не принята: HTTP ${first.status}`);
-  const acceptedBefore = await scalar("SELECT count(*) FROM command_journal WHERE status='APPLIED'");
+  const acceptedBefore = await scalar(
+    "SELECT count(*) FROM command_journal WHERE status='APPLIED'",
+  );
   mark('process.kill', { service: 'backend-a', signal: 'SIGKILL' });
   const killed = command('docker', [...compose, 'kill', '-s', 'SIGKILL', 'backend-a']);
   if (killed.code !== 0) throw new Error('SIGKILL backend-a завершился ошибкой');
@@ -314,6 +354,73 @@ async function durableProcessKill() {
   if (report.rpoAcceptedCommandsLost !== 0) throw new Error('RPO accepted commands больше нуля');
 }
 
+/**
+ * Останавливает primary, продвигает физическую standby и переключает proxy.
+ * Перед аварией runner ждёт replay принятой команды на replica; после promote
+ * прежний idempotency key обязан вернуть тот же public result, а новая команда
+ * подтверждает открытие write path уже на новом primary.
+ */
+async function postgresFailover() {
+  const name = `${runId}-before-pg-failover`;
+  const key = `${runId}-before-pg-failover-key`;
+  const first = await place(name, key);
+  if (first.status !== 201)
+    throw new Error(`pre-failover command не принята: HTTP ${first.status}`);
+  const acceptedBefore = Number(
+    await scalar("SELECT count(*) FROM command_journal WHERE status='APPLIED'"),
+  );
+  const replayDeadline = performance.now() + 15_000;
+  let replayed = 0;
+  while (performance.now() < replayDeadline) {
+    replayed = Number(
+      await scalar(
+        "SELECT count(*) FROM command_journal WHERE status='APPLIED'",
+        'postgres-standby',
+      ),
+    );
+    if (replayed >= acceptedBefore) break;
+    await delay(200);
+  }
+  if (replayed < acceptedBefore) throw new Error('standby не достигла durable high watermark');
+
+  mark('postgres.primary.stop', { service: 'postgres' });
+  const stopped = command('docker', [...compose, '--profile', 'ha', 'stop', 'postgres']);
+  if (stopped.code !== 0) throw new Error('PostgreSQL primary не остановлен');
+  const promoted = command('docker', [
+    ...compose,
+    '--profile',
+    'ha',
+    'exec',
+    '-T',
+    'postgres-standby',
+    'pg_ctl',
+    '-D',
+    '/var/lib/postgresql/data',
+    'promote',
+    '-w',
+  ]);
+  if (promoted.code !== 0) throw new Error('PostgreSQL standby promotion завершился ошибкой');
+  await toxic('/proxies/postgres-outbox', 'PATCH', {
+    upstream: 'postgres-standby:5432',
+    enabled: true,
+  });
+  databaseService = 'postgres-standby';
+
+  const rtoStarted = performance.now();
+  await waitForStatus('/health/ready', 200, 30_000);
+  report.rtoMs = Math.round(performance.now() - rtoStarted);
+  const retry = await eventuallyPlace(name, key, 10_000);
+  if (!isDeepStrictEqual(retry.response.body, first.body)) {
+    throw new Error('idempotent result изменился после PostgreSQL failover');
+  }
+  await eventuallyPlace(`${runId}-after-pg-failover`, `${runId}-after-pg-failover-key`);
+  const acceptedAfter = Number(
+    await scalar("SELECT count(*) FROM command_journal WHERE status='APPLIED'"),
+  );
+  report.rpoAcceptedCommandsLost = Math.max(0, acceptedBefore - acceptedAfter);
+  if (report.rpoAcceptedCommandsLost !== 0) throw new Error('PostgreSQL failover RPO больше нуля');
+}
+
 /** Проверяет последовательный takeover A → B → A без двух действующих epoch. */
 async function rollingOwnership() {
   if ((await place(`${runId}-rolling-1`)).status !== 201) throw new Error('sequence 1 не принят');
@@ -330,7 +437,9 @@ async function rollingOwnership() {
     "SELECT sequence::text FROM command_journal WHERE instrument_id='BTC-USD' ORDER BY sequence",
   );
   if (sequences.join(',') !== '1,2,3') throw new Error(`sequence после rolling: ${sequences}`);
-  const leaseCount = Number(await scalar("SELECT count(*) FROM partition_leases WHERE instrument_id='BTC-USD'"));
+  const leaseCount = Number(
+    await scalar("SELECT count(*) FROM partition_leases WHERE instrument_id='BTC-USD'"),
+  );
   if (leaseCount !== 1) throw new Error(`active owners для BTC-USD: ${leaseCount}`);
 }
 
@@ -402,7 +511,10 @@ async function postgresContention() {
   } finally {
     // Fixture создаётся напрямую только для lock graph и удаляется до общей
     // reconciliation: operational control без audit event не должен пережить тест.
-    await sql("DELETE FROM admission_controls WHERE target_id IN ('deadlock-a','deadlock-b')", true);
+    await sql(
+      "DELETE FROM admission_controls WHERE target_id IN ('deadlock-a','deadlock-b')",
+      true,
+    );
   }
 
   try {
@@ -429,10 +541,80 @@ async function postgresContention() {
       '-c',
       'ALTER DATABASE exchange SET default_transaction_read_only=off',
     ]);
-    if (restoreWritable.code !== 0) throw new Error('Не удалось вернуть PostgreSQL в read-write mode');
+    if (restoreWritable.code !== 0)
+      throw new Error('Не удалось вернуть PostgreSQL в read-write mode');
     command('docker', [...compose, 'restart', 'backend-a', 'backend-b']);
   }
   await waitForStatus('/health/ready', 200, 30_000);
+}
+
+/**
+ * Создаёт bounded CPU/memory/FD/event-loop pressure внутри backend cgroup.
+ * CPU и memory создаются дочерним Node process с конечным deadline, FD pressure
+ * использует пониженный startup ulimit, а SIGSTOP всегда снимается в finally.
+ */
+async function resourcePressure() {
+  const statuses = [];
+  const workload = async (prefix, count = 80) => {
+    const started = performance.now();
+    const responses = await Promise.allSettled(
+      Array.from({ length: count }, (_, index) =>
+        place(`${runId}-${prefix}-${index}`, `${runId}-${prefix}-key-${index}`),
+      ),
+    );
+    for (const response of responses) {
+      statuses.push(response.status === 'fulfilled' ? response.value.status : 0);
+    }
+    return Math.round(performance.now() - started);
+  };
+
+  const cpu = ['backend-a', 'backend-b'].map((service) =>
+    background('docker', [
+      ...compose,
+      'exec',
+      '-T',
+      service,
+      'node',
+      '-e',
+      'const end=Date.now()+3000;while(Date.now()<end){Math.sqrt(Date.now())}',
+    ]),
+  );
+  report.measurements.cpuPressureWorkloadMs = await workload('cpu', 40);
+  await Promise.all(cpu.map(({ completion }) => completion));
+
+  const memory = ['backend-a', 'backend-b'].map((service) =>
+    background('docker', [
+      ...compose,
+      'exec',
+      '-T',
+      service,
+      'node',
+      '-e',
+      'const blocks=[];for(let i=0;i<12;i++)blocks.push(Buffer.alloc(16*1024*1024,1));setTimeout(()=>{},3000)',
+    ]),
+  );
+  report.measurements.memoryPressureWorkloadMs = await workload('memory', 40);
+  await Promise.all(memory.map(({ completion }) => completion));
+
+  report.measurements.fdPressureWorkloadMs = await workload('fd', 160);
+  if (!statuses.includes(201))
+    throw new Error('resource pressure не оставил ни одной accepted command');
+
+  try {
+    const stopped = command('docker', [...compose, 'pause', 'backend-a', 'backend-b']);
+    if (stopped.code !== 0)
+      throw new Error('Не удалось остановить event loop через container freezer');
+    await waitForStatus('/health/ready', 503, 10_000);
+  } finally {
+    command('docker', [...compose, 'unpause', 'backend-a', 'backend-b']);
+  }
+  report.measurements.eventLoopRecoveryMs = await waitForStatus('/health/ready', 200, 15_000);
+  await eventuallyPlace(`${runId}-after-pressure`, `${runId}-after-pressure-key`);
+  report.measurements.resourcePressureStatuses = Object.fromEntries(
+    [...new Set(statuses)]
+      .sort()
+      .map((status) => [status, statuses.filter((item) => item === status).length]),
+  );
 }
 
 /** Создаёт продолжающийся command stream и проверяет freeze/circuit transitions. */
@@ -479,11 +661,7 @@ async function controlsUnderLoad() {
       targetId: '*',
       action: 'STOP',
     });
-    await admin(
-      `/api/v1/admin/approvals/${runId}-stop`,
-      adminTwoKey,
-      `${runId}-stop-approve-key`,
-    );
+    await admin(`/api/v1/admin/approvals/${runId}-stop`, adminTwoKey, `${runId}-stop-approve-key`);
     if ((await place(`${runId}-stopped-check`)).status !== 409) {
       throw new Error('circuit breaker не закрыл admission');
     }
@@ -505,7 +683,9 @@ async function controlsUnderLoad() {
     await workload;
   }
   report.measurements.controlLoadStatuses = Object.fromEntries(
-    [...new Set(statuses)].sort().map((status) => [status, statuses.filter((item) => item === status).length]),
+    [...new Set(statuses)]
+      .sort()
+      .map((status) => [status, statuses.filter((item) => item === status).length]),
   );
 }
 
@@ -551,21 +731,35 @@ async function sql(statement, tolerateFailure = false) {
     '-c',
     statement,
   ]);
-  if (result.code !== 0 && !tolerateFailure) throw new Error('SQL staging check завершился ошибкой');
+  if (result.code !== 0 && !tolerateFailure)
+    throw new Error('SQL staging check завершился ошибкой');
   return result.output;
 }
 
 /** Возвращает одно скалярное значение из PostgreSQL в unaligned режиме. */
-async function scalar(statement) {
-  const values = await rows(statement);
+async function scalar(statement, service = databaseService) {
+  const values = await rows(statement, service);
   return values[0] ?? '';
 }
 
 /** Возвращает строки read-only reconciliation query. */
-async function rows(statement) {
+async function rows(statement, service = databaseService) {
   const result = command(
     'docker',
-    [...compose, 'exec', '-T', 'postgres', 'psql', '-U', 'exchange', '-d', 'exchange', '-At', '-c', statement],
+    [
+      ...compose,
+      'exec',
+      '-T',
+      service,
+      'psql',
+      '-U',
+      'exchange',
+      '-d',
+      'exchange',
+      '-At',
+      '-c',
+      statement,
+    ],
     {},
     false,
   );
@@ -577,7 +771,9 @@ async function rows(statement) {
 async function reconcile() {
   const checks = {
     nonTerminalCommands: Number(
-      await scalar("SELECT count(*) FROM command_journal WHERE status NOT IN ('APPLIED','REJECTED')"),
+      await scalar(
+        "SELECT count(*) FROM command_journal WHERE status NOT IN ('APPLIED','REJECTED')",
+      ),
     ),
     commandEventDifference: Number(
       await scalar(
@@ -608,7 +804,9 @@ async function reconcile() {
       ),
     ),
     invalidProjectionVersions: Number(
-      await scalar('SELECT count(*) FROM projection_versions WHERE applied_sequence>source_sequence'),
+      await scalar(
+        'SELECT count(*) FROM projection_versions WHERE applied_sequence>source_sequence',
+      ),
     ),
     auditSequenceGaps: Number(
       await scalar(
@@ -632,7 +830,8 @@ async function collectDiagnostics() {
   const logs = command('docker', [...compose, 'logs', '--no-color'], {}, false).output;
   const forbidden = [canary, traderKey, adminOneKey, adminTwoKey, 'staging-only-password'];
   report.secretLeakDetected = forbidden.some((value) => logs.includes(value));
-  if (report.secretLeakDetected) report.failures.push('credential/canary обнаружен в container logs');
+  if (report.secretLeakDetected)
+    report.failures.push('credential/canary обнаружен в container logs');
   let sanitized = logs;
   for (const value of forbidden) sanitized = sanitized.replaceAll(value, '[REDACTED]');
   await writeFile(resolve(resultDirectory, 'containers.log'), sanitized.slice(-5_000_000));
@@ -646,17 +845,14 @@ let cleanupSuccessful = false;
 
 try {
   mark('environment.start');
-  const start = command('docker', [
-    ...compose,
-    '--profile',
-    'fault-injection',
-    'up',
-    '-d',
-    '--build',
-  ], {
+  const startProfiles = ['--profile', 'fault-injection'];
+  if (scenario === 'postgres-failover') startProfiles.push('--profile', 'ha');
+  if (scenario === 'resource-pressure') startProfiles.push('--profile', 'resource-injection');
+  const start = command('docker', [...compose, ...startProfiles, 'up', '-d', '--build'], {
     CHAOS_ENVIRONMENT: environmentName === 'github-actions-chaos' ? 'staging' : environmentName,
     CHAOS_ACK: 'isolated-test-only',
     BUILD_SHA: report.buildSha,
+    ...(scenario === 'resource-pressure' ? { STAGING_BACKEND_NOFILE: '96' } : {}),
   });
   if (start.code !== 0) throw new Error('Staging topology не запустилась');
   const startupRto = await waitForStatus('/health/ready', 200, 180_000);
@@ -664,8 +860,10 @@ try {
   mark('environment.ready', { rtoMs: startupRto });
 
   if (scenario === 'network-faults') await networkFaults();
+  else if (scenario === 'postgres-failover') await postgresFailover();
   else if (scenario === 'durable-process-kill') await durableProcessKill();
   else if (scenario === 'postgres-contention') await postgresContention();
+  else if (scenario === 'resource-pressure') await resourcePressure();
   else if (scenario === 'rolling-ownership') await rollingOwnership();
   else if (scenario === 'controls-under-load') await controlsUnderLoad();
 
@@ -681,7 +879,16 @@ try {
     report.failures.push(`diagnostics: ${error instanceof Error ? error.message : 'unknown'}`),
   );
   mark('environment.cleanup');
-  const profileArguments = ['--profile', 'fault-injection', '--profile', 'load'];
+  const profileArguments = [
+    '--profile',
+    'fault-injection',
+    '--profile',
+    'load',
+    '--profile',
+    'ha',
+    '--profile',
+    'resource-injection',
+  ];
   const down = command('docker', [
     ...compose,
     ...profileArguments,

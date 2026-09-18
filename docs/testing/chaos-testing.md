@@ -59,6 +59,13 @@ transactional outbox, поэтому DB и event append имеют одну ACID
   100% bounded packet loss; readiness обязана перейти 503 и вернуться 200;
 - `postgres-contention`: table lock/pool pressure, настоящий deadlock и временный
   database-wide read-only default с обязательным восстановлением;
+- `postgres-failover`: physical streaming standby достигает durable high
+  watermark, primary останавливается, standby продвигается через `pg_ctl promote`,
+  а Toxiproxy атомарно переключает write path; проверяются RTO, RPO=0 и прежний
+  idempotent result;
+- `resource-pressure`: обе replicas получают bounded CPU и memory workers,
+  стартуют с `nofile=96`, обрабатывают burst, затем Docker freezer временно
+  останавливает оба event loop; emergency abort всегда выполняет `unpause`;
 - `durable-process-kill`: SIGKILL active replica после accepted response,
   повтор прежнего idempotency key и takeover второй replica;
 - `rolling-ownership`: A → B → A, возрастающий fencing epoch и непрерывные
@@ -136,7 +143,7 @@ docker compose \
 
 ```bash
 docker compose -f docker-compose.staging.yml \
-  --profile load --profile fault-injection \
+  --profile load --profile fault-injection --profile resource-injection --profile ha \
   down --volumes --remove-orphans
 ```
 
@@ -144,6 +151,12 @@ Fault-agent имеет только `NET_ADMIN`, разделяет network name
 не получает Docker socket. Его entrypoint требует одновременно
 `CHAOS_ENVIRONMENT=staging` и `CHAOS_ACK=isolated-test-only`. Network faults
 ограничены PostgreSQL/outbox proxy, packet loss снимается в `finally`.
+
+Resource-pressure profile требует тот же interlock. CPU/memory workers имеют
+трёхсекундный deadline, FD pressure ограничен startup ulimit, event-loop stall
+снимается в `finally` и повторно в emergency abort. Pressure основного
+PostgreSQL data volume намеренно не эмулируется заполнением host volume без
+квоты: для этого нужен отдельный quota-limited block device/container storage.
 
 Перед ручным game day оператор обязан записать точный `COMPOSE_PROJECT_NAME` и
 проверить его через `docker compose ps`. Blast radius ограничен одним ephemeral
