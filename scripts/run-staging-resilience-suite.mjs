@@ -4,8 +4,10 @@ import { resolve } from 'node:path';
 
 const scenarios = [
   'network-faults',
+  'postgres-failover',
   'durable-process-kill',
   'postgres-contention',
+  'resource-pressure',
   'rolling-ownership',
   'controls-under-load',
 ];

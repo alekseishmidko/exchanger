@@ -16,7 +16,7 @@ x-backend: &backend
     otel-collector:
       condition: service_started
   healthcheck:
-    test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:5000/health/ready >/dev/null"]
+    test: ['CMD-SHELL', 'wget -qO- http://127.0.0.1:5000/health/ready >/dev/null']
     interval: 2s
     timeout: 2s
     retries: 30
@@ -45,8 +45,14 @@ services:
       - log_lock_waits=on
       - -c
       - deadlock_timeout=200ms
+      - -c
+      - wal_level=replica
+      - -c
+      - max_wal_senders=8
+      - -c
+      - max_replication_slots=8
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U exchange -d exchange"]
+      test: ['CMD-SHELL', 'pg_isready -U exchange -d exchange']
       interval: 2s
       timeout: 2s
       retries: 30
@@ -55,7 +61,34 @@ services:
     pids_limit: 256
     volumes:
       - staging-postgres-data:/var/lib/postgresql/data
+      - ./deploy/staging/postgres-primary-init.sh:/docker-entrypoint-initdb.d/010-replication.sh:ro
     restart: unless-stopped
+
+  postgres-standby:
+    image: postgres:16-alpine
+    profiles: [ha]
+    user: postgres
+    environment:
+      PGDATA: /var/lib/postgresql/data
+      CHAOS_ENVIRONMENT: ${CHAOS_ENVIRONMENT:-refused}
+      CHAOS_ACK: ${CHAOS_ACK:-refused}
+      STAGING_POSTGRES_MAX_CONNECTIONS: ${STAGING_POSTGRES_MAX_CONNECTIONS:-64}
+    entrypoint: ['sh', '/staging/postgres-standby-entrypoint.sh']
+    volumes:
+      - staging-postgres-standby-data:/var/lib/postgresql/data
+      - ./deploy/staging/postgres-standby-entrypoint.sh:/staging/postgres-standby-entrypoint.sh:ro
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U exchange -d exchange']
+      interval: 2s
+      timeout: 2s
+      retries: 60
+    cpus: ${STAGING_POSTGRES_CPUS:-1.0}
+    mem_limit: ${STAGING_POSTGRES_MEMORY:-512m}
+    pids_limit: 256
+    restart: 'no'
 
   toxiproxy:
     image: ghcr.io/shopify/toxiproxy:2.12.0
@@ -63,9 +96,9 @@ services:
       com.exchange.environment: isolated-staging
       com.exchange.chaos: explicit-interlock-required
     ports:
-      - "127.0.0.1:${TOXIPROXY_HOST_PORT:-8474}:8474"
+      - '127.0.0.1:${TOXIPROXY_HOST_PORT:-8474}:8474'
     healthcheck:
-      test: ["CMD", "/toxiproxy", "-version"]
+      test: ['CMD', '/toxiproxy', '-version']
       interval: 2s
       timeout: 2s
       retries: 30
@@ -89,7 +122,7 @@ services:
           -d '{"name":"postgres-outbox","listen":"0.0.0.0:8666","upstream":"postgres:5432"}' \
           http://toxiproxy:8474/proxies || \
         curl --fail --silent --show-error http://toxiproxy:8474/proxies/postgres-outbox
-    restart: "no"
+    restart: 'no'
 
   migrate:
     image: postgres:16-alpine
@@ -122,7 +155,7 @@ services:
       - ./apps/backend/src/modules/ledger/infrastructure/migrations/001_ledger_up.sql:/migrations/001_ledger_up.sql:ro
       - ./apps/backend/src/infrastructure/postgres/migrations/002_durable_runtime_up.sql:/migrations/002_durable_runtime_up.sql:ro
       - ./apps/backend/src/infrastructure/postgres/migrations/003_durable_control_plane_up.sql:/migrations/003_durable_control_plane_up.sql:ro
-    restart: "no"
+    restart: 'no'
 
   backend-a:
     <<: *backend
@@ -139,8 +172,8 @@ services:
   ingress:
     image: caddy:2.9.1-alpine
     ports:
-      - "${STAGING_HTTPS_PORT:-5443}:443"
-      - "127.0.0.1:${STAGING_HTTP_PORT:-5080}:80"
+      - '${STAGING_HTTPS_PORT:-5443}:443'
+      - '127.0.0.1:${STAGING_HTTP_PORT:-5080}:80'
     volumes:
       - ./deploy/staging/Caddyfile:/etc/caddy/Caddyfile:ro
       - staging-caddy-data:/data
@@ -156,14 +189,14 @@ services:
 
   otel-collector:
     image: otel/opentelemetry-collector-contrib:0.116.1
-    command: ["--config=/etc/otelcol/config.yaml"]
+    command: ['--config=/etc/otelcol/config.yaml']
     volumes:
       - ./deploy/observability/otel-collector.yaml:/etc/otelcol/config.yaml:ro
     restart: unless-stopped
 
   tempo:
     image: grafana/tempo:2.6.1
-    command: ["-config.file=/etc/tempo/config.yaml"]
+    command: ['-config.file=/etc/tempo/config.yaml']
     volumes:
       - ./deploy/observability/tempo.yaml:/etc/tempo/config.yaml:ro
       - staging-tempo-data:/var/tempo
@@ -180,14 +213,14 @@ services:
       - ./deploy/observability/alerts.yaml:/etc/prometheus/alerts.yaml:ro
       - staging-prometheus-data:/prometheus
     ports:
-      - "127.0.0.1:${STAGING_PROMETHEUS_PORT:-19090}:9090"
+      - '127.0.0.1:${STAGING_PROMETHEUS_PORT:-19090}:9090'
     depends_on:
       - alertmanager
     restart: unless-stopped
 
   alertmanager:
     image: prom/alertmanager:v0.28.0
-    command: ["--config.file=/etc/alertmanager/alertmanager.yaml"]
+    command: ['--config.file=/etc/alertmanager/alertmanager.yaml']
     volumes:
       - ./deploy/observability/alertmanager.yaml:/etc/alertmanager/alertmanager.yaml:ro
     restart: unless-stopped
@@ -197,13 +230,13 @@ services:
     environment:
       GF_SECURITY_ADMIN_USER: admin
       GF_SECURITY_ADMIN_PASSWORD: staging-only-change-me
-      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: 'false'
     volumes:
       - ./deploy/observability/grafana/provisioning:/etc/grafana/provisioning:ro
       - ./deploy/observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
       - staging-grafana-data:/var/lib/grafana
     ports:
-      - "127.0.0.1:${STAGING_GRAFANA_PORT:-13000}:3000"
+      - '127.0.0.1:${STAGING_GRAFANA_PORT:-13000}:3000'
     depends_on:
       - prometheus
       - tempo
@@ -220,7 +253,7 @@ services:
       LOAD_RUN_ID: ${LOAD_RUN_ID:-staging}
       LOAD_BASE_URL: https://ingress
       LOAD_WS_URL: wss://ingress
-      LOAD_TLS_INSECURE_SKIP_VERIFY: "true"
+      LOAD_TLS_INSECURE_SKIP_VERIFY: 'true'
       LOAD_API_KEY: staging-trader-key
       LOAD_ACCOUNT_ID: staging-user
       LOAD_DISTRIBUTION: ${LOAD_DISTRIBUTION:-hot}
@@ -236,7 +269,7 @@ services:
         condition: service_started
     cpus: ${STAGING_K6_CPUS:-1.0}
     mem_limit: ${STAGING_K6_MEMORY:-512m}
-    command: ["run", "--out", "json=/results/raw.json", "/scripts/main.js"]
+    command: ['run', '--out', 'json=/results/raw.json', '/scripts/main.js']
 
   fault-agent:
     build:
@@ -251,10 +284,45 @@ services:
     depends_on:
       toxiproxy:
         condition: service_healthy
-    restart: "no"
+    restart: 'no'
+
+  pressure-agent-a:
+    build:
+      context: .
+      dockerfile: deploy/chaos/Dockerfile
+    profiles: [resource-injection]
+    pid: service:backend-a
+    cap_add: [KILL, SYS_PTRACE, SYS_RESOURCE]
+    environment:
+      CHAOS_ENVIRONMENT: ${CHAOS_ENVIRONMENT:-refused}
+      CHAOS_ACK: ${CHAOS_ACK:-refused}
+    depends_on:
+      backend-a:
+        condition: service_healthy
+    cpus: 0.25
+    mem_limit: 128m
+    restart: 'no'
+
+  pressure-agent-b:
+    build:
+      context: .
+      dockerfile: deploy/chaos/Dockerfile
+    profiles: [resource-injection]
+    pid: service:backend-b
+    cap_add: [KILL, SYS_PTRACE, SYS_RESOURCE]
+    environment:
+      CHAOS_ENVIRONMENT: ${CHAOS_ENVIRONMENT:-refused}
+      CHAOS_ACK: ${CHAOS_ACK:-refused}
+    depends_on:
+      backend-b:
+        condition: service_healthy
+    cpus: 0.25
+    mem_limit: 128m
+    restart: 'no'
 
 volumes:
   staging-postgres-data:
+  staging-postgres-standby-data:
   staging-caddy-data:
   staging-caddy-config:
   staging-tempo-data:

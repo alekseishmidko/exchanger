@@ -980,8 +980,9 @@ Staging использует PostgreSQL transactional outbox как выбран
 dependency `postgres-outbox`. Toxiproxy API слушает только loopback, а
 fault-agent запускается исключительно профилем `fault-injection` после двойного
 safety interlock. Pool exhaustion, lock contention, deadlock и read-only recovery
-автоматизированы; составной пункт PostgreSQL profile остаётся открытым до
-реального failover и pressure на отдельном data volume.
+автоматизированы. Physical streaming standby/promote дополнительно подтверждает
+failover с RTO 1803 мс и RPO=0; составной пункт PostgreSQL profile остаётся
+открытым только до pressure на отдельном quota-limited data volume.
 
 Обязательные тесты:
 
@@ -1008,6 +1009,11 @@ safety interlock. Pool exhaustion, lock contention, deadlock и read-only recove
 старым fencing token и проверки starvation. Credential canary уже блокирует
 pipeline и выявил/закрыл утечку `X-Api-Key` в Caddy error log; полный составной
 пункт ждёт stack-trace, financial-payload и private-WebSocket canaries.
+
+Дополнительно `postgres-failover` прошёл с physical standby promotion,
+RTO 1803 мс и RPO=0. `resource-pressure` прошёл для CPU, memory, `nofile=96` и
+event-loop freezer с обязательным recovery; disk pressure остаётся открытым до
+безопасного quota-limited PostgreSQL volume.
 
 Dual-control request и approval в автоматическом controls-сценарии выполняются в
 однорепличном окне при продолжающемся command workload. Durable applied state
