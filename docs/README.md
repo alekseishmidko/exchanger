@@ -32,11 +32,16 @@
 - [Pilot performance baseline](testing/pilot-performance.md)
 - [Реалистичное нагрузочное тестирование](testing/load-testing.md)
 - [Resilience и chaos testing](testing/chaos-testing.md)
+- [Capacity plan](operations/capacity-plan.md)
+- [Production-readiness report template](operations/production-readiness-report-template.md)
+- [Capacity baseline и trends](operations/capacity-trends.md)
 - [Runbook отказа критичной зависимости](runbooks/dependency-outage.md)
 - [Runbook reconciliation после отказа](runbooks/reconciliation.md)
 - [PostgreSQL backup/restore runbook](runbooks/postgres-backup-restore.md)
 - [Event-log archive/restore runbook](runbooks/event-log-archive-restore.md)
 - [Runbook verification log](runbooks/verification-log.md)
+- [Business readiness guide](operations/business-readiness.md)
+- [Ступенчатый рефакторинг](refactoring-plan.md)
 
 ## Архитектурные решения
 
