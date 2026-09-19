@@ -2,6 +2,20 @@ import { BadRequestException, PipeTransform, Injectable } from '@nestjs/common';
 import { z, ZodType } from 'zod';
 
 /**
+ * Публичный идентификатор HTTP command API.
+ *
+ * Gateway использует тот же безопасный subset, что и contract layer: ASCII,
+ * максимум 128 символов, без пробелов, control characters и Unicode-confusable
+ * символов. Например, `order-1` допускается, а `order\u0000` и `оrder-1` с
+ * кириллической буквой отклоняются одинаковой безопасной ошибкой 400.
+ */
+const publicIdentifierSchema = z
+  .string()
+  .min(1)
+  .max(128)
+  .regex(/^[A-Za-z0-9._:-]+$/);
+
+/**
  * Runtime-схема DTO размещения заявки.
  *
  * Схема является allow-list: лишние поля отбрасываются Zod, идентификаторы и
@@ -11,11 +25,11 @@ import { z, ZodType } from 'zod';
  */
 export const placeOrderDtoSchema = z
   .object({
-    commandId: z.string().min(1).max(128),
-    orderId: z.string().min(1).max(128),
-    accountId: z.string().min(1).max(128),
-    instrumentId: z.string().min(1).max(128),
-    clientOrderId: z.string().min(1).max(128),
+    commandId: publicIdentifierSchema,
+    orderId: publicIdentifierSchema,
+    accountId: publicIdentifierSchema,
+    instrumentId: publicIdentifierSchema,
+    clientOrderId: publicIdentifierSchema,
     side: z.enum(['BUY', 'SELL']),
     orderType: z.enum(['LIMIT', 'MARKET']),
     quantity: z.string().regex(/^(0|[1-9]\d*)(\.\d+)?$/),
@@ -50,10 +64,10 @@ export const placeOrderDtoSchema = z
  */
 export const cancelOrderDtoSchema = z
   .object({
-    commandId: z.string().min(1).max(128),
-    orderId: z.string().min(1).max(128),
-    accountId: z.string().min(1).max(128),
-    instrumentId: z.string().min(1).max(128),
+    commandId: publicIdentifierSchema,
+    orderId: publicIdentifierSchema,
+    accountId: publicIdentifierSchema,
+    instrumentId: publicIdentifierSchema,
   })
   .strict();
 

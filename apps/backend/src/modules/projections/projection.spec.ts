@@ -98,4 +98,44 @@ describe('ProjectionStore', () => {
     expect(rebuilt.getOrders('u-1').items).toHaveLength(1);
     expect(rebuilt.getMetrics()).toMatchObject({ schemaVersion: 1, lag: 0 });
   });
+
+  it('keeps pagination bounded during concurrent append and rejects tampered cursor', () => {
+    const store = new ProjectionStore();
+    store.apply(
+      event(1, 'OrderAccepted', {
+        orderId: 'o-1',
+        userId: 'u-1',
+        accountId: 'u-1',
+        instrumentId: 'BTC-USD',
+        remainingQuantity: '1',
+      }),
+    );
+    store.apply(
+      event(2, 'OrderAccepted', {
+        orderId: 'o-2',
+        userId: 'u-1',
+        accountId: 'u-1',
+        instrumentId: 'BTC-USD',
+        remainingQuantity: '1',
+      }),
+    );
+    const firstPage = store.getOrders('u-1', 1);
+    expect(firstPage.nextCursor).toBe('1');
+
+    store.apply(
+      event(3, 'OrderAccepted', {
+        orderId: 'o-3',
+        userId: 'u-1',
+        accountId: 'u-1',
+        instrumentId: 'BTC-USD',
+        remainingQuantity: '1',
+      }),
+    );
+
+    const secondPage = store.getOrders('u-1', 1, firstPage.nextCursor ?? undefined);
+    expect(secondPage.items.map((item) => item.orderId)).toEqual(['o-2']);
+    expect(() => store.getOrders('u-1', 1, 'cursor:tampered')).toThrow(BadRequestException);
+    expect(() => store.getOrders('u-1', 1, '-1')).toThrow(BadRequestException);
+    expect(store.getMetrics().schemaVersion).toBe(ProjectionStore.schemaVersion);
+  });
 });

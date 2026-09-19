@@ -62,6 +62,17 @@ export class IdempotencyStore implements IdempotencyStorePort {
    * реализация; production должен предоставить durable shared store.
    */
   private readonly records = new Map<string, IdempotencyRecord>();
+  /**
+   * Индекс выполняющихся операций по ключу идемпотентности.
+   *
+   * Он закрывает race двух одинаковых HTTP retry: второй запрос ждёт promise
+   * первого и получает тот же public result. Если payload отличается, конфликт
+   * возвращается сразу и operation не запускается второй раз.
+   */
+  private readonly inFlight = new Map<
+    string,
+    Readonly<{ fingerprint: string; result: Promise<unknown> }>
+  >();
 
   /**
    * Выполняет команду не более одного раза для согласованного payload.
@@ -87,9 +98,23 @@ export class IdempotencyStore implements IdempotencyStorePort {
         });
       return Promise.resolve(previous.result as T);
     }
-    return operation().then((result) => {
-      this.records.set(key, { fingerprint, result });
-      return result;
-    });
+    const active = this.inFlight.get(key);
+    if (active) {
+      if (active.fingerprint !== fingerprint)
+        throw new ConflictException({
+          code: 'IDEMPOTENCY_KEY_REUSED',
+          message: 'Idempotency key was reused with another request',
+        });
+      return active.result as Promise<T>;
+    }
+
+    const result = operation()
+      .then((value) => {
+        this.records.set(key, { fingerprint, result: value });
+        return value;
+      })
+      .finally(() => this.inFlight.delete(key));
+    this.inFlight.set(key, { fingerprint, result });
+    return result;
   }
 }

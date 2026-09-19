@@ -1051,34 +1051,48 @@ readiness/admission, rolling ownership не допускает двух writers,
 
 Входные данные и протоколы:
 
-- [ ] property-based/fuzz tests генерируют команды, события и последовательности операций с воспроизводимым seed;
-- [ ] проверены пустые, oversized, deeply nested, truncated и malformed JSON payloads;
-- [ ] проверены Unicode normalization, control characters, duplicate JSON keys и необычные identifiers;
-- [ ] decimal tests покрывают ноль, максимальную точность, очень большие значения, ведущие нули, exponent, NaN/Infinity и rounding boundaries;
-- [ ] timestamps покрывают прошлое/будущее, одинаковый effectiveAt, clock rollback и timezone/DST boundaries;
-- [ ] pagination проверена при параллельном добавлении данных, stale/tampered cursor и изменении projection version;
-- [ ] REST/WebSocket protocol fuzzing не приводит к uncaught exception или process crash;
-- [ ] неизвестная версия/тип сообщения отклоняется либо обрабатывается по compatibility policy.
+- [x] property-based/fuzz tests генерируют команды, события и последовательности операций с воспроизводимым seed;
+- [x] проверены пустые, oversized, deeply nested, truncated и malformed JSON payloads;
+- [x] проверены Unicode normalization, control characters, duplicate JSON keys и необычные identifiers;
+- [x] decimal tests покрывают ноль, максимальную точность, очень большие значения, ведущие нули, exponent, NaN/Infinity и rounding boundaries;
+- [x] timestamps покрывают прошлое/будущее, одинаковый effectiveAt, clock rollback и timezone/DST boundaries;
+- [x] pagination проверена при параллельном добавлении данных, stale/tampered cursor и изменении projection version;
+- [x] REST/WebSocket protocol fuzzing не приводит к uncaught exception или process crash;
+- [x] неизвестная версия/тип сообщения отклоняется либо обрабатывается по compatibility policy.
+
+Покрыто автоматическим набором `pnpm adversarial:check`: contract property tests
+используют seed `18001`, REST fuzzing — `18002`, WebSocket fuzzing — `18003`.
+Публичные identifiers на gateway/contract boundary ограничены bounded ASCII
+allow-list, чтобы Unicode-confusable и control characters не попадали в
+idempotency, audit и ordering state.
 
 Гонки и злоупотребления:
 
-- [ ] проверены concurrent duplicate place, cancel-vs-match, freeze-vs-place и pause-vs-admission;
-- [ ] settlement-vs-retry и projection rebuild-vs-live delivery дают exactly-once business effect;
-- [ ] один idempotency key с разными payloads/identities всегда конфликтует;
+- [x] проверены concurrent duplicate place, cancel-vs-match, freeze-vs-place и pause-vs-admission;
+- [x] settlement-vs-retry и projection rebuild-vs-live delivery дают exactly-once business effect;
+- [x] один idempotency key с разными payloads/identities всегда конфликтует;
 - [ ] hot-key, hot-instrument и skewed partition не приводят к starvation остальных partitions;
 - [ ] rate-limit bypass через reconnect, headers, API keys и distributed clients закрыт;
-- [ ] authorization isolation проверена массовой матрицей users/accounts/orders/subscriptions;
-- [ ] WebSocket subscription churn, invalid ack ordering и sequence wrap/large values обработаны безопасно;
+- [x] authorization isolation проверена массовой матрицей users/accounts/orders/subscriptions;
+- [x] WebSocket subscription churn, invalid ack ordering и sequence wrap/large values обработаны безопасно;
 - [ ] zip/decompression bomb, slow request и connection exhaustion ограничены transport configuration;
-- [ ] любой unexpected input даёт документированный 4xx/protocol error, но не 500 и не утечку данных.
+- [x] любой unexpected input даёт документированный 4xx/protocol error, но не 500 и не утечку данных.
+
+`pnpm adversarial:check` дополнительно запускает race/abuse e2e: concurrent
+duplicate place сериализуется in-flight idempotency index, конфликт payload
+возвращает `409`, freeze/pause блокируют admission до business effect, cancel
+retry не вызывает второй cancel. Settlement/projection/sequencer specs входят в
+тот же набор. Distributed rate-limit bypass, hot-partition starvation и
+transport-level slow/connection exhaustion остаются открытыми до отдельного
+multi-client runner и reverse-proxy timeout limits.
 
 Автоматизация и документация:
 
-- [ ] найденный fuzz/property failure сохраняется как минимальный regression fixture;
+- [x] найденный fuzz/property failure сохраняется как минимальный regression fixture;
 - [ ] nightly pipeline имеет ограничение времени, corpus retention и triage owner;
 - [ ] security tools покрывают dependencies, container image, secrets, SAST и API threat model;
-- [ ] создан `docs/testing/adversarial-cases.md` с каталогом классов входов и ожидаемыми outcomes;
-- [ ] flaky race test не отключается без issue, owner и срока исправления.
+- [x] создан `docs/testing/adversarial-cases.md` с каталогом классов входов и ожидаемыми outcomes;
+- [x] flaky race test не отключается без issue, owner и срока исправления.
 
 **Gate:** некорректные, враждебные и конкурентные входы не нарушают isolation,
 идемпотентность, ordering, денежные инварианты и доступность процесса.

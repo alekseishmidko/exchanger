@@ -37,6 +37,7 @@
     "load:soak": "node scripts/run-load-test.mjs soak",
     "load:breakpoint": "node scripts/run-load-test.mjs breakpoint",
     "chaos:check": "node scripts/check-chaos-suite.mjs",
+    "adversarial:check": "corepack pnpm --filter @exchange/contracts test -- contracts.spec.ts --runInBand && corepack pnpm --filter @exchange/backend adversarial:check",
     "chaos:component": "corepack pnpm --filter @exchange/backend test -- test/resilience-chaos.spec.ts --runInBand",
     "chaos:observability": "node scripts/run-chaos-test.mjs observability-outage",
     "resilience:network": "node scripts/run-staging-resilience.mjs network-faults",

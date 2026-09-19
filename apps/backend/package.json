@@ -13,7 +13,8 @@
     "typecheck": "tsc --noEmit",
     "format": "prettier --write \"{src,test}/**/*.ts\"",
     "format:check": "prettier --check \"{src,test}/**/*.ts\"",
-    "contracts:check": "jest test/api-contracts.spec.ts test/transport-api.e2e-spec.ts test/api-flow.e2e-spec.ts test/market-data.websocket.e2e-spec.ts src/modules/observability/structured-logger.spec.ts src/modules/observability/logging-flow.spec.ts src/modules/observability/metrics.spec.ts src/modules/observability/tracing.spec.ts src/modules/observability/observability-config.spec.ts --runInBand"
+    "contracts:check": "jest test/api-contracts.spec.ts test/transport-api.e2e-spec.ts test/api-flow.e2e-spec.ts test/market-data.websocket.e2e-spec.ts src/modules/observability/structured-logger.spec.ts src/modules/observability/logging-flow.spec.ts src/modules/observability/metrics.spec.ts src/modules/observability/tracing.spec.ts src/modules/observability/observability-config.spec.ts --runInBand",
+    "adversarial:check": "jest test/adversarial-inputs.e2e-spec.ts test/adversarial-abuse.e2e-spec.ts test/market-data.websocket.e2e-spec.ts src/modules/shared-kernel/decimal.spec.ts src/modules/projections/projection.spec.ts src/modules/trading/settlement/settlement.spec.ts src/modules/trading/sequencer/sequencer.spec.ts --runInBand"
   },
   "dependencies": {
     "@exchange/contracts": "workspace:*",

@@ -1,7 +1,18 @@
 import { z } from 'zod';
 
-/** Идентификатор сообщения или доменного объекта, не допускающий пустую строку. */
-export const idSchema = z.string().min(1);
+/**
+ * Публичный идентификатор сообщения или доменного объекта.
+ *
+ * Контракт намеренно принимает только bounded ASCII allow-list. Это убирает
+ * неоднозначность Unicode normalization, control characters и визуально похожих
+ * символов: `order-1` валиден, а `оrder-1` с кириллической `о` отклоняется до
+ * попадания в idempotency, ordering или audit boundary.
+ */
+export const idSchema = z
+  .string()
+  .min(1)
+  .max(128)
+  .regex(/^[A-Za-z0-9._:-]+$/);
 
 /** Десятичное значение без floating point и экспоненциальной записи. */
 export const decimalSchema = z.string().regex(/^(0|[1-9]\d*)(\.\d+)?$/);
@@ -12,11 +23,17 @@ export const signedDecimalSchema = z.string().regex(/^-?(0|[1-9]\d*)(\.\d+)?$/);
 /** ISO-8601 timestamp с обязательным указанием часового пояса. */
 export const timestampSchema = z.string().datetime({ offset: true });
 
-/** Общий envelope для маршрутизации, корреляции и упорядочивания сообщений. */
+/**
+ * Общий envelope для маршрутизации, корреляции и упорядочивания сообщений.
+ *
+ * `messageVersion` пока поддерживает только версию `1`. Новая версия должна
+ * добавляться явно через compatibility policy и отдельные contract tests, иначе
+ * producer с неизвестной схемой будет отклонён до consumer-side effects.
+ */
 export const messageEnvelopeSchema = z.object({
   messageId: idSchema,
   messageType: z.string().min(1),
-  messageVersion: z.number().int().positive(),
+  messageVersion: z.literal(1),
   occurredAt: timestampSchema,
   receivedAt: timestampSchema,
   sequence: z.string().regex(/^[0-9]+$/),
