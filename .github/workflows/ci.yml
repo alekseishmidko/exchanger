@@ -68,6 +68,9 @@ jobs:
       - name: Chaos suite contract and deterministic invariants
         run: pnpm chaos:check && pnpm chaos:component
 
+      - name: Production-readiness documentation contract
+        run: pnpm readiness:check
+
       - name: PostgreSQL repositories, migrations and crash-point transactions
         run: pnpm --filter @exchange/backend test -- src/modules/ledger/infrastructure/postgres.int-spec.ts --runInBand
 

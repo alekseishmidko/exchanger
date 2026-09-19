@@ -1102,15 +1102,21 @@ multi-client runner и reverse-proxy timeout limits.
 Capacity и длительная устойчивость:
 
 - [ ] найден maximum sustainable throughput и saturation point каждого критического компонента;
-- [ ] production target использует согласованный headroom для traffic burst и отказа одного instance/node;
+- [x] production target использует согласованный headroom для traffic burst и отказа одного instance/node;
 - [ ] измерено влияние числа instruments, active orders, accounts, event history и projection size;
 - [ ] отдельный soak test выявляет memory/handle/connection leaks и рост GC pause;
 - [ ] проверены лимиты PostgreSQL connections, storage growth, indexes, WAL/event retention и archive throughput;
-- [ ] autoscaling policy основана на causal metrics: queue/lag/CPU, а не только среднем CPU;
+- [x] autoscaling policy основана на causal metrics: queue/lag/CPU, а не только среднем CPU;
 - [ ] scale-out/scale-in не нарушает partition ownership, ordering и WebSocket sessions;
 - [ ] graceful shutdown завершает или безопасно передаёт accepted work;
 - [ ] deploy/rollback совместимы с активными clients, предыдущей schema и in-flight events;
 - [ ] стоимость инфраструктуры и telemetry оценена для average/peak/retention profiles.
+
+`docs/operations/capacity-plan.md` фиксирует production target, headroom, N+1
+требование, causal autoscaling metrics, owners и cost model. Фактические
+maximum sustainable throughput, saturation point, scale dimensions, soak leaks,
+PostgreSQL storage/WAL/archive и telemetry cost остаются открытыми до
+release-candidate прогонов с artifacts.
 
 Release qualification:
 
@@ -1120,16 +1126,40 @@ Release qualification:
 - [ ] backup/restore, archive/restore и region/node recovery проверены практически;
 - [ ] dashboards, alerts и runbook links проверены дежурным инженером;
 - [ ] открытые исключения имеют severity, owner, deadline и формальное risk acceptance;
-- [ ] release report содержит build SHA, конфигурацию, результаты и решение go/no-go;
+- [x] release report содержит build SHA, конфигурацию, результаты и решение go/no-go;
 - [ ] rollback criteria и emergency stop rehearsed до production deployment.
 
 Документация:
 
-- [ ] создан `docs/operations/capacity-plan.md`;
-- [ ] создан versioned production-readiness report template;
-- [ ] определены владельцы SLO, capacity, on-call и release decision;
-- [ ] baseline и trend history доступны для сравнения следующих releases.
+- [x] создан `docs/operations/capacity-plan.md`;
+- [x] создан versioned production-readiness report template;
+- [x] определены владельцы SLO, capacity, on-call и release decision;
+- [x] baseline и trend history доступны для сравнения следующих releases.
+
+Production-readiness framework проверяется командой `pnpm readiness:check` и
+запускается в CI. Release qualification пункты, требующие живого
+release-candidate окружения, подписанного отчёта или rehearsal человеком,
+остаются открытыми до фактической приёмки.
 
 **Финальный gate:** release допускается к production только при доказанной
 устойчивости под целевой и аварийной нагрузкой, практически проверенном recovery и
 отсутствии необъяснимых нарушений SLO или доменных инвариантов.
+
+### Этап 20. Maintainability и ступенчатый рефакторинг
+
+Цель — снизить когнитивную нагрузку поддержки без изменения бизнес-поведения и
+публичных контрактов.
+
+- [x] создан `docs/operations/business-readiness.md` с командами проверки готовности биржи;
+- [x] создан `docs/refactoring-plan.md` со ступенями дробления и Definition of Done;
+- [x] добавлен `pnpm maintainability:report` для поиска крупных файлов и baseline перед рефакторингом;
+- [x] добавлены one-button readiness scripts `ready:quick`, `ready:business`, `ready:rc`, `ready:full`;
+- [ ] test builders вынесены из крупных e2e/spec файлов;
+- [ ] Gateway/WebSocket transport orchestration разделён на mapper/registry/error policy;
+- [ ] Admin service разделён на dual-control, policy registry и reconciliation services;
+- [ ] settlement/projections/ledger adapters разделены на policy, mapper и repository слои;
+- [ ] architecture guard переведён из report-only в blocking CI после закрытия P0/P1 файлов.
+
+**Gate:** каждый refactor PR уменьшает или сохраняет сложность выбранного модуля,
+проходит business-readiness проверки и не меняет public API без отдельного
+contract test.
