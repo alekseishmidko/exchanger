@@ -1,12 +1,14 @@
 import {
   cancelOrderCommandSchema,
   commandSchema,
+  decimalSchema,
   domainEventSchema,
   orderAcceptedEventSchema,
   orderCancelledEventSchema,
   orderRejectedEventSchema,
   placeOrderCommandSchema,
   settlementAppliedEventSchema,
+  timestampSchema,
   tradeExecutedEventSchema,
 } from '../src/index';
 
@@ -41,6 +43,27 @@ const placeOrder = {
     riskPolicyVersion: 'v1',
   },
 };
+
+/** Детерминированный генератор для property-like contract cases без внешнего state. */
+function* seededCases(
+  seed: number,
+  count: number,
+): Generator<{
+  sequence: number;
+  side: 'BUY' | 'SELL';
+  timeInForce: 'GTC' | 'IOC' | 'FOK';
+}> {
+  let state = seed;
+  const tifs = ['GTC', 'IOC', 'FOK'] as const;
+  for (let index = 0; index < count; index += 1) {
+    state = (state * 1103515245 + 12345) % 2147483648;
+    yield {
+      sequence: (state % 10_000) + 1,
+      side: state % 2 === 0 ? 'BUY' : 'SELL',
+      timeInForce: tifs[state % tifs.length] ?? 'GTC',
+    };
+  }
+}
 
 describe('contracts', () => {
   it('accepts PlaceOrder and CancelOrder commands', () => {
@@ -190,5 +213,75 @@ describe('contracts', () => {
     expect(() =>
       domainEventSchema.parse({ ...envelope, messageType: 'UnknownEvent', payload: {} }),
     ).toThrow();
+  });
+
+  it('runs seeded property checks for command and event envelopes', () => {
+    for (const { sequence, side, timeInForce } of seededCases(18_001, 64)) {
+      const candidate = {
+        ...placeOrder,
+        messageId: `message-${sequence}`,
+        sequence: String(sequence),
+        payload: {
+          ...placeOrder.payload,
+          commandId: `command-${sequence}`,
+          orderId: `order-${sequence}`,
+          side,
+          timeInForce,
+          quantity: `${sequence}.01`,
+        },
+      };
+      expect(commandSchema.parse(candidate)).toEqual(candidate);
+      expect(
+        domainEventSchema.parse({
+          ...envelope,
+          messageId: `event-message-${sequence}`,
+          messageType: 'OrderAccepted',
+          sequence: String(sequence),
+          payload: {
+            orderId: `order-${sequence}`,
+            userId: 'user-1',
+            accountId: 'account-1',
+            instrumentId: 'BTC-USD',
+            side,
+            quantity: `${sequence}.01`,
+            remainingQuantity: '0',
+          },
+        }),
+      ).toBeTruthy();
+    }
+  });
+
+  it('rejects adversarial identifiers and unknown message versions by policy', () => {
+    for (const id of ['order\u0000', 'order\n1', 'order 1', 'оrder-1', 'order/1']) {
+      expect(() =>
+        placeOrderCommandSchema.parse({
+          ...placeOrder,
+          payload: { ...placeOrder.payload, orderId: id },
+        }),
+      ).toThrow();
+    }
+    expect(() => commandSchema.parse({ ...placeOrder, messageVersion: 999 })).toThrow();
+  });
+
+  it('covers decimal and timestamp adversarial boundaries', () => {
+    for (const valid of ['0', '0.000000000000000001', '999999999999999999999.999999999']) {
+      expect(decimalSchema.parse(valid)).toBe(valid);
+    }
+    for (const invalid of ['00', '01.00', '1e3', 'NaN', 'Infinity', '-1']) {
+      expect(() => decimalSchema.parse(invalid)).toThrow();
+    }
+
+    for (const timestamp of [
+      '1970-01-01T00:00:00.000Z',
+      '2099-12-31T23:59:59.999Z',
+      '2026-03-08T01:59:59.000-05:00',
+      '2026-11-01T01:30:00.000-04:00',
+      '2026-11-01T01:30:00.000-05:00',
+    ]) {
+      expect(timestampSchema.parse(timestamp)).toBe(timestamp);
+    }
+    for (const invalid of ['2026-01-01T00:00:00.000', 'not-a-date']) {
+      expect(() => timestampSchema.parse(invalid)).toThrow();
+    }
   });
 });

@@ -268,4 +268,64 @@ describe('Market data WebSocket transport', () => {
       data: { sentAt: '2026-09-09T00:00:00.000Z' },
     });
   });
+
+  it('handles subscription churn, invalid ack ordering and extreme sequence values safely', async () => {
+    const socket = client('user-1-key');
+    await waitForConnection(socket);
+
+    for (let index = 0; index < 12; index += 1) {
+      const ack = nextEnvelope(socket, 'market.ack');
+      socket.emit('market.subscribe', {
+        requestId: `churn-subscribe-${index}`,
+        channel: 'book',
+        instrumentId: 'BTC-USD',
+      });
+      expect(await ack).toMatchObject({
+        correlationId: `churn-subscribe-${index}`,
+        sequence: 0,
+      });
+      const unsubscribe = nextEnvelope(socket, 'market.ack');
+      socket.emit('market.unsubscribe', {
+        requestId: `churn-unsubscribe-${index}`,
+        channel: 'book',
+        instrumentId: 'BTC-USD',
+      });
+      expect(await unsubscribe).toMatchObject({
+        correlationId: `churn-unsubscribe-${index}`,
+        sequence: 0,
+      });
+    }
+
+    const malformed = nextEnvelope(socket, 'market.error');
+    socket.emit('market.unsubscribe', {
+      requestId: 'invalid-ack-ordering',
+      channel: 'book',
+      instrumentId: 'BTC-USD',
+      unexpectedAckSequence: 1,
+    });
+    expect(await malformed).toMatchObject({
+      correlationId: 'invalid-ack-ordering',
+      sequence: 0,
+      data: { code: 'REQUEST_MALFORMED' },
+    });
+
+    hub.publishSnapshot({
+      channel: 'book',
+      instrumentId: 'ETH-USD',
+      sequence: Number.MAX_SAFE_INTEGER - 1,
+      bids: [],
+      asks: [],
+    });
+    const replay = nextEnvelope(socket, 'market.data');
+    socket.emit('market.resync', {
+      requestId: 'large-sequence-resync',
+      instrumentId: 'ETH-USD',
+      lastSequence: Number.MAX_SAFE_INTEGER - 2,
+    });
+    expect(await replay).toMatchObject({
+      correlationId: 'large-sequence-resync',
+      sequence: Number.MAX_SAFE_INTEGER - 1,
+    });
+    expect(socket.connected).toBe(true);
+  });
 });
