@@ -33,6 +33,12 @@ class SlowTradingPort implements TradingCommandPort {
     return { commandId: command.commandId, orderId: command.orderId, status: 'CANCEL_ACCEPTED' };
   }
 
+  /** Lookup в abuse tests не используется, но interface требует owner-safe метод. */
+  async getOrder(): Promise<GatewayCommandResult | null> {
+    await Promise.resolve();
+    return null;
+  }
+
   async listOrders(): Promise<
     Readonly<{ items: readonly GatewayCommandResult[]; nextCursor: null }>
   > {

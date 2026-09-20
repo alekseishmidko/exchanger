@@ -5,6 +5,7 @@ import {
   Get,
   Headers,
   Inject,
+  NotFoundException,
   Optional,
   Param,
   Post,
@@ -234,6 +235,38 @@ export class GatewayController {
       });
     }
     return value;
+  }
+
+  /** Возвращает ограниченную страницу заявок без обхода authorization boundary. */
+  @Get('orders/:orderId')
+  @ApiOperation({ summary: 'Получить заявку по публичному orderId' })
+  @ApiParam({
+    name: 'orderId',
+    example: 'order-1',
+    description: 'Публичный identifier заявки из place/cancel command API.',
+  })
+  @ApiOkResponse({ type: GatewayCommandResponseDto })
+  @ApiBadRequestResponse({ description: 'Некорректный формат orderId.' })
+  @ApiTooManyRequestsResponse({ description: 'Превышен лимит запросов API-ключа.' })
+  async getOrder(
+    @Req() request: GatewayRequest,
+    @Param('orderId') orderId: string,
+  ): Promise<GatewayCommandResponseDto> {
+    this.rateLimit.check(request.principal.keyId);
+    if (!/^[A-Za-z0-9._:-]{1,128}$/.test(orderId)) {
+      throw new BadRequestException({
+        code: 'ORDER_ID_INVALID',
+        message: 'Order ID is invalid',
+      });
+    }
+    const result = await this.trading.getOrder(request.principal.userId, orderId);
+    if (!result) {
+      throw new NotFoundException({
+        code: 'ORDER_NOT_FOUND',
+        message: 'Order was not found',
+      });
+    }
+    return result;
   }
 
   /** Возвращает ограниченную страницу заявок без обхода authorization boundary. */

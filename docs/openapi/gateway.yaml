@@ -119,6 +119,16 @@ paths:
         - { $ref: '#/components/parameters/Cursor' }
       responses:
         '200': { description: Bounded order page }
+  /api/v1/orders/{orderId}:
+    get:
+      security: [{ ApiKeyAuth: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/OrderId' }
+      responses:
+        '200': { description: Order command result }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { description: Order not found }
   /api/v1/orders/{orderId}/cancel:
     post:
       security: [{ ApiKeyAuth: [] }]

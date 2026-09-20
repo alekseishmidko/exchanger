@@ -20,6 +20,19 @@
 
 ## Текущие кандидаты
 
+Baseline от `pnpm maintainability:report` на момент ввода этапа 20:
+
+- `apps/backend/src/modules/admin/admin.service.ts` — 545 строк;
+- `apps/backend/src/modules/market-data/market-data.gateway.ts` — 511 строк;
+- `apps/backend/src/modules/observability/metrics.ts` — 428 строк;
+- `apps/backend/src/modules/admin/admin.controller.ts` — 408 строк;
+- `apps/backend/src/modules/ledger/infrastructure/postgres.int-spec.ts` — 690 строк.
+
+CI уже запускает `MAINTAINABILITY_ENFORCE=true pnpm maintainability:report`
+с мягкими лимитами 600 строк для production и 800 строк для test/spec. Это
+blocking guard от ухудшения baseline. Финальные строгие лимиты включаются
+после закрытия P0/P1 refactor candidates.
+
 | Приоритет | Файл                                             | Почему тяжёлый                                                   | Целевое дробление                                                                            |
 | --------- | ------------------------------------------------ | ---------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
 | P0        | `admin.service.ts`                               | lifecycle, dual-control, policies, reconciliation в одном классе | `admin-command.service`, `dual-control.service`, `policy-registry`, `reconciliation.service` |
@@ -44,12 +57,16 @@
 
 Цель — уменьшить шум в e2e/spec без изменения production code.
 
-- `test/builders/api-builders.ts`;
+- `test/builders/api-builders.ts` — API key registry, account/order DTO и instrument rules;
 - `test/builders/market-data-builders.ts`;
 - `test/builders/ledger-builders.ts`;
 - shared helpers для `request(app.getHttpServer())`, idempotency headers и API keys.
 
-Gate: тесты должны остаться byte-for-byte эквивалентными по assertions.
+Первый срез выполнен для `api-flow.e2e-spec.ts` и
+`transport-api.e2e-spec.ts`: assertions не менялись, из spec-файлов вынесены
+повторяемые API keys, account/order DTO и instrument rules.
+
+Gate: тесты должны остаться эквивалентными по assertions и public responses.
 
 ### Шаг 2. Transport orchestration
 

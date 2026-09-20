@@ -137,24 +137,14 @@ export function restWorkload(data) {
       duplicateEffectRate.add(!sameResult);
       check(duplicate, { 'идемпотентный повтор идентичен': () => sameResult });
     }
-    // До текущей итерации каждая десятая итерация добавляет две дополнительные
-    // multi-fill команды. Окно начинается на 50 записей раньше ожидаемой позиции,
-    // чтобы учитывать конкурентное завершение соседних VU без полного O(n) scan.
-    const expectedPosition =
-      context.iteration + 2 * Math.ceil(context.iteration / 10) + commandIndex;
-    const visibilityCursor = Math.max(0, expectedPosition - 50);
-    const visible = getQuery(
-      baseUrl,
-      `/api/v1/orders?limit=100&cursor=${visibilityCursor}`,
-      apiKey,
-      '/api/v1/orders',
-    );
-    const found = check(visible, {
-      'принятая команда видима': (value) =>
-        value.status === 200 && value.body.includes(command.orderId),
-    });
-    acceptedVisibilityFailureRate.add(!found);
-    if (found) acceptedToVisible.add(Date.now() - startedAt);
+    if (shouldCheckVisibility(context.iteration, commandIndex)) {
+      const found = check(null, {
+        'принятая команда видима': () =>
+          orderVisible(command.orderId, context.iteration, commandIndex),
+      });
+      acceptedVisibilityFailureRate.add(!found);
+      if (found) acceptedToVisible.add(Date.now() - startedAt);
+    }
     if (context.iteration % 5 === 0) {
       const cancel = cancelOrderData(
         command,
@@ -208,7 +198,7 @@ export async function websocketWorkload(data) {
         socket.close();
         resolve();
       },
-      Number(__ENV.LOAD_WS_SESSION_MS || 1500),
+      websocketSessionMs(),
     );
     socket.addEventListener('message', (event) => {
       const frame = String(event.data);
@@ -244,6 +234,83 @@ export async function websocketWorkload(data) {
 /** Выбирает bounded public instrument для WebSocket workload. */
 function instrumentForWs() {
   return distribution === 'hot' || exec.scenario.iterationInTest % 2 === 0 ? 'BTC-USD' : 'ETH-USD';
+}
+
+/**
+ * Возвращает длительность короткой WebSocket-сессии для reconnect/churn workload.
+ *
+ * Для spike-профиля значение выше, потому что 500 параллельных VU создают
+ * controlled reconnect storm: слишком короткое окно превращает тест подписки в
+ * тест скорости повторного TCP/WebSocket handshake и даёт ложные отказы до того,
+ * как сервер успевает отправить `market.ack`. Переменная `LOAD_WS_SESSION_MS`
+ * всё равно имеет приоритет и позволяет ужесточить или ослабить сценарий без
+ * изменения кода.
+ *
+ * @returns {number} Количество миллисекунд до принудительного закрытия сессии.
+ *
+ * @example
+ * LOAD_WS_SESSION_MS=1000 pnpm load:spike
+ */
+function websocketSessionMs() {
+  if (__ENV.LOAD_WS_SESSION_MS) return Number(__ENV.LOAD_WS_SESSION_MS);
+  return selectedProfile === 'spike' ? 5000 : 1500;
+}
+
+/**
+ * Ограничивает стоимость verification path в тяжёлых профилях.
+ *
+ * Нагрузочный тест должен измерять command/query/WebSocket поведение системы, а
+ * не создавать вторую искусственную нагрузку за счёт проверки каждой accepted
+ * команды через offset pagination. Поэтому smoke/average продолжают проверять
+ * каждую команду, а spike/stress/breakpoint используют детерминированную выборку.
+ * Multi-fill команды всегда проверяются полностью, потому что они нужны для
+ * accepted-to-visible latency по сложному flow.
+ *
+ * @param {number} iteration Глобальная итерация k6-сценария.
+ * @param {number} commandIndex Индекс команды внутри multi-fill набора.
+ * @returns {boolean} Нужно ли выполнять публичный visibility query.
+ */
+function shouldCheckVisibility(iteration, commandIndex) {
+  if (commandIndex > 0) return true;
+  const sampleRate = {
+    smoke: 1,
+    average: 1,
+    soak: 2,
+    stress: 5,
+    spike: 10,
+    breakpoint: 20,
+  }[selectedProfile];
+  return iteration % sampleRate === 0;
+}
+
+/**
+ * Проверяет, что accepted command видна через публичный Gateway query boundary.
+ *
+ * Endpoint обращается к публичному lookup `GET /api/v1/orders/:orderId`, а не к
+ * offset pagination. Под высокой конкуренцией offset страницы постоянно
+ * смещается соседними VU, поэтому lookup остаётся единственным стабильным
+ * transport contract для проверки конкретной accepted command.
+ *
+ * @param {string} orderId Публичный идентификатор заявки из PlaceOrder DTO.
+ * @param {number} iteration Глобальная итерация k6-сценария; оставлена для
+ * совместимости с прежней сигнатурой и читаемости call site.
+ * @param {number} commandIndex Индекс команды внутри multi-fill набора; оставлен
+ * для совместимости с прежней сигнатурой.
+ * @returns {boolean} `true`, если заявка найдена хотя бы в одном безопасном окне.
+ *
+ * @example
+ * orderVisible('order-run-rest-1-42-0', 42, 0);
+ */
+function orderVisible(orderId, iteration, commandIndex) {
+  void iteration;
+  void commandIndex;
+  const response = getQuery(
+    baseUrl,
+    `/api/v1/orders/${orderId}`,
+    apiKey,
+    '/api/v1/orders/:orderId',
+  );
+  return response.status === 200 && response.body.includes(orderId);
 }
 
 /** Сохраняет машиночитаемый aggregate и GitHub-compatible краткий отчёт. */

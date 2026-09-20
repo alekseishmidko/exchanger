@@ -80,6 +80,33 @@ export class PostgresTradingCommandAdapter implements TradingCommandPort {
     });
   }
 
+  /**
+   * Возвращает последний public result по orderId внутри owner boundary.
+   *
+   * Запрос использует JSONB поле `public_result`, потому что command journal
+   * хранит разные публичные результаты place/cancel единым append-only потоком.
+   * Клиент получает `null` и для отсутствующей, и для чужой заявки: так transport
+   * boundary не становится oracle для перебора чужих identifiers.
+   *
+   * @param userId Authenticated owner из API key principal.
+   * @param orderId Публичный идентификатор заявки из command DTO.
+   */
+  async getOrder(userId: string, orderId: string): Promise<GatewayCommandResult | null> {
+    return this.transactions.run(async (client) => {
+      const row = await client.query<{ public_result: GatewayCommandResult }>(
+        `SELECT public_result
+           FROM command_journal
+          WHERE status = 'APPLIED'
+            AND owner_id = $1
+            AND public_result->>'orderId' = $2
+          ORDER BY accepted_at DESC, command_id DESC
+          LIMIT 1`,
+        [userId, orderId],
+      );
+      return row.rows[0]?.public_result ?? null;
+    });
+  }
+
   /** Сохраняет command lifecycle и outbox как одну атомарную операцию. */
   private async persist(
     command: GatewayPlaceOrderCommand | GatewayCancelOrderCommand,

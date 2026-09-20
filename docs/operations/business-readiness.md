@@ -20,6 +20,7 @@ pnpm ready:quick
 
 ```bash
 pnpm security:check
+MAINTAINABILITY_ENFORCE=true pnpm maintainability:report
 pnpm lint
 pnpm typecheck
 pnpm contracts:check
@@ -32,7 +33,28 @@ pnpm build
 
 Эта группа отвечает на вопрос: “кодовая база воспроизводима, типобезопасна,
 документированные API не разъехались, критичные unit/e2e/adversarial проверки
-зелёные”. Она не доказывает устойчивость под production load.
+зелёные, а новые изменения не ухудшили maintainability baseline”. Она не
+доказывает устойчивость под production load.
+
+## Maintainability gate
+
+Перед любым рефакторингом и после него нужно сохранить baseline:
+
+```bash
+pnpm maintainability:report
+```
+
+В one-button readiness и CI отчёт запускается в blocking-режиме:
+
+```bash
+MAINTAINABILITY_ENFORCE=true pnpm maintainability:report
+```
+
+Текущие лимиты намеренно мягкие: production-файл ≤ 600 строк, test/spec-файл
+≤ 800 строк. Это не финальный target, а защита от регресса до закрытия P0/P1
+кандидатов из `docs/refactoring-plan.md`. Строгий target после дробления:
+production ≤ 300 строк, infrastructure adapter exception ≤ 450, test/spec
+≤ 500.
 
 ## Проверка бизнес-флоу
 

@@ -162,6 +162,30 @@ describe('Gateway command API', () => {
       .expect({ commandId: 'command-1', orderId: 'client-1', status: 'ACCEPTED' });
   });
 
+  /** Lookup endpoint даёт стабильную ручную проверку без offset-cursor race. */
+  it('returns an order by public orderId without exposing other owners', async () => {
+    await request(app.getHttpServer())
+      .post('/api/v1/orders')
+      .set('x-api-key', 'dev-key')
+      .set('idempotency-key', 'lookup-idem-1')
+      .send({ ...order, commandId: 'lookup-command-1', clientOrderId: 'lookup-order-1' })
+      .expect(201);
+
+    await request(app.getHttpServer())
+      .get('/api/v1/orders/lookup-order-1')
+      .set('x-api-key', 'dev-key')
+      .expect(200)
+      .expect({ commandId: 'lookup-command-1', orderId: 'lookup-order-1', status: 'ACCEPTED' });
+
+    await request(app.getHttpServer())
+      .get('/api/v1/orders/missing-order')
+      .set('x-api-key', 'dev-key')
+      .expect(404)
+      .expect((response) =>
+        expect((response.body as { code: string }).code).toBe('ORDER_NOT_FOUND'),
+      );
+  });
+
   it('rejects invalid auth, malformed payload and object access', async () => {
     await request(app.getHttpServer())
       .post('/api/v1/orders')

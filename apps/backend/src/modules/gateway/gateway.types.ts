@@ -56,6 +56,8 @@ export interface TradingCommandPort {
   placeOrder(command: GatewayPlaceOrderCommand): Promise<GatewayCommandResult>;
   /** Передаёт проверенную команду отмены в trading core. */
   cancelOrder(command: GatewayCancelOrderCommand): Promise<GatewayCommandResult>;
+  /** Возвращает одну заявку по публичному orderId с owner isolation. */
+  getOrder(userId: string, orderId: string): Promise<GatewayCommandResult | null>;
   /** Возвращает bounded page заявок для query API. */
   listOrders(
     userId: string,
@@ -106,6 +108,14 @@ export class InMemoryTradingCommandPort implements TradingCommandPort {
     } as const;
     this.orders.set(command.orderId, { ownerId: command.userId, result });
     return result;
+  }
+
+  /** Возвращает одну заявку владельца без раскрытия чужих order IDs. */
+  async getOrder(userId: string, orderId: string): Promise<GatewayCommandResult | null> {
+    await Promise.resolve();
+    const stored = this.orders.get(orderId);
+    if (!stored || stored.ownerId !== userId) return null;
+    return stored.result;
   }
 
   /** Возвращает страницу принятых заявок с opaque cursor. */
