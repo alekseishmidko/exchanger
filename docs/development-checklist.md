@@ -215,6 +215,7 @@
     - [ ] этап 17A: durable runtime и production-like infrastructure для снятия chaos-блокировок.
 18. [ ] adversarial, fuzz, race и нестандартные граничные сценарии.
 19. [ ] capacity planning и итоговая production-readiness qualification.
+20. [ ] maintainability и ступенчатый рефакторинг без изменения public API.
 
 ## 11. Пошаговая модульная декомпозиция
 
@@ -1154,11 +1155,20 @@ release-candidate окружения, подписанного отчёта ил
 - [x] создан `docs/refactoring-plan.md` со ступенями дробления и Definition of Done;
 - [x] добавлен `pnpm maintainability:report` для поиска крупных файлов и baseline перед рефакторингом;
 - [x] добавлены one-button readiness scripts `ready:quick`, `ready:business`, `ready:rc`, `ready:full`;
+- [x] `pnpm maintainability:report` включён в one-button readiness и CI в blocking baseline mode;
 - [ ] test builders вынесены из крупных e2e/spec файлов;
 - [ ] Gateway/WebSocket transport orchestration разделён на mapper/registry/error policy;
 - [ ] Admin service разделён на dual-control, policy registry и reconciliation services;
 - [ ] settlement/projections/ledger adapters разделены на policy, mapper и repository слои;
 - [ ] architecture guard переведён из report-only в blocking CI после закрытия P0/P1 файлов.
+
+Первый срез test builders выполнен для `api-flow.e2e-spec.ts` и
+`transport-api.e2e-spec.ts`: API key registry, account/order DTO и instrument
+rules вынесены в `apps/backend/test/builders/api-builders.ts`. Общий пункт
+остаётся открытым до выноса builders из market-data, ledger/postgres и system
+specs. CI уже блокирует ухудшение текущего baseline через
+`MAINTAINABILITY_ENFORCE=true pnpm maintainability:report`; строгий architecture
+guard 300/450/500 строк остаётся открытым до закрытия P0/P1 файлов.
 
 **Gate:** каждый refactor PR уменьшает или сохраняет сложность выбранного модуля,
 проходит business-readiness проверки и не меняет public API без отдельного

@@ -124,6 +124,37 @@ function failedThresholds(metrics) {
     .sort();
 }
 
+/** Возвращает диагностичные значения для проваленных k6 thresholds. */
+function failedThresholdDetails(metrics) {
+  return Object.entries(metrics)
+    .flatMap(([metric, data]) =>
+      Object.entries(data.thresholds ?? {})
+        .filter(([, threshold]) => threshold.ok === false)
+        .map(([expression, threshold]) => ({
+          metric,
+          expression,
+          ok: threshold.ok,
+          values: data.values ?? {},
+        })),
+    )
+    .sort((left, right) =>
+      `${left.metric}${left.expression}`.localeCompare(`${right.metric}${right.expression}`),
+    );
+}
+
+/** Форматирует k6 threshold diagnostics для Markdown summary. */
+function thresholdDetailsMarkdown(details) {
+  if (details.length === 0) return 'none';
+  return details
+    .map((detail) => {
+      const values = Object.entries(detail.values)
+        .map(([name, value]) => `${name}=${value}`)
+        .join(', ');
+      return `- ${detail.metric} \`${detail.expression}\` (${values})`;
+    })
+    .join('\n');
+}
+
 /** Возвращает bounded описание ошибки без stack и чувствительных metadata. */
 function safeError(error) {
   if (!(error instanceof Error)) return 'Неизвестная ошибка load runner';
@@ -221,6 +252,7 @@ try {
   }
   const summary = JSON.parse(summaryText);
   const failedK6Thresholds = failedThresholds(summary.metrics);
+  const failedK6ThresholdDetails = failedThresholdDetails(summary.metrics);
   const baseline = JSON.parse(
     await readFile(resolve('tests/load/baselines/ci-budget.json'), 'utf8'),
   );
@@ -255,6 +287,7 @@ try {
     finishedAt: new Date().toISOString(),
     k6ExitCode: loadExit,
     failedK6Thresholds,
+    failedK6ThresholdDetails,
     regressionFailures: postFailures,
     reconciliation: reconciliation.body,
     projection: projection.body,
@@ -270,7 +303,7 @@ try {
     resolve(resultDirectory, 'report.json'),
     `${JSON.stringify(finalReport, null, 2)}\n`,
   );
-  const summaryMarkdown = `## Load test ${profile}\n\n**Run:** ${runId}  \n**Build:** ${metadata.buildSha}  \n**Environment:** ${metadata.environment}  \n**k6:** ${loadExit === 0 ? '✅ passed' : '❌ failed'}  \n**Failed thresholds:** ${failedK6Thresholds.length === 0 ? 'none' : failedK6Thresholds.join(', ')}  \n**Reconciliation:** ${reconciliation.body?.auditIntegrity === true ? '✅ converged' : '❌ failed'}  \n**Regression budget:** ${postFailures.length === 0 ? '✅ passed' : `❌ ${postFailures.length} failures`}  \n**Artifacts:** \`${resultDirectory}\`\n`;
+  const summaryMarkdown = `## Load test ${profile}\n\n**Run:** ${runId}  \n**Build:** ${metadata.buildSha}  \n**Environment:** ${metadata.environment}  \n**k6:** ${loadExit === 0 ? '✅ passed' : '❌ failed'}  \n**Failed thresholds:** ${failedK6Thresholds.length === 0 ? 'none' : failedK6Thresholds.join(', ')}  \n**Threshold details:**\n${thresholdDetailsMarkdown(failedK6ThresholdDetails)}\n\n**Reconciliation:** ${reconciliation.body?.auditIntegrity === true ? '✅ converged' : '❌ failed'}  \n**Regression budget:** ${postFailures.length === 0 ? '✅ passed' : `❌ ${postFailures.length} failures`}  \n**Artifacts:** \`${resultDirectory}\`\n`;
   await writeFile(resolve(resultDirectory, 'summary.md'), summaryMarkdown);
   process.stdout.write(summaryMarkdown);
 } catch (error) {

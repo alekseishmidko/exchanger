@@ -18,6 +18,7 @@ const startedAt = new Date();
 const stepsByProfile = {
   quick: [
     step('security:check'),
+    step('maintainability:report', { environment: { MAINTAINABILITY_ENFORCE: 'true' } }),
     step('lint'),
     step('typecheck'),
     step('contracts:check'),
@@ -28,6 +29,7 @@ const stepsByProfile = {
   ],
   business: [
     step('security:check'),
+    step('maintainability:report', { environment: { MAINTAINABILITY_ENFORCE: 'true' } }),
     step('lint'),
     step('typecheck'),
     step('contracts:check'),
@@ -47,6 +49,7 @@ const stepsByProfile = {
   ],
   rc: [
     step('security:check'),
+    step('maintainability:report', { environment: { MAINTAINABILITY_ENFORCE: 'true' } }),
     step('lint'),
     step('typecheck'),
     step('contracts:check'),
@@ -71,6 +74,7 @@ const stepsByProfile = {
   ],
   full: [
     step('security:check'),
+    step('maintainability:report', { environment: { MAINTAINABILITY_ENFORCE: 'true' } }),
     step('lint'),
     step('typecheck'),
     step('contracts:check'),

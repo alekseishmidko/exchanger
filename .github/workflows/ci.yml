@@ -44,6 +44,11 @@ jobs:
       - name: Repository security checks
         run: pnpm security:check
 
+      - name: Maintainability baseline guard
+        env:
+          MAINTAINABILITY_ENFORCE: 'true'
+        run: pnpm maintainability:report
+
       - name: Lint
         run: pnpm lint
 

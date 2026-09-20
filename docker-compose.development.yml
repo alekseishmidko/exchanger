@@ -32,7 +32,37 @@ services:
       - contracts-node-modules:/workspace/packages/contracts/node_modules
       - workspace-node-modules:/workspace/node_modules
 
+  frontend:
+    build:
+      context: .
+      target: development
+    depends_on:
+      - backend
+    environment:
+      VITE_BACKEND_URL: "http://backend:5000"
+      # Docker Desktop не всегда корректно доставляет filesystem events из bind
+      # mount в Linux VM. Polling делает HMR предсказуемым и убирает зависания
+      # на этапе ожидания обновлений/переоптимизации зависимостей.
+      CHOKIDAR_USEPOLLING: "true"
+      FRONTEND_HOST_PORT: "${FRONTEND_HOST_PORT:-5173}"
+    ports:
+      - "${FRONTEND_HOST_PORT:-5173}:5173"
+    command:
+      - sh
+      - -c
+      - pnpm install --frozen-lockfile && exec pnpm --filter @exchange/frontend dev
+    volumes:
+      - ./apps/frontend:/workspace/apps/frontend
+      - frontend-node-modules:/workspace/apps/frontend/node_modules
+      # Frontend не должен делить root node_modules volume с backend: оба
+      # контейнера выполняют pnpm install на старте, и общий volume может
+      # приводить к гонкам lockfile/metadata, долгой Vite optimizeDeps и
+      # нестабильному dev-server.
+      - frontend-workspace-node-modules:/workspace/node_modules
+
 volumes:
   backend-node-modules:
+  frontend-node-modules:
+  frontend-workspace-node-modules:
   contracts-node-modules:
   workspace-node-modules:

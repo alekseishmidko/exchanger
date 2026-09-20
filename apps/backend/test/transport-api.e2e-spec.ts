@@ -8,6 +8,7 @@ import { ApiKeyRegistry } from '../src/modules/gateway/gateway.auth';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { parse } from 'yaml';
+import { createAccountBody, instrumentRules, testApiKeyRegistry } from './builders/api-builders';
 
 /** Минимальный OpenAPI shape для проверки обязательных transport operations. */
 type TransportOpenApiDocument = {
@@ -28,40 +29,13 @@ function operations(document: TransportOpenApiDocument): readonly string[] {
     .sort();
 }
 
-/** Валидная начальная версия правил для admin/instrument E2E flow. */
-const rules = {
-  version: 'rules-v1',
-  effectiveAt: '2026-01-01T00:00:00.000Z',
-  tickSize: '0.5',
-  lotSize: '0.001',
-  minQuantity: '0.001',
-  maxQuantity: '10',
-  minPrice: '100',
-  maxPrice: '100000',
-  feePolicyVersion: 'fees-v1',
-  maxOrderQuantity: '10',
-  maxOpenOrders: 100,
-  maxNotional: '1000000',
-} as const;
-
 describe('Transport API completeness', () => {
   let app: NestFastifyApplication;
 
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(ApiKeyRegistry)
-      .useValue(
-        new ApiKeyRegistry([
-          { keyId: 'trader-1-key', role: 'trader', userId: 'user-1' },
-          { keyId: 'trader-2-key', role: 'trader', userId: 'user-2' },
-          { keyId: 'admin-1-key', role: 'admin', userId: 'admin-1' },
-          { keyId: 'admin-2-key', role: 'admin', userId: 'admin-2' },
-          { keyId: 'risk-1-key', role: 'risk_manager', userId: 'risk-1' },
-          { keyId: 'risk-2-key', role: 'risk_manager', userId: 'risk-2' },
-          { keyId: 'auditor-key', role: 'auditor', userId: 'auditor-1' },
-          { keyId: 'support-key', role: 'support', userId: 'support-1' },
-        ]),
-      )
+      .useValue(testApiKeyRegistry())
       .compile();
 
     app = moduleRef.createNestApplication<NestFastifyApplication>(new FastifyAdapter());
@@ -108,12 +82,7 @@ describe('Transport API completeness', () => {
   });
 
   it('creates an isolated account and rejects unknown DTO fields', async () => {
-    const body = {
-      commandId: 'create-account-1',
-      accountId: 'account-1',
-      ownerId: 'user-1',
-      balances: [{ assetId: 'USD', code: 'USD', scale: 2 }],
-    };
+    const body = createAccountBody();
 
     await request(app.getHttpServer())
       .post('/api/v1/accounts')
@@ -192,7 +161,7 @@ describe('Transport API completeness', () => {
         instrumentId: 'BTC-USD',
         baseAssetId: 'BTC',
         quoteAssetId: 'USD',
-        rules,
+        rules: instrumentRules(),
       })
       .expect(201)
       .expect(({ body }) => expect((body as { status: string }).status).toBe('PENDING_APPROVAL'));

@@ -13,6 +13,7 @@ import {
 import { ProjectionStore } from '../src/modules/projections/projection';
 import { Decimal } from '../src/modules/shared-kernel';
 import { MatchingEngine } from '../src/modules/trading/matching-engine/matching-engine';
+import { flowApiKeyRegistry, placeOrderBody } from './builders/api-builders';
 
 /**
  * Test application adapter, связывающий HTTP port с настоящим domain engine и
@@ -88,6 +89,14 @@ class ProjectingTradingPort implements TradingCommandPort {
     return result;
   }
 
+  /** Возвращает один public result для Gateway lookup endpoint. */
+  async getOrder(userId: string, orderId: string) {
+    await Promise.resolve();
+    const stored = this.results.get(orderId);
+    if (!stored || stored.ownerId !== userId) return null;
+    return stored.result;
+  }
+
   /** Возвращает bounded reference page для Gateway query endpoint. */
   async listOrders(userId: string, limit: number, cursor?: string) {
     await Promise.resolve();
@@ -110,7 +119,7 @@ describe('HTTP command to domain and projection flow', () => {
     const projections = new ProjectionStore();
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(ApiKeyRegistry)
-      .useValue(new ApiKeyRegistry([{ keyId: 'flow-key', role: 'trader', userId: 'user-1' }]))
+      .useValue(flowApiKeyRegistry())
       .overrideProvider(ProjectionStore)
       .useValue(projections)
       .overrideProvider(TRADING_COMMAND_PORT)
@@ -128,18 +137,7 @@ describe('HTTP command to domain and projection flow', () => {
   });
 
   it('passes controller → application port → domain → projection without duplicate effect', async () => {
-    const command = {
-      commandId: 'flow-place-1',
-      orderId: 'order-flow-1',
-      accountId: 'user-1',
-      instrumentId: 'BTC-USD',
-      clientOrderId: 'order-flow-1',
-      side: 'BUY',
-      orderType: 'LIMIT',
-      quantity: '1',
-      limitPrice: '100',
-      timeInForce: 'GTC',
-    };
+    const command = placeOrderBody();
     for (let retry = 0; retry < 2; retry += 1) {
       await request(app.getHttpServer())
         .post('/api/v1/orders')

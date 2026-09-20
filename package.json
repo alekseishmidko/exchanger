@@ -10,6 +10,8 @@
   "scripts": {
     "build": "corepack pnpm -r build",
     "dev": "corepack pnpm --filter @exchange/backend start:dev",
+    "dev:frontend": "corepack pnpm --filter @exchange/frontend dev",
+    "dev:full": "corepack pnpm --parallel --filter @exchange/backend --filter @exchange/frontend dev",
     "docker:development": "docker compose -f docker-compose.development.yml up --build",
     "docker:production": "docker compose -f docker-compose.production.yml up --build -d",
     "staging:up": "docker compose -f docker-compose.staging.yml up -d --build",
