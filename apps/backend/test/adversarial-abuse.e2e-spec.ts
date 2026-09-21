@@ -2,19 +2,19 @@ import { Test } from '@nestjs/testing';
 import { FastifyAdapter, NestFastifyApplication } from '@nestjs/platform-fastify';
 import request from 'supertest';
 import { AppModule } from '../src/app.module';
-import { ApiKeyRegistry } from '../src/modules/gateway/gateway.auth';
+import { ApiKeyRegistry } from '../src/modules/gateway';
 import {
   GatewayCancelOrderCommand,
   GatewayCommandResult,
   GatewayPlaceOrderCommand,
   TRADING_COMMAND_PORT,
   TradingCommandPort,
-} from '../src/modules/gateway/gateway.types';
+} from '../src/modules/gateway';
 import {
   ADMISSION_CONTROL_PORT,
   AdmissionControlPort,
-} from '../src/modules/admin/admission-control.port';
-import { MemoryAdmissionControl } from '../src/modules/admin/memory-admission-control';
+  MemoryAdmissionControl,
+} from '../src/modules/admin/admission-control';
 
 /** Trading double с задержкой, чтобы concurrent idempotency race был воспроизводимым. */
 class SlowTradingPort implements TradingCommandPort {

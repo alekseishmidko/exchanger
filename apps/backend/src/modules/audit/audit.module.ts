@@ -1,9 +1,9 @@
 import { Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { POSTGRES_TRANSACTION, PostgresTransactionManager } from '../../infrastructure/postgres';
-import { AuditLog } from './audit-log';
-import { AUDIT_LOG_PORT, AuditLogPort } from './audit.port';
-import { PostgresAuditLog } from './postgres-audit-log';
+import { AuditLog } from './domain/audit-log';
+import { PostgresAuditLog } from './infrastructure/postgres-audit-log';
+import { AUDIT_LOG_PORT, AuditLogPort } from './ports/audit.port';
 
 /** Composition root append-only audit boundary. */
 @Module({

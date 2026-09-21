@@ -6,7 +6,11 @@ import { ConfigService } from '@nestjs/config';
 import type { Pool } from 'pg';
 import { POSTGRES_POOL } from '../../infrastructure/postgres';
 import { SEQUENCER_STORE_PORT, SequencerModule, SequencerStorePort } from '../trading/sequencer';
-import { ADMISSION_CONTROL_PORT, AdmissionControlModule, AdmissionControlPort } from '../admin';
+import {
+  ADMISSION_CONTROL_PORT,
+  AdmissionControlModule,
+  AdmissionControlPort,
+} from '../admin/admission-control';
 
 /** Собирает health endpoints, проверки зависимостей и HTTP-наблюдаемость. */
 @Module({

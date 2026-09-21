@@ -11,6 +11,12 @@
 
 - Один файл должен иметь одну причину для изменения: transport, application
   policy, domain model, infrastructure adapter или test fixture.
+- Модуль организуется семантическими папками, когда в нём появляется больше
+  одной роли файлов: `domain/`, `application/`, `ports/`, `dto/`, `types/`,
+  `infrastructure/`, `controllers/`, `policies/`, `mappers/`, `repositories/`,
+  `fixtures/` или `builders/`.
+- `index.ts` остаётся публичным API модуля; соседние модули не делают deep
+  imports в семантические подпапки без отдельного architectural exception.
 - Controller/gateway не содержит business branching глубже orchestration.
 - Domain service не импортирует Nest, HTTP, Swagger, Socket.IO или PostgreSQL.
 - Test data builders живут отдельно от сценариев.
@@ -32,6 +38,31 @@ CI уже запускает `MAINTAINABILITY_ENFORCE=true pnpm maintainability:
 с мягкими лимитами 600 строк для production и 800 строк для test/spec. Это
 blocking guard от ухудшения baseline. Финальные строгие лимиты включаются
 после закрытия P0/P1 refactor candidates.
+
+Текущий прогресс:
+
+- `admin` переведён на семантическую структуру `controllers/`, `dto/`,
+  `types/`, `policies/`, `ports/` и `infrastructure/`;
+- `admin.service.ts` раздроблен на `types/admin.types.ts`,
+  `policies/admin-command.policy.ts` и
+  `policies/admin-policy-registry.service.ts`;
+- `gateway` переведён на семантическую структуру `controllers/`, `dto/`,
+  `validation/`, `auth/`, `ports/`, `types/`, `application/` и
+  `infrastructure/`;
+- для control-plane создан `admin/admission-control.ts`, чтобы Gateway и Health
+  зависели от admission sub-boundary, а не от полного `AdminModule`;
+- `audit` переведён на семантическую структуру `domain/`, `ports/` и
+  `infrastructure/` с сохранением публичного barrel API;
+- `AdminService` оставлен публичным фасадом для контроллера и тестов, поэтому
+  transport API и imports из `admin.service.ts` не изменились;
+- policy registry изолирует fee/risk policy validation и effective-time lookup;
+- command policy изолирует role matrix, dual-control decision, result mapping и
+  compensation reverse mapping;
+- relevant checks: `corepack pnpm --filter @exchange/backend test --
+  admin.service.spec.ts gateway.spec.ts structured-logger.spec.ts --runInBand`,
+  `corepack pnpm --filter @exchange/backend typecheck`,
+  `corepack pnpm --filter @exchange/backend lint`, `corepack pnpm
+  maintainability:report`.
 
 | Приоритет | Файл                                             | Почему тяжёлый                                                   | Целевое дробление                                                                            |
 | --------- | ------------------------------------------------ | ---------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |

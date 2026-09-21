@@ -2,8 +2,8 @@ import type {
   AdmissionContext,
   AdmissionControlChange,
   AdmissionControlPort,
-} from './admission-control.port';
-import { AdmissionRejectedError } from './admission-control.port';
+} from '../ports/admission-control.port';
+import { AdmissionRejectedError } from '../ports/admission-control.port';
 
 /** Component-only implementation control plane с production-equivalent policy. */
 export class MemoryAdmissionControl implements AdmissionControlPort {

@@ -1,5 +1,5 @@
 import { Module } from '@nestjs/common';
-import { GatewayModule } from '../../gateway/gateway.module';
+import { GatewayModule } from '../../gateway';
 import { InstrumentCatalogService } from './instrument-catalog.service';
 import { InstrumentsController } from './instruments.controller';
 

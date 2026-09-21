@@ -1,3 +1,10 @@
+/**
+ * Файл содержит runtime validation публичного command API.
+ *
+ * DTO-классы нужны Swagger, а эти Zod schemas являются фактическим allow-list
+ * контрактом входящих JSON payloads. Validation отклоняет неизвестные поля,
+ * floating point numbers, exponent decimal strings и небезопасные identifiers.
+ */
 import { BadRequestException, PipeTransform, Injectable } from '@nestjs/common';
 import { z, ZodType } from 'zod';
 

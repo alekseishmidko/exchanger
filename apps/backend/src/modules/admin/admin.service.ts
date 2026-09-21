@@ -1,90 +1,30 @@
 import { ForbiddenException, Inject, Injectable, Optional } from '@nestjs/common';
-import {
-  AUDIT_LOG_PORT,
-  AuditActor,
-  AuditLogPort,
-  AdministrativeRole,
-  AuditRecord,
-} from '../audit';
-import { Decimal } from '../shared-kernel';
-import { Instrument, InstrumentCatalogService, InstrumentRules } from '../trading/instruments';
+import { AUDIT_LOG_PORT, AuditActor, AuditLogPort, AuditRecord } from '../audit';
+import { InstrumentCatalogService } from '../trading/instruments';
 import { LOG_EVENTS, MetricsService, StructuredLogger } from '../observability';
 import {
   ADMISSION_CONTROL_PORT,
   AdmissionControlChange,
   AdmissionControlPort,
-} from './admission-control.port';
-import { MemoryAdmissionControl } from './memory-admission-control';
+} from './ports/admission-control.port';
+import {
+  assertAdminRole,
+  buildAdminResult,
+  requiresDualControl,
+  reverseAdminCommandType,
+} from './policies/admin-command.policy';
+import { AdminPolicyRegistry } from './policies/admin-policy-registry.service';
+import {
+  AdminCommand,
+  AdminResult,
+  FeePolicy,
+  PendingAdminAction,
+  ReconciliationDashboard,
+  RiskPolicy,
+} from './types/admin.types';
+import { MemoryAdmissionControl } from './infrastructure/memory-admission-control';
 
-/** Версионированная комиссия maker/taker, вступающая в силу в заданный момент. */
-export type FeePolicy = Readonly<{
-  version: string;
-  effectiveAt: Date;
-  makerRate: Decimal;
-  takerRate: Decimal;
-}>;
-/** Версионированные risk limits, используемые admission policy. */
-export type RiskPolicy = Readonly<{
-  version: string;
-  effectiveAt: Date;
-  maxOrderNotional: Decimal;
-  maxOpenOrders: number;
-}>;
-
-/** Все административные команды, допускаемые единственной write boundary. */
-export type AdminCommand =
-  | Readonly<{
-      commandId: string;
-      type: 'CONFIGURE_INSTRUMENT';
-      targetId: string;
-      instrument?: Instrument;
-      rules?: InstrumentRules;
-    }>
-  | Readonly<{ commandId: string; type: 'CHANGE_FEE_POLICY'; targetId: string; policy: FeePolicy }>
-  | Readonly<{
-      commandId: string;
-      type: 'CHANGE_RISK_POLICY';
-      targetId: string;
-      policy: RiskPolicy;
-    }>
-  | Readonly<{
-      commandId: string;
-      type: 'FREEZE_USER' | 'UNFREEZE_USER' | 'FREEZE_ACCOUNT' | 'UNFREEZE_ACCOUNT';
-      targetId: string;
-    }>
-  | Readonly<{ commandId: string; type: 'EMERGENCY_STOP' | 'RESUME_TRADING'; targetId: string }>
-  | Readonly<{
-      commandId: string;
-      type: 'ACTIVATE_INSTRUMENT' | 'PAUSE_INSTRUMENT';
-      targetId: string;
-    }>;
-
-/** Результат request/approval, безопасный для административного API. */
-export type AdminResult = Readonly<{
-  commandId: string;
-  actionType: AdminCommand['type'];
-  targetId: string;
-  status: 'PENDING_APPROVAL' | 'APPLIED';
-  approvedBy: readonly string[];
-}>;
-
-/** Сводка операционного состояния для reconciliation dashboard. */
-export type ReconciliationDashboard = Readonly<{
-  auditIntegrity: boolean;
-  pendingApprovals: number;
-  frozenUsers: number;
-  frozenAccounts: number;
-  stoppedTargets: readonly string[];
-  instrumentStatuses: readonly Readonly<{ instrumentId: string; status: string }>[];
-  feePolicyVersions: readonly string[];
-  riskPolicyVersions: readonly string[];
-}>;
-
-type PendingAction = {
-  readonly command: AdminCommand;
-  readonly requestedBy: AuditActor;
-  readonly requestedAt: Date;
-};
+export type { AdminCommand, AdminResult, FeePolicy, ReconciliationDashboard, RiskPolicy };
 
 /**
  * Единственная administrative write boundary для instruments, risk и controls.
@@ -100,11 +40,9 @@ type PendingAction = {
  */
 @Injectable()
 export class AdminService {
-  private readonly pending = new Map<string, PendingAction>();
+  private readonly pending = new Map<string, PendingAdminAction>();
   private readonly results = new Map<string, AdminResult>();
   private readonly commands = new Map<string, AdminCommand>();
-  private readonly feePolicies: FeePolicy[] = [];
-  private readonly riskPolicies: RiskPolicy[] = [];
   private readonly frozenUsers = new Set<string>();
   private readonly frozenAccounts = new Set<string>();
   private readonly stoppedTargets = new Set<string>();
@@ -129,6 +67,8 @@ export class AdminService {
     @Optional()
     @Inject(ADMISSION_CONTROL_PORT)
     private readonly admission: AdmissionControlPort = new MemoryAdmissionControl(),
+    @Optional()
+    private readonly policies: AdminPolicyRegistry = new AdminPolicyRegistry(),
   ) {}
 
   /**
@@ -152,14 +92,14 @@ export class AdminService {
       {},
       now,
     );
-    if (this.requiresDualControl(command.type)) {
-      const result = this.result(command, 'PENDING_APPROVAL', [actor.actorId]);
+    if (requiresDualControl(command.type)) {
+      const result = buildAdminResult(command, 'PENDING_APPROVAL', [actor.actorId]);
       this.pending.set(command.commandId, { command, requestedBy: actor, requestedAt: now });
       this.results.set(command.commandId, result);
       return result;
     }
     await this.apply(command, actor, now);
-    const result = this.result(command, 'APPLIED', [actor.actorId]);
+    const result = buildAdminResult(command, 'APPLIED', [actor.actorId]);
     this.results.set(command.commandId, result);
     await this.audit.append(
       actor,
@@ -204,7 +144,7 @@ export class AdminService {
       now,
     );
     await this.apply(pending.command, actor, now);
-    const result = this.result(pending.command, 'APPLIED', [
+    const result = buildAdminResult(pending.command, 'APPLIED', [
       pending.requestedBy.actorId,
       actor.actorId,
     ]);
@@ -245,7 +185,7 @@ export class AdminService {
     if (previous) return previous;
     const original = this.commands.get(originalCommandId);
     if (!original) throw new Error('Original administrative action does not exist');
-    const reverseType = this.reverseType(original.type);
+    const reverseType = reverseAdminCommandType(original.type);
     const command = {
       commandId: compensationId,
       type: reverseType,
@@ -254,7 +194,7 @@ export class AdminService {
     await this.assertRole(reverseType, actor, compensationId, original.targetId);
     await this.apply(command, actor, now, originalCommandId);
     this.commands.set(compensationId, command);
-    const result = this.result(command, 'APPLIED', [actor.actorId]);
+    const result = buildAdminResult(command, 'APPLIED', [actor.actorId]);
     this.results.set(compensationId, result);
     await this.audit.append(
       actor,
@@ -280,11 +220,11 @@ export class AdminService {
 
   /** Возвращает fee policy, действующую в указанный момент времени. */
   getFeePolicyAt(at: Date): FeePolicy {
-    return this.effective(this.feePolicies, at);
+    return this.policies.getFeeAt(at);
   }
   /** Возвращает risk policy, действующую в указанный момент времени. */
   getRiskPolicyAt(at: Date): RiskPolicy {
-    return this.effective(this.riskPolicies, at);
+    return this.policies.getRiskAt(at);
   }
 
   /** Строит reconciliation dashboard и фиксирует факт проверки в audit log. */
@@ -310,8 +250,8 @@ export class AdminService {
         instrumentId: instrument.id,
         status: instrument.status,
       })),
-      feePolicyVersions: this.feePolicies.map(({ version }) => version),
-      riskPolicyVersions: this.riskPolicies.map(({ version }) => version),
+      feePolicyVersions: this.policies.listFeeVersions(),
+      riskPolicyVersions: this.policies.listRiskVersions(),
     };
     if (!dashboard.auditIntegrity) this.metrics?.observeReconciliationDifference('ledger');
     await this.audit.append(
@@ -369,12 +309,10 @@ export class AdminService {
         await this.applyControl(command, actor, effectiveAt, 'PAUSED', compensationFor);
         break;
       case 'CHANGE_FEE_POLICY':
-        this.assertFee(command.policy);
-        this.appendPolicy(this.feePolicies, command.policy);
+        this.policies.appendFee(command.policy);
         break;
       case 'CHANGE_RISK_POLICY':
-        this.assertRisk(command.policy);
-        this.appendPolicy(this.riskPolicies, command.policy);
+        this.policies.appendRisk(command.policy);
         break;
       case 'FREEZE_USER':
         this.frozenUsers.add(command.targetId);
@@ -440,105 +378,6 @@ export class AdminService {
     commandId: string,
     targetId: string,
   ): Promise<void> {
-    const allowed: Record<AdminCommand['type'] | 'RECONCILIATION', readonly AdministrativeRole[]> =
-      {
-        CONFIGURE_INSTRUMENT: ['ADMIN', 'RISK_MANAGER'],
-        ACTIVATE_INSTRUMENT: ['ADMIN', 'RISK_MANAGER'],
-        PAUSE_INSTRUMENT: ['ADMIN', 'RISK_MANAGER'],
-        CHANGE_FEE_POLICY: ['ADMIN', 'RISK_MANAGER'],
-        CHANGE_RISK_POLICY: ['RISK_MANAGER'],
-        FREEZE_USER: ['ADMIN', 'RISK_MANAGER'],
-        UNFREEZE_USER: ['ADMIN', 'RISK_MANAGER'],
-        FREEZE_ACCOUNT: ['ADMIN', 'RISK_MANAGER'],
-        UNFREEZE_ACCOUNT: ['ADMIN', 'RISK_MANAGER'],
-        EMERGENCY_STOP: ['ADMIN'],
-        RESUME_TRADING: ['ADMIN'],
-        RECONCILIATION: ['ADMIN', 'AUDITOR'],
-      };
-    if (!allowed[type].includes(actor.role)) {
-      await this.audit.append(actor, 'ACTION_REJECTED', type, commandId, targetId, {
-        reason: 'ROLE_FORBIDDEN',
-      });
-      this.logger?.warn('admin', LOG_EVENTS.ADMIN_ACTION_REJECTED, {
-        commandId,
-        metadata: { actionType: type, reason: 'ROLE_FORBIDDEN' },
-      });
-      throw new ForbiddenException({
-        code: 'ADMIN_FORBIDDEN',
-        message: 'Administrative action is forbidden',
-      });
-    }
-  }
-
-  private requiresDualControl(type: AdminCommand['type']): boolean {
-    return [
-      'CONFIGURE_INSTRUMENT',
-      'ACTIVATE_INSTRUMENT',
-      'PAUSE_INSTRUMENT',
-      'CHANGE_FEE_POLICY',
-      'CHANGE_RISK_POLICY',
-      'EMERGENCY_STOP',
-      'RESUME_TRADING',
-    ].includes(type);
-  }
-  private result(
-    command: AdminCommand,
-    status: AdminResult['status'],
-    approvedBy: readonly string[],
-  ): AdminResult {
-    return {
-      commandId: command.commandId,
-      actionType: command.type,
-      targetId: command.targetId,
-      status,
-      approvedBy,
-    };
-  }
-  private appendPolicy<T extends { version: string; effectiveAt: Date }>(
-    policies: T[],
-    policy: T,
-  ): void {
-    if (
-      policy.version.trim() === '' ||
-      policies.some(({ version }) => version === policy.version) ||
-      (policies.at(-1)?.effectiveAt ?? new Date(0)) >= policy.effectiveAt
-    )
-      throw new Error('Policy version/effectiveAt must be unique and monotonic');
-    policies.push(policy);
-  }
-  private assertRisk(policy: RiskPolicy): void {
-    if (
-      policy.maxOrderNotional.isNegative() ||
-      policy.maxOrderNotional.isZero() ||
-      !Number.isInteger(policy.maxOpenOrders) ||
-      policy.maxOpenOrders < 1
-    )
-      throw new Error('Invalid risk policy');
-  }
-
-  private assertFee(policy: FeePolicy): void {
-    if (policy.makerRate.isNegative() || policy.takerRate.isNegative()) {
-      throw new Error('Invalid fee policy');
-    }
-  }
-  private effective<T extends { effectiveAt: Date }>(policies: readonly T[], at: Date): T {
-    const result = policies.filter(({ effectiveAt }) => effectiveAt <= at).at(-1);
-    if (!result) throw new Error('No effective policy');
-    return result;
-  }
-  private reverseType(type: AdminCommand['type']): AdminCommand['type'] {
-    const reverse: Partial<Record<AdminCommand['type'], AdminCommand['type']>> = {
-      FREEZE_USER: 'UNFREEZE_USER',
-      UNFREEZE_USER: 'FREEZE_USER',
-      FREEZE_ACCOUNT: 'UNFREEZE_ACCOUNT',
-      UNFREEZE_ACCOUNT: 'FREEZE_ACCOUNT',
-      EMERGENCY_STOP: 'RESUME_TRADING',
-      RESUME_TRADING: 'EMERGENCY_STOP',
-      ACTIVATE_INSTRUMENT: 'PAUSE_INSTRUMENT',
-      PAUSE_INSTRUMENT: 'ACTIVATE_INSTRUMENT',
-    };
-    const result = reverse[type];
-    if (!result) throw new Error('Action requires a new version instead of direct compensation');
-    return result;
+    return assertAdminRole(type, actor, commandId, targetId, this.audit, this.logger);
   }
 }

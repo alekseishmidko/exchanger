@@ -1,5 +1,12 @@
+/**
+ * Файл содержит публичные Swagger DTO API-key authentication endpoints.
+ *
+ * Response DTO намеренно показывают только metadata и одноразовый secret при
+ * issue/rotate. Digest, raw API key из request и internal registry state никогда
+ * не попадают в эти классы.
+ */
 import { ApiProperty } from '@nestjs/swagger';
-import { ApiKeyRole } from './gateway.auth';
+import { ApiKeyRole } from '../auth/gateway.auth';
 
 /**
  * Публичный результат проверки API key текущего запроса.

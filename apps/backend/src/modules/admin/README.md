@@ -41,6 +41,22 @@ control: инициатор получает `PENDING_APPROVAL`, а примен
 
 Публичные типы и методы сопровождаются подробными русскими JSDoc-комментариями.
 
+## Структура модуля
+
+- `controllers/` — REST transport boundary и Swagger metadata;
+- `dto/` — публичные request/response DTO и Zod validation schemas;
+- `types/` — application-level команды, результаты и read models;
+- `policies/` — role matrix, dual-control decision и fee/risk policy registry;
+- `ports/` — durable admission-control contracts и DI tokens;
+- `infrastructure/` — memory/PostgreSQL admission-control adapters;
+- `admin.service.ts` — application facade, который оркестрирует audit,
+  instruments, policies и control plane;
+- `index.ts` — публичная точка импорта для соседних модулей.
+
+Соседние модули импортируют admin только через `../admin`. Deep imports в
+`controllers/`, `dto/`, `policies/`, `ports/` и `infrastructure/` допустимы
+только внутри admin-модуля или в явно оформленном architecture exception.
+
 ## REST API и роли
 
 Admin transport boundary опубликован под `/api/v1/admin` и содержит отдельные

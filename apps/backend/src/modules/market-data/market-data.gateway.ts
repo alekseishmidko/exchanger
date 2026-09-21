@@ -9,7 +9,7 @@ import {
   WebSocketGateway,
 } from '@nestjs/websockets';
 import { Socket } from 'socket.io';
-import { ApiKeyPrincipal, ApiKeyRegistry } from '../gateway/gateway.auth';
+import { ApiKeyPrincipal, ApiKeyRegistry } from '../gateway';
 import { BackpressureError, MarketDataHub, MarketDataMessage } from './market-data';
 import {
   HeartbeatRequestDto,

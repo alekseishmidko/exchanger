@@ -1,3 +1,11 @@
+/**
+ * Файл содержит REST boundary команд клиента: place, cancel и order query.
+ *
+ * Контроллер выполняет transport orchestration: authentication уже выполнен
+ * guard-ом, затем идут idempotency, rate limit, authorization, validation,
+ * admission control и вызов `TradingCommandPort`. Здесь запрещены прямые
+ * обращения к matching engine, ledger или PostgreSQL repositories.
+ */
 import {
   BadRequestException,
   Body,
@@ -30,16 +38,21 @@ import {
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
 import { z } from 'zod';
-import { ApiKeyGuard, ApiKeyPrincipal, assertObjectAccess } from './gateway.auth';
+import { ADMISSION_CONTROL_PORT, AdmissionControlPort } from '../../admin/admission-control';
 import {
   GatewayCancelOrderCommand,
   GatewayPlaceOrderCommand,
   TRADING_COMMAND_PORT,
   TradingCommandPort,
-} from './gateway.types';
-import { cancelOrderDtoSchema, placeOrderDtoSchema, ZodValidationPipe } from './gateway.validation';
-import { IDEMPOTENCY_STORE_PORT, IdempotencyStorePort } from './gateway.idempotency.port';
-import { RateLimitService } from './gateway.rate-limit';
+} from '../types/gateway.types';
+import { ApiKeyGuard, ApiKeyPrincipal, assertObjectAccess } from '../auth/gateway.auth';
+import { IDEMPOTENCY_STORE_PORT, IdempotencyStorePort } from '../ports/gateway.idempotency.port';
+import { RateLimitService } from '../application/gateway.rate-limit';
+import {
+  cancelOrderDtoSchema,
+  placeOrderDtoSchema,
+  ZodValidationPipe,
+} from '../validation/gateway.validation';
 import {
   LOG_EVENTS,
   NOOP_OPERATIONAL_LOGGER,
@@ -48,14 +61,13 @@ import {
   MetricsService,
   TelemetryService,
   TRACE_SPANS,
-} from '../observability';
+} from '../../observability';
 import {
   CancelOrderRequestDto,
   GatewayCommandResponseDto,
   GatewayOrderPageResponseDto,
   PlaceOrderRequestDto,
-} from './gateway.dto';
-import { ADMISSION_CONTROL_PORT, AdmissionControlPort } from '../admin/admission-control.port';
+} from '../dto/gateway.dto';
 
 /** Минимальная форма request после выполнения ApiKeyGuard. */
 type GatewayRequest = { principal: ApiKeyPrincipal };

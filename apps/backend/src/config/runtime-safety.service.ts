@@ -1,13 +1,13 @@
 import { Inject, Injectable, OnApplicationBootstrap } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AUDIT_LOG_PORT, AuditLogPort, PostgresAuditLog } from '../modules/audit';
+import { IDEMPOTENCY_STORE_PORT, IdempotencyStorePort } from '../modules/gateway';
 import {
-  IDEMPOTENCY_STORE_PORT,
-  IdempotencyStorePort,
-} from '../modules/gateway/gateway.idempotency.port';
-import { PostgresIdempotencyStore } from '../modules/gateway/postgres-idempotency.store';
-import { PostgresTradingCommandAdapter } from '../modules/gateway/postgres-trading-command.adapter';
-import { TRADING_COMMAND_PORT, TradingCommandPort } from '../modules/gateway/gateway.types';
+  PostgresIdempotencyStore,
+  PostgresTradingCommandAdapter,
+  TRADING_COMMAND_PORT,
+  TradingCommandPort,
+} from '../modules/gateway';
 import { LEDGER_PORT, LedgerPort, PostgresLedgerAdapter } from '../modules/ledger';
 import {
   EVENT_LOG_PORT,
@@ -25,8 +25,8 @@ import { PostgresProjectionStore } from '../modules/projections/postgres-project
 import {
   ADMISSION_CONTROL_PORT,
   AdmissionControlPort,
-} from '../modules/admin/admission-control.port';
-import { PostgresAdmissionControl } from '../modules/admin/postgres-admission-control';
+  PostgresAdmissionControl,
+} from '../modules/admin/admission-control';
 
 /**
  * Fail-fast предохранитель текущего composition root.

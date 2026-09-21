@@ -40,11 +40,13 @@ describe('StructuredLogger contract', () => {
   });
 
   it('references both policy events at every instrumented module boundary', () => {
-    const sources: Readonly<Record<keyof typeof MODULE_LOG_EVENT_POLICY, string>> = {
+    const sources: Readonly<
+      Record<keyof typeof MODULE_LOG_EVENT_POLICY, string | readonly string[]>
+    > = {
       http: 'src/modules/observability/http-logging.interceptor.ts',
       websocket: 'src/modules/market-data/market-data.gateway.ts',
       health: 'src/modules/health/health.service.ts',
-      gateway: 'src/modules/gateway/gateway.controller.ts',
+      gateway: 'src/modules/gateway/controllers/gateway.controller.ts',
       sequencer: 'src/modules/trading/sequencer/sequencer.ts',
       matching: 'src/modules/trading/matching-engine/matching-engine.ts',
       settlement: 'src/modules/trading/settlement/settlement.ts',
@@ -52,13 +54,19 @@ describe('StructuredLogger contract', () => {
       'event-log': 'src/modules/trading/event-log/event-log.ts',
       projections: 'src/modules/projections/projection.ts',
       instruments: 'src/modules/trading/instruments/instrument-catalog.service.ts',
-      admin: 'src/modules/admin/admin.service.ts',
-      audit: 'src/modules/audit/audit-log.ts',
+      admin: [
+        'src/modules/admin/admin.service.ts',
+        'src/modules/admin/policies/admin-command.policy.ts',
+      ],
+      audit: 'src/modules/audit/domain/audit-log.ts',
     };
     for (const [module, sourcePath] of Object.entries(sources) as Array<
-      [keyof typeof MODULE_LOG_EVENT_POLICY, string]
+      [keyof typeof MODULE_LOG_EVENT_POLICY, string | readonly string[]]
     >) {
-      const source = readFileSync(resolve(process.cwd(), sourcePath), 'utf8');
+      const paths: readonly string[] = typeof sourcePath === 'string' ? [sourcePath] : sourcePath;
+      const source = paths
+        .map((path) => readFileSync(resolve(process.cwd(), path), 'utf8'))
+        .join('\n');
       const policy = MODULE_LOG_EVENT_POLICY[module];
       for (const event of [policy.success, policy.failure]) {
         const constantName = Object.entries(LOG_EVENTS).find(([, value]) => value === event)?.[0];

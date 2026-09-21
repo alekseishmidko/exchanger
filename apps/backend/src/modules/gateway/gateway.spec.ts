@@ -2,8 +2,8 @@ import { Test } from '@nestjs/testing';
 import { FastifyAdapter, NestFastifyApplication } from '@nestjs/platform-fastify';
 import request from 'supertest';
 import { AppModule } from '../../app.module';
-import { ApiKeyRegistry } from './gateway.auth';
-import { ADMISSION_CONTROL_PORT, AdmissionControlPort } from '../admin/admission-control.port';
+import { ApiKeyRegistry } from './auth/gateway.auth';
+import { ADMISSION_CONTROL_PORT, AdmissionControlPort } from '../admin/admission-control';
 
 /**
  * E2E-проверки внешнего Gateway-контракта.

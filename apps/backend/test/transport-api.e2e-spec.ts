@@ -4,7 +4,7 @@ import { FastifyAdapter, NestFastifyApplication } from '@nestjs/platform-fastify
 import request from 'supertest';
 import { AppModule } from '../src/app.module';
 import { configureSwagger } from '../src/config/swagger';
-import { ApiKeyRegistry } from '../src/modules/gateway/gateway.auth';
+import { ApiKeyRegistry } from '../src/modules/gateway';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { parse } from 'yaml';

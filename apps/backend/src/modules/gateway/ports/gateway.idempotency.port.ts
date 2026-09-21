@@ -1,4 +1,11 @@
 /**
+ * Файл задаёт порт идемпотентности write-команд Gateway.
+ *
+ * Controller видит только этот контракт: он не знает, хранится результат в
+ * memory map, PostgreSQL или другом durable store. Именно поэтому idempotency
+ * можно усиливать без изменения REST API и mapping logic.
+ */
+/**
  * Стабильный DI-токен durable idempotency boundary.
  *
  * Controllers внедряют этот token вместо reference-класса, поэтому production

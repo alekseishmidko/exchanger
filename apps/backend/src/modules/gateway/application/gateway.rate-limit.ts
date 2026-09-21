@@ -1,3 +1,11 @@
+/**
+ * Файл содержит lightweight rate-limit policy для Gateway endpoints.
+ *
+ * Rate limit применяется после authentication по стабильному `keyId`, чтобы
+ * ошибки не раскрывали raw API key. Текущая реализация process-local и подходит
+ * для dev/component runtime; production должен заменить storage на shared
+ * backend без изменения controller-кода.
+ */
 import { HttpException, Injectable, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 

@@ -1,11 +1,11 @@
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 
 const files = execFileSync('git', ['ls-files', '--cached', '--others', '--exclude-standard'], {
   encoding: 'utf8',
 })
   .split('\n')
-  .filter((file) => /^(apps|packages)\/.*\.(ts|js|mjs)$/.test(file));
+  .filter((file) => /^(apps|packages)\/.*\.(ts|js|mjs)$/.test(file) && existsSync(file));
 
 const rows = files
   .map((file) => {

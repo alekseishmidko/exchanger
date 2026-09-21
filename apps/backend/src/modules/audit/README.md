@@ -12,6 +12,18 @@ database trigger и grants запрещают UPDATE/DELETE. Retention по ум
 
 Audit details используют allow-list и не содержат API keys, токены и секреты.
 
+## Структура модуля
+
+- `domain/` — доменная модель audit chain и reference in-memory реализация;
+- `ports/` — стабильные application contracts и DI tokens;
+- `infrastructure/` — durable adapters, PostgreSQL row mapping и storage-specific code;
+- `audit.module.ts` — Nest composition root, выбирающий adapter по конфигурации;
+- `index.ts` — единственная публичная точка импорта для других модулей.
+
+Внешние модули импортируют audit только через `../audit` или
+`src/modules/audit`. Deep imports в `domain/`, `ports/` и `infrastructure/`
+разрешены только внутри самого audit-модуля.
+
 ## Operational log events
 
 `audit.record.appended` сообщает sequence новой записи без её details;

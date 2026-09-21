@@ -1,3 +1,11 @@
+/**
+ * Файл описывает API-key security boundary Gateway.
+ *
+ * `ApiKeyRegistry` хранит только digest credentials, `ApiKeyGuard` превращает
+ * HTTP header в `ApiKeyPrincipal`, а helper-функции выполняют role/object
+ * authorization. Здесь не должно быть DTO mapping, idempotency или trading
+ * логики: файл отвечает только за identity и authorization decisions.
+ */
 import {
   CanActivate,
   ConflictException,

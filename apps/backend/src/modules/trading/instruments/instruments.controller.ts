@@ -10,7 +10,7 @@ import {
   ApiTags,
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
-import { ApiKeyGuard } from '../../gateway/gateway.auth';
+import { ApiKeyGuard } from '../../gateway';
 import { InstrumentCatalogService, InstrumentSnapshot } from './instrument-catalog.service';
 import { InstrumentPageResponseDto, InstrumentResponseDto } from './instruments.dto';
 

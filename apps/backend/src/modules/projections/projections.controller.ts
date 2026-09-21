@@ -8,7 +8,7 @@ import {
   ApiTags,
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
-import { ApiKeyGuard, ApiKeyPrincipal } from '../gateway/gateway.auth';
+import { ApiKeyGuard, ApiKeyPrincipal } from '../gateway';
 import { BalanceView, OrderView, ProjectionMetrics, ProjectionPage, TradeView } from './projection';
 import { PROJECTION_STORE_PORT, ProjectionStorePort } from './projection.port';
 import {

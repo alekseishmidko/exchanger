@@ -2,14 +2,14 @@ import { Test } from '@nestjs/testing';
 import { FastifyAdapter, NestFastifyApplication } from '@nestjs/platform-fastify';
 import request from 'supertest';
 import { AppModule } from '../src/app.module';
-import { ApiKeyRegistry } from '../src/modules/gateway/gateway.auth';
+import { ApiKeyRegistry } from '../src/modules/gateway';
 import {
   GatewayCancelOrderCommand,
   GatewayCommandResult,
   GatewayPlaceOrderCommand,
   TRADING_COMMAND_PORT,
   TradingCommandPort,
-} from '../src/modules/gateway/gateway.types';
+} from '../src/modules/gateway';
 import { ProjectionStore } from '../src/modules/projections/projection';
 import { Decimal } from '../src/modules/shared-kernel';
 import { MatchingEngine } from '../src/modules/trading/matching-engine/matching-engine';
