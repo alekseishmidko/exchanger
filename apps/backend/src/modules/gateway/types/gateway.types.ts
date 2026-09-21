@@ -1,3 +1,11 @@
+/**
+ * Файл описывает application-level команды и порт между Gateway и trading core.
+ *
+ * Эти типы уже очищены от HTTP-specific деталей: user берётся из principal,
+ * decimal values остаются строками, а controller передаёт команду только через
+ * `TradingCommandPort`. Внутренние order book, ledger postings и settlement
+ * здесь не представлены намеренно.
+ */
 /** Сторона заявки во внешнем command API. */
 export type GatewaySide = 'BUY' | 'SELL';
 /** Тип заявки во внешнем command API. */

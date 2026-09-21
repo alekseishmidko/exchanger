@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
 import { AuditModule } from '../audit';
-import { GatewayModule } from '../gateway/gateway.module';
+import { GatewayModule } from '../gateway';
 import { LedgerApplicationService } from './ledger-application.service';
 import { LedgerController } from './ledger.controller';
 import { Ledger } from './ledger';

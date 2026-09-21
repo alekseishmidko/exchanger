@@ -1,3 +1,11 @@
+/**
+ * Файл содержит REST boundary API-key authentication lifecycle.
+ *
+ * Endpoints помогают Swagger/manual clients проверить текущий principal и
+ * администрировать API keys. Это не password/session auth: controller работает
+ * с `ApiKeyRegistry`, idempotency и audit port, не создавая пользовательских
+ * Redis sessions.
+ */
 import {
   BadRequestException,
   Body,
@@ -28,7 +36,7 @@ import {
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
 import { z } from 'zod';
-import { AUDIT_LOG_PORT, AuditLogPort } from '../audit';
+import { AUDIT_LOG_PORT, AuditLogPort } from '../../audit';
 import {
   ApiKeyMetadataPageResponseDto,
   ApiKeyMetadataResponseDto,
@@ -36,12 +44,17 @@ import {
   IssuedApiKeyResponseDto,
   IssueApiKeyRequestDto,
   MutateApiKeyRequestDto,
-} from './auth.dto';
-import { ApiKeyGuard, ApiKeyPrincipal, ApiKeyRegistry, assertAdminAccess } from './gateway.auth';
-import { issueApiKeySchema, mutateApiKeySchema } from './auth.validation';
-import { IDEMPOTENCY_STORE_PORT, IdempotencyStorePort } from './gateway.idempotency.port';
-import { RateLimitService } from './gateway.rate-limit';
-import { ZodValidationPipe } from './gateway.validation';
+} from '../dto/auth.dto';
+import {
+  ApiKeyGuard,
+  ApiKeyPrincipal,
+  ApiKeyRegistry,
+  assertAdminAccess,
+} from '../auth/gateway.auth';
+import { RateLimitService } from '../application/gateway.rate-limit';
+import { IDEMPOTENCY_STORE_PORT, IdempotencyStorePort } from '../ports/gateway.idempotency.port';
+import { issueApiKeySchema, mutateApiKeySchema } from '../validation/auth.validation';
+import { ZodValidationPipe } from '../validation/gateway.validation';
 
 /** HTTP request после успешной установки principal в `ApiKeyGuard`. */
 type AuthenticationRequest = Readonly<{ principal: ApiKeyPrincipal }>;

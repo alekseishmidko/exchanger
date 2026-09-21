@@ -2,7 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { environmentFilePaths, validateEnvironment } from './config/environment';
 import { HealthModule } from './modules/health/health.module';
-import { GatewayModule } from './modules/gateway/gateway.module';
+import { GatewayModule } from './modules/gateway';
 import { ProjectionsModule } from './modules/projections/projections.module';
 import { MarketDataModule } from './modules/market-data/market-data.module';
 import { AdminModule } from './modules/admin';
@@ -15,7 +15,7 @@ import { EventLogModule } from './modules/trading/event-log';
 import { AuditModule } from './modules/audit';
 import { SettlementModule } from './modules/trading/settlement';
 import { SequencerModule } from './modules/trading/sequencer';
-import { AdmissionControlModule } from './modules/admin/admission-control.module';
+import { AdmissionControlModule } from './modules/admin/admission-control';
 
 /** Корневой composition root приложения и глобальной конфигурации. */
 @Module({

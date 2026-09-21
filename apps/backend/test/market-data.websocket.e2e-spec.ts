@@ -2,7 +2,7 @@ import { Test } from '@nestjs/testing';
 import { FastifyAdapter, NestFastifyApplication } from '@nestjs/platform-fastify';
 import { io, Socket } from 'socket.io-client';
 import { AppModule } from '../src/app.module';
-import { ApiKeyRegistry } from '../src/modules/gateway/gateway.auth';
+import { ApiKeyRegistry } from '../src/modules/gateway';
 import { MarketDataHub } from '../src/modules/market-data/market-data';
 
 /** Минимальный envelope shape, проверяемый WebSocket integration-тестом. */

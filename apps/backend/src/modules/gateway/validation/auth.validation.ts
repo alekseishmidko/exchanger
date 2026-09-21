@@ -1,3 +1,10 @@
+/**
+ * Файл содержит runtime validation API-key lifecycle endpoints.
+ *
+ * Схемы отделены от DTO, чтобы Swagger documentation и фактическая проверка
+ * входа не расходились незаметно. Все auth write-команды используют bounded
+ * identifiers и strict objects без дополнительных полей.
+ */
 import { z } from 'zod';
 
 /** Общий bounded identifier auth command и владельца credential. */

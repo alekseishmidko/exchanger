@@ -6,14 +6,13 @@ import {
   PostgresTransactionManager,
 } from '../../../infrastructure/postgres';
 import { PostgresAuditLog } from '../../audit';
-import { PostgresIdempotencyStore } from '../../gateway/postgres-idempotency.store';
-import { PostgresTradingCommandAdapter } from '../../gateway/postgres-trading-command.adapter';
+import { PostgresIdempotencyStore, PostgresTradingCommandAdapter } from '../../gateway';
 import { Account, Asset, PostgresLedgerAdapter } from '../../ledger';
 import { createId, Decimal } from '../../shared-kernel';
 import { PostgresEventLogAdapter, PostgresOutboxPublisher } from '../../trading/event-log';
 import { SettlementService } from '../../trading/settlement';
 import { PostgresSequencerStore } from '../../trading/sequencer';
-import { PostgresAdmissionControl } from '../../admin/postgres-admission-control';
+import { PostgresAdmissionControl } from '../../admin/admission-control';
 import { PostgresProjectionStore } from '../../projections/postgres-projection.store';
 
 const postgresUrl = process.env['POSTGRES_URL'];

@@ -1,14 +1,22 @@
+/**
+ * Файл содержит durable adapter `TradingCommandPort`.
+ *
+ * Он принимает уже проверенные Gateway-команды, резервирует sequence через
+ * sequencer store и пишет command journal/outbox в PostgreSQL. Adapter не
+ * выполняет matching или settlement сам: он фиксирует accepted command boundary
+ * для дальнейшей обработки trading runtime.
+ */
 import { ConflictException, Inject } from '@nestjs/common';
 import type { QueryResultRow } from 'pg';
-import { POSTGRES_TRANSACTION, PostgresTransactionManager } from '../../infrastructure/postgres';
-import { sha256 } from '../../infrastructure/postgres/postgres-json';
+import { POSTGRES_TRANSACTION, PostgresTransactionManager } from '../../../infrastructure/postgres';
+import { sha256 } from '../../../infrastructure/postgres/postgres-json';
 import {
   GatewayCancelOrderCommand,
   GatewayCommandResult,
   GatewayPlaceOrderCommand,
   TradingCommandPort,
-} from './gateway.types';
-import type { PartitionLease, SequencerStorePort } from '../trading/sequencer';
+} from '../types/gateway.types';
+import type { PartitionLease, SequencerStorePort } from '../../trading/sequencer';
 
 type CommandRow = QueryResultRow & {
   payload_hash: string;

@@ -1,4 +1,4 @@
-import type { AuditActor, AuditEventType, AuditRecord } from './audit-log';
+import type { AuditActor, AuditEventType, AuditRecord } from '../domain/audit-log';
 
 /**
  * Стабильный DI-токен immutable audit boundary.

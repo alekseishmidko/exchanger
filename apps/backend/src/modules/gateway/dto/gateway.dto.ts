@@ -1,5 +1,12 @@
+/**
+ * Файл содержит публичные Swagger DTO command/query API Gateway.
+ *
+ * DTO описывают wire-contract для клиентов и OpenAPI smoke tests. Они не
+ * используются как источник business validation и не экспортируют domain
+ * entities, ledger postings или внутреннее состояние matching engine.
+ */
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { GatewayOrderType, GatewaySide, GatewayTimeInForce } from './gateway.types';
+import { GatewayOrderType, GatewaySide, GatewayTimeInForce } from '../types/gateway.types';
 
 /**
  * Документирует внешний запрос размещения заявки.

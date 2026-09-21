@@ -1,6 +1,14 @@
+/**
+ * Файл содержит reference implementation идемпотентности HTTP-команд.
+ *
+ * Он нужен для component/dev runtime и повторяет production contract: одинаковый
+ * scoped key с тем же payload возвращает прежний result, а повтор с другим
+ * payload получает conflict. Production-like окружение должно заменить этот
+ * класс durable adapter-ом через `IDEMPOTENCY_STORE_PORT`.
+ */
 import { ConflictException, Injectable } from '@nestjs/common';
 import { createHash } from 'node:crypto';
-import type { IdempotencyStorePort } from './gateway.idempotency.port';
+import type { IdempotencyStorePort } from '../ports/gateway.idempotency.port';
 
 /**
  * Неизменяемая запись результата команды, сохранённая по ключу идемпотентности.

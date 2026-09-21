@@ -1,8 +1,15 @@
+/**
+ * Файл содержит PostgreSQL adapter идемпотентности Gateway.
+ *
+ * Adapter связывает scoped key, payload hash и public result в одной transaction
+ * с command callback. Это закрывает retry/duplicate race и гарантирует, что
+ * success возвращается клиенту только после durable commit.
+ */
 import { ConflictException, Inject } from '@nestjs/common';
 import type { QueryResultRow } from 'pg';
-import { POSTGRES_TRANSACTION, PostgresTransactionManager } from '../../infrastructure/postgres';
-import { sha256 } from '../../infrastructure/postgres/postgres-json';
-import type { IdempotencyStorePort } from './gateway.idempotency.port';
+import { POSTGRES_TRANSACTION, PostgresTransactionManager } from '../../../infrastructure/postgres';
+import { sha256 } from '../../../infrastructure/postgres/postgres-json';
+import type { IdempotencyStorePort } from '../ports/gateway.idempotency.port';
 
 type IdempotencyRow = QueryResultRow & {
   payload_hash: string;

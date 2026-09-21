@@ -1,19 +1,26 @@
+/**
+ * Файл связывает Gateway как Nest composition root.
+ *
+ * Здесь выбираются concrete adapters для API-key registry, idempotency store и
+ * trading command port. Контроллеры зависят только от DI tokens, поэтому
+ * переключение между memory и PostgreSQL runtime не меняет HTTP handlers.
+ */
 import { Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AuditModule } from '../audit';
-import { ApiKeyGuard, ApiKeyRegistry, ApiKeyRole } from './gateway.auth';
-import { GatewayController } from './gateway.controller';
-import { IdempotencyStore } from './gateway.idempotency';
-import { IDEMPOTENCY_STORE_PORT } from './gateway.idempotency.port';
-import { RateLimitService } from './gateway.rate-limit';
-import { InMemoryTradingCommandPort, TRADING_COMMAND_PORT } from './gateway.types';
-import { AuthenticationController } from './auth.controller';
+import { ApiKeyGuard, ApiKeyRegistry, ApiKeyRole } from './auth/gateway.auth';
+import { IdempotencyStore } from './application/gateway.idempotency';
+import { RateLimitService } from './application/gateway.rate-limit';
+import { AuthenticationController } from './controllers/auth.controller';
+import { GatewayController } from './controllers/gateway.controller';
 import { POSTGRES_TRANSACTION, PostgresTransactionManager } from '../../infrastructure/postgres';
-import { PostgresIdempotencyStore } from './postgres-idempotency.store';
-import { PostgresTradingCommandAdapter } from './postgres-trading-command.adapter';
-import type { IdempotencyStorePort } from './gateway.idempotency.port';
-import type { TradingCommandPort } from './gateway.types';
-import { AdmissionControlModule } from '../admin/admission-control.module';
+import { PostgresIdempotencyStore } from './infrastructure/postgres-idempotency.store';
+import { PostgresTradingCommandAdapter } from './infrastructure/postgres-trading-command.adapter';
+import { IDEMPOTENCY_STORE_PORT } from './ports/gateway.idempotency.port';
+import type { IdempotencyStorePort } from './ports/gateway.idempotency.port';
+import { InMemoryTradingCommandPort, TRADING_COMMAND_PORT } from './types/gateway.types';
+import type { TradingCommandPort } from './types/gateway.types';
+import { AdmissionControlModule } from '../admin/admission-control';
 import { SEQUENCER_STORE_PORT, SequencerModule, SequencerStorePort } from '../trading/sequencer';
 
 /**

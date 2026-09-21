@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { POSTGRES_TRANSACTION, PostgresTransactionManager } from '../../infrastructure/postgres';
-import { ADMISSION_CONTROL_PORT, AdmissionControlPort } from './admission-control.port';
+import { POSTGRES_TRANSACTION, PostgresTransactionManager } from '../../../infrastructure/postgres';
+import { ADMISSION_CONTROL_PORT, AdmissionControlPort } from '../ports/admission-control.port';
 import { MemoryAdmissionControl } from './memory-admission-control';
 import { PostgresAdmissionControl } from './postgres-admission-control';
 

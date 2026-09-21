@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { Inject, Injectable, Optional } from '@nestjs/common';
-import { LOG_EVENTS, StructuredLogger } from '../observability';
-import type { AuditLogPort } from './audit.port';
+import { LOG_EVENTS, StructuredLogger } from '../../observability';
+import type { AuditLogPort } from '../ports/audit.port';
 
 /** Роли сотрудников, имеющих доступ к административному контуру. */
 export type AdministrativeRole = 'ADMIN' | 'RISK_MANAGER' | 'AUDITOR' | 'SUPPORT';

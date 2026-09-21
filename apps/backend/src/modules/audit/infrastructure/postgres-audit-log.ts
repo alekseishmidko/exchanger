@@ -1,10 +1,10 @@
 import { createHash } from 'node:crypto';
 import { Inject } from '@nestjs/common';
 import type { QueryResultRow } from 'pg';
-import { POSTGRES_TRANSACTION, PostgresTransactionManager } from '../../infrastructure/postgres';
-import { canonicalJson } from '../../infrastructure/postgres/postgres-json';
-import type { AuditActor, AuditEventType, AuditRecord } from './audit-log';
-import type { AuditLogPort } from './audit.port';
+import { POSTGRES_TRANSACTION, PostgresTransactionManager } from '../../../infrastructure/postgres';
+import { canonicalJson } from '../../../infrastructure/postgres/postgres-json';
+import type { AuditActor, AuditEventType, AuditRecord } from '../domain/audit-log';
+import type { AuditLogPort } from '../ports/audit.port';
 
 type AuditRow = QueryResultRow & {
   id: string;

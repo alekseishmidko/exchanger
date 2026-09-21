@@ -1,11 +1,14 @@
 import { Inject } from '@nestjs/common';
-import { POSTGRES_TRANSACTION, PostgresTransactionManager } from '../../infrastructure/postgres';
+import { POSTGRES_TRANSACTION, PostgresTransactionManager } from '../../../infrastructure/postgres';
 import type {
   AdmissionContext,
   AdmissionControlChange,
   AdmissionControlPort,
-} from './admission-control.port';
-import { AdmissionControlUnavailableError, AdmissionRejectedError } from './admission-control.port';
+} from '../ports/admission-control.port';
+import {
+  AdmissionControlUnavailableError,
+  AdmissionRejectedError,
+} from '../ports/admission-control.port';
 
 /** PostgreSQL control plane, восстанавливаемый до открытия command admission. */
 export class PostgresAdmissionControl implements AdmissionControlPort {

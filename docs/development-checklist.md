@@ -216,6 +216,8 @@
 18. [ ] adversarial, fuzz, race и нестандартные граничные сценарии.
 19. [ ] capacity planning и итоговая production-readiness qualification.
 20. [ ] maintainability и ступенчатый рефакторинг без изменения public API.
+21. [ ] связный production-like trading runtime и продуктовая готовность spot MVP.
+22. [ ] пользовательская authentication, Redis sessions и безопасное управление identity.
 
 ## 11. Пошаговая модульная декомпозиция
 
@@ -1173,3 +1175,284 @@ guard 300/450/500 строк остаётся открытым до закрыт
 **Gate:** каждый refactor PR уменьшает или сохраняет сложность выбранного модуля,
 проходит business-readiness проверки и не меняет public API без отдельного
 contract test.
+
+### Этап 21. Связный trading runtime и продуктовая готовность spot MVP
+
+**Цель:** превратить набор реализованных доменных и infrastructure-подсистем в
+единый работающий торговый контур. Публично принятая команда должна приводить к
+резервированию, детерминированному matching, settlement, обновлению проекций и
+публикации market data без ручных вызовов сервисов, test-only adapter или
+in-memory shortcut.
+
+Текущая граница проекта:
+
+- [x] реализованы отдельные модули gateway, instruments, sequencer, matching engine, ledger, settlement, event log, projections, market data, admin, audit и observability;
+- [x] production-like command adapter долговечно сохраняет place/cancel command, sequence и outbox event;
+- [ ] фактический runtime автоматически выполняет полный путь `command → reserve → match → settle → project → publish`;
+- [ ] две встречные заявки, отправленные только через публичный REST API, создают реальную сделку, проводки, историю и WebSocket events;
+- [ ] статус `APPLIED` используется только после фактического применения бизнес-операции, а не сразу после записи команды в journal;
+- [ ] ни development, ни staging UI/API flow не сообщают об успешной сделке на основании одного `OrderAccepted`.
+
+#### P0. Trading application pipeline
+
+- [ ] создан `TradingCommandProcessor` или эквивалентный application orchestrator, читающий durable accepted commands в порядке instrument sequence;
+- [ ] processor получает command через application/infrastructure port и не зависит напрямую от HTTP controller;
+- [ ] place command проходит immutable version instrument rules, price/quantity, tick/lot, lifecycle, price band и risk-limit validation;
+- [ ] до допуска BUY резервируется quote asset и fee budget, до допуска SELL резервируется base asset;
+- [ ] недостаточный баланс, paused instrument, invalid rules и risk rejection завершаются стабильным `OrderRejected` без частичного эффекта;
+- [ ] validated command передаётся единственному active owner инструмента и применяется к восстановленному matching state;
+- [ ] matching events сохраняются durable до публикации внешнего результата;
+- [ ] `TradeExecuted` запускает idempotent settlement и создаёт полный сбалансированный posting set;
+- [ ] cancel, IOC remainder, rejected и terminal order освобождают неиспользованный резерв ровно один раз;
+- [ ] `SettlementApplied` появляется только после atomic ledger commit;
+- [ ] order/trade/balance projections обновляются consumer-ом event log, а не прямым вызовом из controller;
+- [ ] public/private market-data messages создаются из committed domain events и не раскрывают ledger или внутреннее состояние matching engine;
+- [ ] correlationId, causationId, commandId, eventId и instrument sequence проходят через весь поток;
+- [ ] один production composition root не допускает альтернативного обхода sequencer, reservation, settlement или outbox.
+
+#### P0. Жизненный цикл команды и заявки
+
+- [ ] command lifecycle различает `RECEIVED`, `ACCEPTED`, `PROCESSING`, `APPLIED`, `REJECTED` и `RECOVERY_REQUIRED`;
+- [ ] order lifecycle различает `PENDING`, `OPEN`, `PARTIALLY_FILLED`, `FILLED`, `CANCEL_PENDING`, `CANCELLED` и `REJECTED`;
+- [ ] публичный result явно разделяет durable acceptance и фактический результат исполнения;
+- [ ] повтор команды возвращает прежний terminal result либо безопасный pending/recovery status;
+- [ ] несовместимое повторное использование commandId или idempotency key всегда даёт conflict;
+- [ ] cancel не может воскресить, повторно закрыть или изменить уже terminal order;
+- [ ] переходы статусов монотонны, версионированы и покрыты формальной transition table;
+- [ ] rejection codes едины между REST, WebSocket, OpenAPI, AsyncAPI, projections и audit.
+
+#### P0. Durable workers и восстановление
+
+- [ ] composition root запускает управляемые command, outbox, settlement, projection и market-data consumers;
+- [ ] каждый worker имеет bounded batch/concurrency, timeout, retry/backoff/jitter, DLQ/quarantine и lag metric;
+- [ ] offset фиксируется только после соответствующего business commit;
+- [ ] graceful shutdown прекращает admission, завершает либо сохраняет in-flight work и фиксирует offsets;
+- [ ] restart восстанавливает lease, snapshot и ordered replay до high watermark до открытия admission;
+- [ ] worker crash между любыми двумя commit points не теряет accepted command и не создаёт повторную сделку или проводку;
+- [ ] readiness учитывает невозможность безопасной command processing, но observability outage остаётся non-critical;
+- [ ] backlog после recovery измеримо уменьшается и имеет alert/runbook;
+- [ ] operator может безопасно повторить quarantined event без изменения исходной записи.
+
+#### P0. Доказательный black-box business E2E
+
+Тест выполняется против production-like staging исключительно через публичные
+REST/WebSocket contracts и прямые read-only проверки reconciliation. Прямое
+создание `MatchingEngine`, `SettlementService`, projection fixture или подмена
+`TradingCommandPort` в этом сценарии запрещены.
+
+- [ ] создаются независимые buyer и seller identities/accounts;
+- [ ] buyer получает USD, seller получает BTC через авторизованный funding command;
+- [ ] seller размещает limit sell, buyer — crossing limit buy;
+- [ ] обе стороны получают корректные accepted/open/fill/terminal transitions;
+- [ ] проверены exact, partial и multi-fill варианты;
+- [ ] `TradeExecuted` содержит passive maker price и правильные maker/taker стороны;
+- [ ] ledger содержит сбалансированный posting set, комиссии и корректные available/reserved balances;
+- [ ] order и trade history обеих сторон согласованы с ledger и event log;
+- [ ] public order book, trades/ticker и private user streams отражают те же sequence/events;
+- [ ] private events buyer никогда не получает seller и наоборот;
+- [ ] повтор place/cancel/trade delivery не создаёт второй business effect;
+- [ ] после `SIGKILL` и restart прежний idempotent result доступен, processing продолжается и RPO равен нулю;
+- [ ] финальная reconciliation сравнивает commands, orders, trades, events, postings, offsets, projections и audit chain;
+- [ ] pipeline сохраняет timeline, build SHA, topology, logs, traces, metrics, WebSocket transcript и reconciliation report.
+
+#### P1. Durable product state
+
+- [ ] users/identities и ownership являются durable source of truth;
+- [ ] API keys, scopes, expiry, status, rotation и revoke хранятся в PostgreSQL или отдельном credential store и переживают restart;
+- [ ] API key secret показывается только при выпуске, в storage хранится lookup digest, а metadata полностью аудируется;
+- [ ] instrument catalog и все версии trading rules хранятся durable и восстанавливаются до admission;
+- [ ] fee/risk policy versions и `effectiveAt` хранятся durable и прикрепляются к принятой заявке;
+- [ ] pending dual-control approvals доступны другой replica и переживают restart;
+- [ ] account freeze, instrument pause и circuit breaker имеют единое durable control-plane состояние;
+- [ ] runtime safety запрещает memory implementations этих boundaries в staging/production.
+
+#### P1. Обязательные функции spot MVP
+
+- [ ] API возвращает open orders, order details, status transitions, fills и fee breakdown;
+- [ ] реализован `cancel all` с account/instrument scope, authorization, idempotency и bounded batch;
+- [ ] публичный REST API отдаёт согласованный snapshot стакана с sequence;
+- [ ] WebSocket публикует реальные order-book increments, trades и ticker из committed matching events;
+- [ ] private WebSocket stream публикует order status, fills и balance changes владельца;
+- [ ] клиент может восстановиться после disconnect через snapshot + increments и обнаружение gap;
+- [ ] rejection responses объясняют insufficient balance, invalid tick/lot, paused market, price band, risk limit и rate limit безопасными кодами;
+- [ ] API предоставляет текущие instrument rules, fee policy version и применённые к заявке версии правил;
+- [ ] история поддерживает cursor pagination без duplicate/missing items при параллельных обновлениях;
+- [ ] sandbox/test identities и API keys отделены от production credentials и данных.
+
+#### P1. Пользовательский trading terminal
+
+Текущая React test console сохраняется как инженерный diagnostics-инструмент.
+Пользовательский terminal строится отдельными feature boundaries поверх тех же
+публичных REST/WebSocket contracts.
+
+- [ ] добавлены market selector и отображение статуса инструмента;
+- [ ] добавлены order book, recent trades и ticker;
+- [ ] добавлена безопасная форма BUY/SELL с preview количества, стоимости и комиссии;
+- [ ] добавлены available/reserved balances;
+- [ ] добавлены open orders, cancel/cancel-all, order history и trade history;
+- [ ] UI различает accepted, pending, partial, filled, cancelled и rejected состояния;
+- [ ] отображаются WebSocket connection, lag, last sequence, gap и resync status;
+- [ ] ошибки показывают публичный error code/correlationId без stack trace и чувствительных payloads;
+- [ ] API keys не встраиваются в frontend bundle и не записываются в логи/telemetry;
+- [ ] frontend имеет unit tests, component tests и Playwright/Cypress E2E основного пользовательского потока;
+- [ ] frontend script больше не использует заглушку `no unit tests yet` как успешную test-команду;
+- [ ] accessibility, loading/empty/error states и responsive layout проверены автоматически.
+
+#### P2. Функции после закрытия MVP gate
+
+- [ ] принято отдельное продуктовое решение по `POST_ONLY` и amend/replace order;
+- [ ] принято отдельное продуктовое решение по disconnect cancel policy;
+- [ ] при необходимости добавлены candles/OHLCV и portfolio valuation как независимые projections;
+- [ ] добавлены CSV/export history и пользовательские fill/cancel/reject notifications;
+- [ ] создан operational admin dashboard для lag, reconciliation, controls и incident actions;
+- [ ] каждая новая order policy имеет contracts, deterministic matching tests, risk analysis и backward-compatibility plan.
+
+Следующие возможности не входят в текущий training spot MVP и не могут быть
+добавлены обычным feature PR без отдельного business scope, threat model, ADR и
+regulatory/security программы:
+
+- [ ] реальные fiat/crypto deposits и withdrawals, custody и wallet management;
+- [ ] KYC/AML, sanctions screening и персональные документы;
+- [ ] margin, leverage, borrowing и liquidation;
+- [ ] derivatives, funding rate и expiry settlement;
+- [ ] multi-region active-active matching и cross-region consensus;
+- [ ] market-making или управление реальными клиентскими активами.
+
+#### Порядок рефакторинга относительно бизнес-потока
+
+- [ ] до крупного structural refactor создан failing/characterization black-box test полного торгового пути;
+- [ ] сначала закрыт application orchestration gap, затем границы уточнены по фактическому runtime flow;
+- [ ] `AdminService` разделён на command orchestration, dual control, policy registry и reconciliation;
+- [ ] `MarketDataGateway` разделён на authentication, validation, subscription registry и safe error mapping;
+- [ ] settlement разделён на reservation, fee policy, posting matrix и event orchestration;
+- [ ] projections разделены на event appliers, pagination policy и rebuild coordinator;
+- [ ] PostgreSQL adapters разделены на transaction orchestration, repositories и row/domain mappers;
+- [ ] matching engine разделён на order book, price-level queue и execution/TIF policies без изменения deterministic output;
+- [ ] JSDoc на русском описывает публичный контракт, инварианты и нетривиальные причины решений, но не заменяет декомпозицию крупного класса;
+- [ ] после P0/P1 включён строгий blocking architecture guard из этапа 20.
+
+Документация и автоматические проверки:
+
+- [ ] обновлена C4/flow-схема фактического runtime, а не только целевой архитектуры;
+- [ ] описаны command/order state transitions и различие acceptance/execution/finality;
+- [ ] создан source event → consumer → projection/market-data mapping;
+- [ ] описаны worker ownership, retry, offset, DLQ и recovery runbooks;
+- [ ] OpenAPI/AsyncAPI отражают новые статусы, rejection codes, fills, fees и sequence metadata;
+- [ ] `ready:business` запускает black-box buyer/seller trade и reconciliation;
+- [ ] `ready:rc` и `ready:full` используют тот же production composition root и не подменяют critical ports;
+- [ ] CI блокирует возврат прямых controller → domain/storage shortcuts;
+- [ ] load/chaos/capacity tests измеряют реальный integrated hot path, включая accepted-to-settled и accepted-to-visible latency.
+
+**Gate:** две встречные заявки, отправленные через публичный API production-like
+staging, детерминированно создают одну сделку, полный сбалансированный settlement,
+согласованные projections и изолированные WebSocket events. Повтор, restart и
+частичный отказ не создают потерю или второй эффект. Только после закрытия этого
+gate проект считается функциональным spot MVP, а результаты этапов 16–19 могут
+использоваться как доказательство производительности и production readiness.
+
+### Этап 22. Пользовательская authentication, Redis sessions и управление identity
+
+**Цель:** заменить текущую вспомогательную API-key модель полноценной
+пользовательской авторизацией, не смешивая human sessions, machine credentials и
+test bypass. Пользовательские сессии должны быть управляемыми по отдельности,
+а чувствительные данные не должны попадать в idempotency store, логи,
+projections, responses или artifacts.
+
+#### Модель доступа и границы
+
+- [ ] human users используют email+password и серверные Redis-backed sessions;
+- [ ] API keys остаются отдельным machine-to-machine механизмом со scopes, expiry, rotation и owner metadata;
+- [ ] API key secret показывается только один раз, хранится только как digest и не сохраняется в `public_result` idempotency;
+- [ ] публичные auth DTO не раскрывают password hash, session token, API key secret, internal roles или Redis keys;
+- [ ] authorization проверяет role, scope, owner/object access и session state на каждом protected endpoint;
+- [ ] in-memory auth/session stores запрещены в staging/production и доступны только для unit/component tests;
+- [ ] startup блокируется, если production-like профиль запущен без Redis session store, password hashing secret/pepper policy или secure cookie/token configuration;
+- [ ] все новые публичные interfaces, guards, DTO, controllers и services имеют подробный JSDoc на русском языке с принципом работы, инвариантами и примерами.
+
+#### Registration, login и session lifecycle
+
+- [ ] добавлен `POST /api/v1/auth/register` для регистрации по email+password с нормализацией email и case-insensitive uniqueness;
+- [ ] добавлен `POST /api/v1/auth/login` с выдачей server session и безопасным public profile response;
+- [ ] добавлен `POST /api/v1/auth/logout` для завершения текущей сессии;
+- [ ] добавлен `POST /api/v1/auth/logout-all` или эквивалент для завершения всех сессий пользователя;
+- [ ] добавлен `GET /api/v1/auth/me` для получения текущего пользователя и активных authorization capabilities;
+- [ ] добавлены endpoints email verification и password reset/change recovery без раскрытия существования email;
+- [ ] password hash использует утверждённый adaptive алгоритм, per-password salt и конфигурируемый pepper/secret вне Git;
+- [ ] login/register/reset имеют rate limit, brute-force protection, audit events и enumeration-resistant errors;
+- [ ] session fixation предотвращается ротацией session id после login, privilege change и password change;
+- [ ] refresh/sliding TTL, absolute TTL, idle timeout и max sessions per user заданы конфигурацией и покрыты тестами.
+
+#### Redis sessions
+
+- [ ] Redis является source of truth для активных пользовательских сессий и позволяет отозвать одну конкретную сессию;
+- [ ] session record хранит `sessionId`, `userId`, roles/scopes, auth level, createdAt, lastSeenAt, expiresAt, revokedAt, device metadata и correlation metadata;
+- [ ] bearer/cookie token хранится у клиента как opaque random value, а в Redis/logs/artifacts не сохраняется raw token;
+- [ ] Redis keys имеют namespace, TTL, bounded value size и не содержат email, token, accountId или другие чувствительные значения в открытом виде;
+- [ ] Redis подключается с AUTH/ACL, TLS там, где доступно, отдельной role и запретом dangerous commands для application user;
+- [ ] Redis outage переводит readiness/admission auth-зависимых операций в documented degraded mode, но не ломает liveness;
+- [ ] session lookup имеет bounded timeout/cache policy и не создаёт unbounded нагрузку на Redis при retry/reconnect storm;
+- [ ] revoke текущей, одной выбранной и всех сессий пользователя проверен после restart и при нескольких backend replicas.
+
+#### User profile self-service
+
+- [ ] добавлен `PATCH /api/v1/users/me` для изменения `name` с validation, audit и безопасным response DTO;
+- [ ] добавлен `POST /api/v1/users/me/password` для смены password с проверкой current password или re-auth policy;
+- [ ] после смены password пользователь может завершить все остальные сессии, а security event фиксируется в audit;
+- [ ] добавлены `GET /api/v1/users/me/sessions` и `DELETE /api/v1/users/me/sessions/{sessionId}` для управления собственными сессиями;
+- [ ] пользователь не может менять role, ownerId, accountId, email verification state или security flags через self-service endpoints.
+
+#### Admin session control
+
+- [ ] добавлены admin endpoints для просмотра active/revoked sessions пользователя без раскрытия raw token;
+- [ ] admin может отозвать одну сессию, все сессии пользователя и принудительно потребовать password reset;
+- [ ] admin не может прочитать или выставить password/API key/session token вручную;
+- [ ] session revoke, freeze/unfreeze, forced logout и password reset требуют role/object authorization, reason, audit metadata и idempotency key;
+- [ ] критичные admin actions используют dual-control policy там, где это требуется risk model;
+- [ ] admin session actions видны в audit trail и в operational logs без персональных и credential payloads.
+
+#### Test auth bypass для продуктовых флоу
+
+- [ ] добавлен явный test-only механизм, например `X-Test-Auth-Token`, чтобы прогонять business/API flows без реального login;
+- [ ] test token работает только при `NODE_ENV=test` или отдельном isolated test profile и отдельном `AUTH_TEST_BYPASS_ENABLED=true`;
+- [ ] startup падает, если test bypass включён в development-compose для обычной ручной работы, staging, production или release-candidate profile;
+- [ ] test token задаётся через secret/env, не коммитится в Git, сравнивается с digest/timing-safe policy и не попадает в Swagger production docs;
+- [ ] test token мапится только на заранее описанные test identities/scopes и не позволяет прокинуть произвольный `userId`, role или accountId из header;
+- [ ] каждое использование test bypass пишет отдельный safe log/metric event и не создаёт audit-записи, похожие на реальные пользовательские действия;
+- [ ] CI проверяет, что production build не содержит активного bypass route/guard и что protected endpoints без валидной auth возвращают 401/403.
+
+#### Security, privacy и hardening
+
+- [ ] cookies используют `HttpOnly`, `Secure`, `SameSite`, path/domain policy и CSRF protection, если выбран cookie transport;
+- [ ] CORS, body size, slow request, credential stuffing и connection exhaustion настроены для auth endpoints отдельно;
+- [ ] все auth errors возвращают стабильные public error codes и correlationId без stack trace, Redis errors, password policy internals и credential hints;
+- [ ] персональные данные и security events имеют retention policy, data minimization и redaction в logs/metrics/traces;
+- [ ] email, name, device metadata и IP/User-Agent обрабатываются как персональные данные и не используются как unbounded metric labels;
+- [ ] password reset, email verification, session revoke и API key rotation имеют replay protection и bounded expiry;
+- [ ] auth threat model обновлён для session hijacking, fixation, CSRF, XSS token theft, credential stuffing, replay, Redis compromise и insider/admin abuse.
+
+#### Тесты и проверки
+
+- [ ] positive/negative tests покрывают register, login, logout, logout-all, me, password change, profile update и session revoke;
+- [ ] contract tests проверяют OpenAPI auth endpoints, DTO, error codes и отсутствие неизвестных полей;
+- [ ] Redis integration tests проверяют TTL, revoke одной сессии, revoke всех сессий, restart, replica concurrency и Redis outage;
+- [ ] security tests проверяют brute-force limit, enumeration resistance, CSRF, session fixation, replay, stale session и privilege change;
+- [ ] admin tests проверяют role matrix, object authorization, idempotency, audit completeness и запрет чтения raw credentials;
+- [ ] test bypass tests подтверждают работу в isolated test profile и невозможность включения в staging/production/release-candidate;
+- [ ] canary secret tests подтверждают, что password, API key, session token, reset token и Redis connection string не попадают в response/logs/artifacts/idempotency store;
+- [ ] migration tests создают users, credentials, sessions metadata и API key digests без сохранения plaintext secrets.
+
+#### Документация
+
+- [ ] обновлены OpenAPI и каталог endpoints auth/users/admin sessions;
+- [ ] создан `docs/security/authentication.md` с flows register/login/logout/session revoke/password change;
+- [ ] описаны Redis session schema, TTL, revoke semantics, degraded mode и operational runbook;
+- [ ] описаны различия human session, API key и test-only bypass;
+- [ ] обновлён threat model Gateway/Auth и checklist ручного тестирования в test console;
+- [ ] приведены безопасные request/response examples без реальных credentials и без reusable tokens.
+
+**Gate:** пользователь может зарегистрироваться, войти, управлять профилем и
+точечно завершать сессии; админ может безопасно контролировать сессии без
+доступа к секретам; тестовые флоу могут использовать explicit test token только
+в изолированном тестовом профиле. Production-like окружение не содержит auth
+bypass, не хранит plaintext credentials и блокирует запуск без Redis-backed
+session store и проверенных security controls.

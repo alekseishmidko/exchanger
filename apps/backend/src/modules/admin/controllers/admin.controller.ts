@@ -27,13 +27,18 @@ import {
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
 import { z } from 'zod';
-import { AuditActor } from '../audit';
-import { ApiKeyGuard, ApiKeyPrincipal, assertAdministrativeAccess } from '../gateway/gateway.auth';
-import { IDEMPOTENCY_STORE_PORT, IdempotencyStorePort } from '../gateway/gateway.idempotency.port';
-import { RateLimitService } from '../gateway/gateway.rate-limit';
-import { ZodValidationPipe } from '../gateway/gateway.validation';
-import { Decimal, createId } from '../shared-kernel';
-import { Instrument, InstrumentRules } from '../trading/instruments';
+import { AuditActor } from '../../audit';
+import {
+  ApiKeyGuard,
+  ApiKeyPrincipal,
+  assertAdministrativeAccess,
+  IDEMPOTENCY_STORE_PORT,
+  IdempotencyStorePort,
+  RateLimitService,
+  ZodValidationPipe,
+} from '../../gateway';
+import { Decimal, createId } from '../../shared-kernel';
+import { Instrument, InstrumentRules } from '../../trading/instruments';
 import {
   AdminCommandResponseDto,
   AuditRecordPageResponseDto,
@@ -44,8 +49,8 @@ import {
   InstrumentStatusRequestDto,
   ReconciliationResponseDto,
   RiskPolicyRequestDto,
-} from './admin.dto';
-import { AdminCommand, AdminResult, AdminService } from './admin.service';
+} from '../dto/admin.dto';
+import { AdminCommand, AdminResult, AdminService } from '../admin.service';
 import {
   circuitBreakerSchema,
   configureInstrumentSchema,
@@ -53,7 +58,7 @@ import {
   freezeSchema,
   instrumentStatusSchema,
   riskPolicySchema,
-} from './admin.validation';
+} from '../dto/admin.validation';
 
 /** HTTP request после успешного ApiKeyGuard. */
 type AdminRequest = { principal: ApiKeyPrincipal };

@@ -1,5 +1,5 @@
 import { Module } from '@nestjs/common';
-import { GatewayModule } from '../gateway/gateway.module';
+import { GatewayModule } from '../gateway';
 import { ProjectionsController } from './projections.controller';
 import { ProjectionStore } from './projection';
 import { PROJECTION_STORE_PORT } from './projection.port';
