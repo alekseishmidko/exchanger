@@ -1,9 +1,9 @@
 import { ConfigService } from '@nestjs/config';
 import { EventLog } from '../trading/event-log';
-import { ProjectionEvent, ProjectionStore } from '../projections/projection';
-import { LOG_EVENTS } from './log-events';
-import { LoggingContext } from './logging-context';
-import { StructuredLogRecord, StructuredLogger } from './structured-logger';
+import { ProjectionEvent, ProjectionStore } from '../projections';
+import { LOG_EVENTS } from './logging/log-events';
+import { LoggingContext } from './logging/logging-context';
+import { StructuredLogRecord, StructuredLogger } from './logging/structured-logger';
 
 describe('Operational logging flow', () => {
   it('propagates correlation and causation through command, event and consumer', async () => {

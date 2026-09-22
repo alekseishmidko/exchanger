@@ -1,4 +1,4 @@
-import { MetricsService, METRIC_LABEL_POLICY } from './metrics';
+import { MetricsService, METRIC_LABEL_POLICY } from './metrics/metrics';
 
 describe('Metrics contract and cardinality guards', () => {
   let metrics: MetricsService;

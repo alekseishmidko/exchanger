@@ -20,8 +20,11 @@ import {
   SequencerStorePort,
   PostgresSequencerStore,
 } from '../modules/trading/sequencer';
-import { PROJECTION_STORE_PORT, ProjectionStorePort } from '../modules/projections/projection.port';
-import { PostgresProjectionStore } from '../modules/projections/postgres-projection.store';
+import {
+  PROJECTION_STORE_PORT,
+  PostgresProjectionStore,
+  ProjectionStorePort,
+} from '../modules/projections';
 import {
   ADMISSION_CONTROL_PORT,
   AdmissionControlPort,

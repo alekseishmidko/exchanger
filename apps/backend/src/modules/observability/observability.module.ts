@@ -1,12 +1,12 @@
 import { Global, Module } from '@nestjs/common';
 import { APP_INTERCEPTOR } from '@nestjs/core';
-import { HttpLoggingInterceptor } from './http-logging.interceptor';
-import { LoggingContext } from './logging-context';
-import { StructuredLogger } from './structured-logger';
-import { LifecycleReporter } from './lifecycle-reporter';
-import { MetricsController } from './metrics.controller';
-import { MetricsService } from './metrics';
-import { TelemetryService } from './tracing';
+import { HttpLoggingInterceptor } from './logging/http-logging.interceptor';
+import { LoggingContext } from './logging/logging-context';
+import { StructuredLogger } from './logging/structured-logger';
+import { LifecycleReporter } from './logging/lifecycle-reporter';
+import { MetricsController } from './metrics/metrics.controller';
+import { MetricsService } from './metrics/metrics';
+import { TelemetryService } from './tracing/tracing';
 
 /**
  * Глобальный composition root operational logging.

@@ -13,6 +13,29 @@ subscriber callbacks. `MarketDataGateway` — настоящий NestJS Socket.I
 он валидирует client commands, аутентифицирует private stream и преобразует
 публичные сообщения hub в versioned wire envelopes.
 
+## Структура transport слоя
+
+Модуль разложен на semantic folders, чтобы роль файла была понятна по пути:
+
+- `domain/market-data.ts` — `MarketDataHub`, snapshots, replay history и
+  bounded fan-out без зависимости от Socket.IO;
+- `dto/market-data.dto.ts` — публичные WebSocket DTO/envelope payloads;
+- `gateways/market-data.gateway.ts` — NestJS Socket.IO orchestration boundary;
+- `policies/market-data.connection-policy.ts` — browser origin и optional API key
+  handshake policy;
+- `registries/market-data.subscription-registry.ts` — lifecycle active
+  subscriptions и idempotent replace/unsubscribe;
+- `transport/market-data.gateway.types.ts` — типизированные Socket.IO events и
+  socket data;
+- `transport/market-data.envelope.ts` — единый envelope `1.0` и sequence policy;
+- `transport/market-data-telemetry.observer.ts` — trace continuation и bounded
+  RED metrics;
+- `validation/market-data.validation.ts` — strict runtime schemas публичного
+  протокола.
+
+`MarketDataGateway` после этого остаётся orchestration adapter-ом: валидирует
+payload, вызывает hub, отправляет ack/data/error и не хранит SQL/domain state.
+
 Gateway не сериализует matching-engine order book или ledger entities. Перед
 отправкой каждое `MarketDataMessage` повторно проходит strict runtime schema;
 private payload допускает только плоские JSON scalars, поэтому массив проводок

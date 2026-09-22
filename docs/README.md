@@ -12,6 +12,7 @@
 
 - [Требования к системе](system-design-requirements.md)
 - [Архитектура](architecture.md)
+- [Архитектурные понятия: domain, port, adapter, store, repository](architecture-concepts.md)
 - [Технологический стек](technology-stack.md)
 - [Правила и стандарты](project-standards.md)
 - [Чеклист разработки](development-checklist.md)

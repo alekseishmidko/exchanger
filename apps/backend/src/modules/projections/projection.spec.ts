@@ -1,5 +1,5 @@
 import { BadRequestException } from '@nestjs/common';
-import { ProjectionEvent, ProjectionStore } from './projection';
+import { ProjectionEvent, ProjectionStore } from './index';
 
 /** Проверяет восстановление read-моделей, порядок событий и isolation query API. */
 describe('ProjectionStore', () => {

@@ -19,6 +19,56 @@ Domain classes не зависят от NestJS, HTTP, БД, broker и систе
 Application layer использует `LEDGER_PORT`; конкретный PostgreSQL client
 изолирован в infrastructure adapter и выбирается composition root.
 
+## Структура файлов
+
+Ledger намеренно разложен по семантическим папкам, чтобы при поддержке было
+видно, какой слой меняется и какие зависимости допустимы:
+
+- `controllers/` — REST transport boundary. Контроллер проверяет API key,
+  object-level access, `Idempotency-Key`, rate limit и DTO, но не меняет баланс
+  напрямую.
+- `dto/` — публичные HTTP DTO и runtime validation schemas. Decimal values
+  принимаются и возвращаются только строками.
+- `application/` — сценарии use-case уровня: создать account, прочитать balance,
+  выполнить admin balance command, записать audit и structured log outcome.
+- `ports/` — стабильный `LedgerPort`, через который application слой работает с
+  ledger без знания о памяти или PostgreSQL.
+- `domain/` — чистые value objects и aggregate: `Asset`, `Account`, `Balance`,
+  `Posting`, `Ledger`. Здесь запрещены NestJS, HTTP, SQL и mutable transport DTO.
+- `infrastructure/` — PostgreSQL adapter, migrations, schema docs и integration
+  tests durable write path.
+- `infrastructure/repositories/` — SQL boundaries ledger tables: assets,
+  accounts, balances, operations, postings и reservations. Adapter передаёт им
+  transaction client и сохраняет orchestration/idempotency flow у себя.
+- `index.ts` — единственный публичный barrel модуля. Соседние модули импортируют
+  ledger через `../ledger`, а не через deep imports в подпапки.
+
+## Как части взаимодействуют
+
+```mermaid
+flowchart LR
+  HTTP["REST /api/v1/accounts"] --> Controller["controllers/LedgerController"]
+  Controller --> App["application/LedgerApplicationService"]
+  App --> Port["ports/LedgerPort"]
+  Port --> Domain["domain/Ledger"]
+  Port --> Pg["infrastructure/PostgresLedgerAdapter"]
+  App --> Audit["audit port"]
+  App --> Logs["structured logger"]
+```
+
+Основной write-flow выглядит так:
+
+1. `LedgerController` принимает HTTP-запрос и проверяет authentication,
+   authorization, idempotency header и transport validation.
+2. `LedgerApplicationService` превращает строки в typed IDs/`Decimal`, выбирает
+   доменную команду и фиксирует audit/log outcome.
+3. `LedgerPort` скрывает storage decision. В unit/component tests используется
+   in-memory `Ledger`; в production-like runtime — `PostgresLedgerAdapter`.
+4. Domain layer применяет денежные инварианты: неотрицательный available,
+   корректный reserved, balanced postings и идемпотентность `operationId`.
+5. Infrastructure adapter фиксирует результат транзакционно и возвращает
+   публичный snapshot без внутренних domain entities.
+
 ## Публичный контракт
 
 - `Asset` и `Account` — неизменяемые definitions;

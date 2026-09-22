@@ -1144,6 +1144,15 @@ Production-readiness framework проверяется командой `pnpm rea
 release-candidate окружения, подписанного отчёта или rehearsal человеком,
 остаются открытыми до фактической приёмки.
 
+Фактический automated quick qualification прогнан командой `pnpm ready:quick`:
+run `d1aac30e0c31`, build `5086d3ed98451e9f3ce8361bd558c95ab4336fec`,
+artifact `artifacts/readiness/quick-d1aac30e0c31`. Пройдены
+`security:check`, `maintainability:report`, `lint`, `typecheck`,
+`contracts:check`, `observability:check`, `adversarial:check`,
+`readiness:check` и `build`. Этот прогон подтверждает framework/quality gate,
+но не закрывает capacity/release qualification пункты, где нужны
+release-candidate topology, load/soak/chaos artifacts и human sign-off.
+
 **Финальный gate:** release допускается к production только при доказанной
 устойчивости под целевой и аварийной нагрузкой, практически проверенном recovery и
 отсутствии необъяснимых нарушений SLO или доменных инвариантов.
@@ -1166,9 +1175,65 @@ release-candidate окружения, подписанного отчёта ил
 
 Первый срез test builders выполнен для `api-flow.e2e-spec.ts` и
 `transport-api.e2e-spec.ts`: API key registry, account/order DTO и instrument
-rules вынесены в `apps/backend/test/builders/api-builders.ts`. Общий пункт
-остаётся открытым до выноса builders из market-data, ledger/postgres и system
-specs. CI уже блокирует ухудшение текущего baseline через
+rules вынесены в `apps/backend/test/builders/api-builders.ts`. Второй срез
+выполнен для `market-data.websocket.e2e-spec.ts`: Socket.IO client helpers,
+envelope ожидания, API key registry и common subscribe/heartbeat payloads
+вынесены в `apps/backend/test/builders/market-data-builders.ts`. Общий пункт
+остаётся открытым до выноса builders из ledger/postgres, system и resilience
+specs.
+
+Gateway переведён на семантическую структуру `controllers/`, `dto/`,
+`validation/`, `auth/`, `ports/`, `types/`, `application/` и `infrastructure/`.
+REST Gateway transport стал читаемее через отдельные auth/validation/application
+границы и публичный barrel `../gateway`; составной пункт остаётся открытым до
+аналогичного дробления WebSocket `MarketDataGateway` на auth, validation,
+subscription registry и error policy.
+
+Admin и audit переведены на семантические папки, а `AdminService` уже вынес
+role matrix/dual-control decision helpers и fee/risk policy registry. Составной
+пункт admin остаётся открытым до выделения самостоятельных dual-control command
+service и reconciliation service из фасада.
+
+Ledger переведён на семантическую структуру `controllers/`, `dto/`,
+`application/`, `ports/`, `domain/` и `infrastructure/`. Внешний API модуля
+сохранён через публичный barrel `../ledger`, а README теперь описывает движение
+`controller → application service → LedgerPort → domain/infrastructure`.
+`PostgresLedgerAdapter` дополнительно разделён на repositories для assets,
+accounts, balances, operations, postings и reservations. Составной пункт
+`settlement/projections/ledger adapters` остаётся открытым только до выделения
+mapper/policy слоёв и аналогичного settlement refactor.
+
+Projections переведён на семантическую структуру `controllers/`, `dto/`,
+`types/`, `ports/`, `application/` и `infrastructure/`. Типы read-model вынесены
+из in-memory store в `types/`, а внешние импорты переведены на публичный barrel
+`../projections`. `PostgresProjectionStore` дополнительно разделён на
+repositories для projection versions, processed events, orders, trades и
+balances. Составной пункт по projections остаётся открытым до выноса event
+appliers, pagination policy и rebuild coordinator в самостоятельные классы.
+
+Health переведён на семантическую структуру `controllers/`, `application/`,
+`ports/` и `types/`. README описывает, что liveness не вызывает dependency
+probes, а readiness идёт через bounded `HEALTH_DEPENDENCIES` port и возвращает
+только безопасный агрегированный статус.
+
+Market-data gateway разгружен через semantic helpers: connection policy,
+subscription registry, envelope factory, typed socket events и telemetry
+observer. Составной пункт Gateway/WebSocket transport orchestration остаётся
+открытым до выделения самостоятельного WebSocket error mapper и дальнейшего
+разделения `MarketDataHub`.
+
+Observability metrics разгружен на `metrics.catalog.ts`,
+`metrics-label.policy.ts` и `MetricsService`. Публичные exports сохранены, а
+catalog/policy теперь можно проверять и обсуждать отдельно от recording logic.
+
+Market-data переведён на семантическую структуру `domain/`, `dto/`,
+`gateways/`, `policies/`, `registries/`, `transport/`, `validation/`;
+`MarketDataHub` отделён от Socket.IO gateway, а public barrel скрывает
+внутренние transport helpers. Observability переведён на `logging/`, `metrics/`,
+`tracing/`, `alerts/` с сохранением внешнего импорта через
+`../observability`.
+
+CI уже блокирует ухудшение текущего baseline через
 `MAINTAINABILITY_ENFORCE=true pnpm maintainability:report`; строгий architecture
 guard 300/450/500 строк остаётся открытым до закрытия P0/P1 файлов.
 

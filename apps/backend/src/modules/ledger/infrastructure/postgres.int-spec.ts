@@ -13,7 +13,7 @@ import { PostgresEventLogAdapter, PostgresOutboxPublisher } from '../../trading/
 import { SettlementService } from '../../trading/settlement';
 import { PostgresSequencerStore } from '../../trading/sequencer';
 import { PostgresAdmissionControl } from '../../admin/admission-control';
-import { PostgresProjectionStore } from '../../projections/postgres-projection.store';
+import { PostgresProjectionStore } from '../../projections';
 
 const postgresUrl = process.env['POSTGRES_URL'];
 const describePostgres = postgresUrl ? describe : describe.skip;

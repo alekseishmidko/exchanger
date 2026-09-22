@@ -1,12 +1,12 @@
 import { ConfigService } from '@nestjs/config';
 import { ReadableSpan, SpanExporter } from '@opentelemetry/sdk-trace-base';
-import { MetricsService } from './metrics';
-import { ResilientSpanExporter, TelemetryService } from './tracing';
-import { TRACE_SPANS } from './telemetry.types';
-import { LoggingContext } from './logging-context';
-import { StructuredLogRecord, StructuredLogger } from './structured-logger';
-import { LOG_EVENTS } from './log-events';
-import { HealthService } from '../health/health.service';
+import { MetricsService } from './metrics/metrics';
+import { ResilientSpanExporter, TelemetryService } from './tracing/tracing';
+import { TRACE_SPANS } from './tracing/telemetry.types';
+import { LoggingContext } from './logging/logging-context';
+import { StructuredLogRecord, StructuredLogger } from './logging/structured-logger';
+import { LOG_EVENTS } from './logging/log-events';
+import { HealthService } from '../health';
 
 describe('OpenTelemetry flow and exporter isolation', () => {
   let metrics: MetricsService;

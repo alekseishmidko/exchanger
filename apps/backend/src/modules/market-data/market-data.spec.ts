@@ -1,5 +1,5 @@
 import { ForbiddenException } from '@nestjs/common';
-import { BackpressureError, MarketDataGapError, MarketDataHub } from './market-data';
+import { BackpressureError, MarketDataGapError, MarketDataHub } from './domain/market-data';
 
 /** Проверяет snapshot/increment protocol, recovery, isolation и backpressure. */
 describe('MarketDataHub', () => {

@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
-import { HealthController } from './health.controller';
-import { HealthService } from './health.service';
-import { HEALTH_DEPENDENCIES } from './health.tokens';
+import { HealthService } from './application/health.service';
+import { HealthController } from './controllers/health.controller';
+import { HEALTH_DEPENDENCIES } from './ports/health.tokens';
 import { ConfigService } from '@nestjs/config';
 import type { Pool } from 'pg';
 import { POSTGRES_POOL } from '../../infrastructure/postgres';

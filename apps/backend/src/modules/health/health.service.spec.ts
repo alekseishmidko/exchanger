@@ -1,4 +1,4 @@
-import { HealthService } from './health.service';
+import { HealthService } from './application/health.service';
 import { ConfigService } from '@nestjs/config';
 
 describe('HealthService', () => {
