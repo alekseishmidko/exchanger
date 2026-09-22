@@ -75,7 +75,8 @@ production-like profile. Затем startup guard сравнивает заяв�
 3. `PostgresTradingCommandAdapter` берёт advisory transaction lock по
    `instrumentId`, назначает следующий sequence и записывает payload hash.
 4. Database triggers разрешают только монотонные переходы и автоматически
-   добавляют `ACCEPTED`, `PROCESSING`, `APPLIED|REJECTED|RECOVERY` в immutable
+   добавляют `RECEIVED`, `ACCEPTED`, `PROCESSING`,
+   `APPLIED|REJECTED|RECOVERY_REQUIRED` в immutable
    lifecycle history. Terminal status изменить нельзя.
 5. Public result, command state, idempotency result и outbox event commit-ятся
    вместе. Promise завершается только после `COMMIT`; исключение до commit

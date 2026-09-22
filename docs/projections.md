@@ -4,7 +4,7 @@
 
 | Source event | Read model effect |
 | --- | --- |
-| `OrderAccepted` | создаёт/обновляет order history со статусом `ACCEPTED` |
+| `OrderAccepted` | создаёт/обновляет order history со статусом `OPEN` либо публичным `OrderLifecycleStatus` из события |
 | `OrderRejected` | фиксирует terminal `REJECTED` status |
 | `OrderCancelled` | фиксирует `CANCELLED` и remaining quantity |
 | `TradeExecuted` | добавляет trade history для maker и taker |

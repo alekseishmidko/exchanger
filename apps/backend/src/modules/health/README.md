@@ -29,6 +29,7 @@ flowchart LR
   Port --> Outbox["outbox/event-log probe"]
   Port --> Lease["partition lease probe"]
   Port --> Admission["admission-control probe"]
+  Port --> Workers["durable-workers probe"]
 ```
 
 Liveness не обращается к `HEALTH_DEPENDENCIES`. Readiness вызывает только
@@ -38,9 +39,9 @@ bounded read-only probes и возвращает безопасный агрег
 ## Production readiness
 
 `/health/live` проверяет только процесс. `/health/ready` выполняет bounded
-read-only probes PostgreSQL, outbox, partition lease и admission control. Отказ
-critical dependency возвращает 503 без SQL/connection error. Observability
-exporter не является critical dependency.
+read-only probes PostgreSQL, outbox, partition lease, admission control и
+durable workers. Отказ critical dependency возвращает 503 без SQL/connection
+error. Observability exporter не является critical dependency.
 
 Deadline задаётся `DEPENDENCY_PROBE_TIMEOUT_MS`; PostgreSQL дополнительно
 ограничен `POSTGRES_QUERY_TIMEOUT_MS`. Probes не выполняют migrations, locks или
@@ -91,6 +92,9 @@ Liveness отвечает `200`, если HTTP-процесс способен �
 
 - Liveness не зависит от инфраструктуры.
 - Readiness отражает отказ критичной зависимости и не маскирует его кодом `200`.
+- Durable workers входят в readiness, потому что приложение не должно принимать
+  команды, если command/outbox/settlement/projection/market-data processing не
+  может безопасно продолжаться.
 - Конфигурация валидируется при старте приложения; некорректный `NODE_ENV`, `PORT` или отсутствующий `SERVICE_NAME` блокируют запуск.
 - Обязательные настройки читаются через `ConfigService.getOrThrow`, параметры с fallback — через `get`.
 - Тесты liveness/readiness и отсутствие секретов в ответах/log fields обязательны.

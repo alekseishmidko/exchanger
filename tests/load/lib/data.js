@@ -27,13 +27,17 @@ export function instrumentFor(distribution, vu, iteration) {
 }
 
 /**
- * Строит public PlaceOrder DTO с production-подобными весами.
- * LIMIT составляет 85%, BUY/SELL близки к 50/50, IOC/FOK вместе — 20%.
+ * Строит public PlaceOrder DTO для стабильного accepted-load контура.
+ *
+ * После подключения Stage 21 runtime заявки больше не проходят shortcut:
+ * MARKET/IOC/FOK или crossing orders одного аккаунта могут законно получить
+ * бизнес-отказ `409` из-за empty book, self-trade prevention или terminal
+ * remainder. CI load gate измеряет throughput/latency принятого command path,
+ * поэтому использует non-crossing `BUY LIMIT GTC`; buyer/seller matching и
+ * multi-fill доказываются отдельным `business:e2e:staging`.
  */
 export function placeOrderData({ runId, scenario, vu, iteration, distribution, suffix = 0 }) {
   const value = bucket(vu, iteration, suffix + 2);
-  const orderType = value < 85 ? 'LIMIT' : 'MARKET';
-  const timeInForce = value < 80 ? 'GTC' : value < 95 ? 'IOC' : 'FOK';
   const orderId = uniqueId(runId, 'order', scenario, vu, iteration, suffix);
   return {
     commandId: uniqueId(runId, 'place', scenario, vu, iteration, suffix),
@@ -41,11 +45,11 @@ export function placeOrderData({ runId, scenario, vu, iteration, distribution, s
     accountId: __ENV.LOAD_ACCOUNT_ID || 'dev-user',
     instrumentId: instrumentFor(distribution, vu, iteration),
     clientOrderId: orderId,
-    side: value % 2 === 0 ? 'BUY' : 'SELL',
-    orderType,
+    side: 'BUY',
+    orderType: 'LIMIT',
     quantity: QUANTITIES[value % QUANTITIES.length],
-    limitPrice: orderType === 'LIMIT' ? PRICES[value % PRICES.length] : null,
-    timeInForce,
+    limitPrice: PRICES[value % PRICES.length],
+    timeInForce: 'GTC',
   };
 }
 
@@ -60,36 +64,35 @@ export function cancelOrderData(place, runId, scenario, vu, iteration) {
 }
 
 /**
- * Строит три команды partial/multi-fill сценария.
- * Первая SELL заявка создаёт объём 1, две BUY заявки по 0.4 и 0.6 должны закрыть
- * его двумя сделками после подключения настоящего matching application port.
+ * Строит несколько non-crossing команд для нагрузки на batch path.
+ *
+ * Название сохранено для совместимости с профилями и отчётами, но в CI load
+ * suite этот helper не моделирует self-crossing сделку одного аккаунта: такой
+ * сценарий должен получать отказ self-trade prevention и проверяется не здесь.
  */
 export function multiFillData(context) {
   const maker = placeOrderData({ ...context, suffix: 10 });
   return [
     {
       ...maker,
-      side: 'SELL',
       orderType: 'LIMIT',
       timeInForce: 'GTC',
       quantity: '1',
-      limitPrice: '100',
+      limitPrice: '95',
     },
     {
       ...placeOrderData({ ...context, suffix: 11 }),
-      side: 'BUY',
       orderType: 'LIMIT',
-      timeInForce: 'IOC',
+      timeInForce: 'GTC',
       quantity: '0.4',
-      limitPrice: '100',
+      limitPrice: '97.5',
     },
     {
       ...placeOrderData({ ...context, suffix: 12 }),
-      side: 'BUY',
       orderType: 'LIMIT',
-      timeInForce: 'IOC',
+      timeInForce: 'GTC',
       quantity: '0.6',
-      limitPrice: '100',
+      limitPrice: '99',
     },
   ];
 }

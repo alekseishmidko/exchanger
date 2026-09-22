@@ -16,6 +16,7 @@ import { AuditModule } from './modules/audit';
 import { SettlementModule } from './modules/trading/settlement';
 import { SequencerModule } from './modules/trading/sequencer';
 import { AdmissionControlModule } from './modules/admin/admission-control';
+import { TradingWorkersModule } from './modules/trading/workers';
 
 /** Корневой composition root приложения и глобальной конфигурации. */
 @Module({
@@ -38,6 +39,7 @@ import { AdmissionControlModule } from './modules/admin/admission-control';
     InstrumentsModule,
     LedgerModule,
     SettlementModule,
+    TradingWorkersModule,
     AdminModule,
   ],
   providers: [RuntimeSafetyService],

@@ -11,21 +11,33 @@ import {
   AdmissionControlModule,
   AdmissionControlPort,
 } from '../admin/admission-control';
+import {
+  DURABLE_WORKER_MANAGER,
+  DurableWorkerManager,
+  TradingWorkersModule,
+} from '../trading/workers';
 
 /** Собирает health endpoints, проверки зависимостей и HTTP-наблюдаемость. */
 @Module({
-  imports: [SequencerModule, AdmissionControlModule],
+  imports: [SequencerModule, AdmissionControlModule, TradingWorkersModule],
   controllers: [HealthController],
   providers: [
     HealthService,
     {
       provide: HEALTH_DEPENDENCIES,
-      inject: [ConfigService, POSTGRES_POOL, SEQUENCER_STORE_PORT, ADMISSION_CONTROL_PORT],
+      inject: [
+        ConfigService,
+        POSTGRES_POOL,
+        SEQUENCER_STORE_PORT,
+        ADMISSION_CONTROL_PORT,
+        DURABLE_WORKER_MANAGER,
+      ],
       useFactory: (
         config: ConfigService,
         pool: Pool,
         sequencer: SequencerStorePort,
         admission: AdmissionControlPort,
+        workers: DurableWorkerManager,
       ) => {
         if (config.getOrThrow('RUNTIME_PROFILE') === 'component') return [];
         return [
@@ -45,6 +57,7 @@ import {
           },
           { name: 'partition-lease', critical: true, check: () => sequencer.checkReady() },
           { name: 'admission-control', critical: true, check: () => admission.checkReady() },
+          { name: 'durable-workers', critical: true, check: () => workers.checkReady() },
         ];
       },
     },

@@ -1,5 +1,5 @@
 import { ConfigService } from '@nestjs/config';
-import type { ApiKeyRegistry } from '../../gateway';
+import type { ApiKeyRegistry } from '../../gateway/auth/gateway.auth';
 import type { AuthenticatedSocket } from '../transport/market-data.gateway.types';
 
 /** Результат handshake проверки без сериализации exception наружу. */

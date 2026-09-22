@@ -10,6 +10,7 @@ import type {
   TradeView,
 } from '../types';
 import type { ProjectionStorePort } from '../ports/projection.port';
+import type { OrderLifecycleStatus } from '../../trading/lifecycle';
 import {
   BalanceProjectionRepository,
   OrderProjectionRepository,
@@ -170,9 +171,9 @@ export class PostgresProjectionStore implements ProjectionStorePort {
       event.eventType === 'OrderRejected' ||
       event.eventType === 'OrderCancelled'
     ) {
-      const status =
+      const status: OrderLifecycleStatus =
         event.eventType === 'OrderAccepted'
-          ? 'ACCEPTED'
+          ? this.orderStatus(event.payload['status'], 'OPEN')
           : event.eventType === 'OrderRejected'
             ? 'REJECTED'
             : 'CANCELLED';
@@ -226,5 +227,10 @@ export class PostgresProjectionStore implements ProjectionStorePort {
       return `${value}`;
     }
     throw new Error('PROJECTION_INVALID_SCALAR');
+  }
+
+  /** Безопасно извлекает order lifecycle status из JSONB payload. */
+  private orderStatus(value: unknown, fallback: OrderLifecycleStatus): OrderLifecycleStatus {
+    return typeof value === 'string' ? (value as OrderLifecycleStatus) : fallback;
   }
 }

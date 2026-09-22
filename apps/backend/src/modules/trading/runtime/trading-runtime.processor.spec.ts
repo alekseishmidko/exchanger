@@ -100,6 +100,9 @@ describe('TradingRuntimeProcessor', () => {
       commandId: 'sell-command',
       orderId: 'sell-order',
       status: 'ACCEPTED',
+      durableStatus: 'ACCEPTED',
+      executionStatus: 'APPLIED',
+      orderStatus: 'FILLED',
     });
     expect(
       ledger

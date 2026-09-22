@@ -44,6 +44,7 @@ export class PostgresTradingCommandAdapter implements TradingCommandPort {
     private readonly sequencer?: SequencerStorePort,
     private readonly ownerId = 'standalone-adapter',
     private readonly leaseTtlMs = 15_000,
+    private readonly processor?: TradingCommandPort,
   ) {}
 
   /** Durably принимает place command и создаёт `OrderAccepted` outbox event. */
@@ -144,10 +145,13 @@ export class PostgresTradingCommandAdapter implements TradingCommandPort {
         }
 
         const sequence = String(await this.nextSequence(command.instrumentId));
-        const result: GatewayCommandResult = {
+        const pendingResult: GatewayCommandResult = {
           commandId: command.commandId,
           orderId,
           status: resultStatus,
+          durableStatus: 'ACCEPTED',
+          executionStatus: 'PENDING',
+          orderStatus: commandType === 'PLACE_ORDER' ? 'PENDING' : 'CANCEL_PENDING',
         };
         const keyDigest = sha256(idempotencyKey);
         const correlationId = command.commandId;
@@ -156,7 +160,7 @@ export class PostgresTradingCommandAdapter implements TradingCommandPort {
           `INSERT INTO command_journal
           (command_id, idempotency_key_digest, payload_hash, command_payload,
            owner_id, instrument_id, sequence, command_type, status, correlation_id)
-         VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, $8, 'ACCEPTED', $9)`,
+         VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, $8, 'RECEIVED', $9)`,
           [
             command.commandId,
             keyDigest,
@@ -170,23 +174,36 @@ export class PostgresTradingCommandAdapter implements TradingCommandPort {
           ],
         );
         await client.query(
-          `UPDATE command_journal SET status = 'PROCESSING', processing_at = clock_timestamp()
+          `UPDATE command_journal SET status = 'ACCEPTED'
           WHERE command_id = $1`,
           [command.commandId],
         );
         await client.query(
-          `INSERT INTO outbox_events
-          (event_id, aggregate_type, aggregate_id, event_type, payload, correlation_id, causation_id)
-         VALUES ($1, 'order', $2, $3, $4::jsonb, $5, $6)`,
-          [
-            `event-${command.commandId}`,
-            orderId,
-            eventType,
-            JSON.stringify({ ...durablePayload, sequence }),
-            correlationId,
-            command.commandId,
-          ],
+          `UPDATE command_journal SET status = 'PROCESSING', processing_at = clock_timestamp()
+          WHERE command_id = $1`,
+          [command.commandId],
         );
+        const result = this.processor
+          ? commandType === 'PLACE_ORDER'
+            ? await this.processor.placeOrder(command as GatewayPlaceOrderCommand)
+            : await this.processor.cancelOrder(command as GatewayCancelOrderCommand)
+          : pendingResult;
+
+        if (!this.processor) {
+          await client.query(
+            `INSERT INTO outbox_events
+            (event_id, aggregate_type, aggregate_id, event_type, payload, correlation_id, causation_id)
+           VALUES ($1, 'order', $2, $3, $4::jsonb, $5, $6)`,
+            [
+              `event-${command.commandId}`,
+              orderId,
+              eventType,
+              JSON.stringify({ ...durablePayload, sequence }),
+              correlationId,
+              command.commandId,
+            ],
+          );
+        }
         await client.query(
           `UPDATE command_journal
             SET status = 'APPLIED', public_result = $2::jsonb, completed_at = clock_timestamp()

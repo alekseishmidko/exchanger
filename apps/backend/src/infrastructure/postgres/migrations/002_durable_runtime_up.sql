@@ -7,7 +7,7 @@ CREATE TABLE command_journal (
   instrument_id TEXT NOT NULL,
   sequence BIGINT NOT NULL,
   command_type TEXT NOT NULL CHECK (command_type IN ('PLACE_ORDER', 'CANCEL_ORDER')),
-  status TEXT NOT NULL CHECK (status IN ('ACCEPTED', 'PROCESSING', 'APPLIED', 'REJECTED', 'RECOVERY')),
+  status TEXT NOT NULL CHECK (status IN ('RECEIVED', 'ACCEPTED', 'PROCESSING', 'APPLIED', 'REJECTED', 'RECOVERY_REQUIRED')),
   public_result JSONB,
   correlation_id TEXT,
   causation_id TEXT,
@@ -26,7 +26,7 @@ CREATE INDEX command_journal_status_updated_idx
 CREATE TABLE command_status_history (
   command_id TEXT NOT NULL REFERENCES command_journal(command_id),
   transition_number SMALLINT NOT NULL,
-  status TEXT NOT NULL CHECK (status IN ('ACCEPTED', 'PROCESSING', 'APPLIED', 'REJECTED', 'RECOVERY')),
+  status TEXT NOT NULL CHECK (status IN ('RECEIVED', 'ACCEPTED', 'PROCESSING', 'APPLIED', 'REJECTED', 'RECOVERY_REQUIRED')),
   occurred_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
   reason_code TEXT,
   PRIMARY KEY (command_id, transition_number)
@@ -183,9 +183,10 @@ BEGIN
     RETURN NEW;
   END IF;
   IF NOT (
-    (OLD.status = 'ACCEPTED' AND NEW.status IN ('PROCESSING', 'RECOVERY', 'REJECTED')) OR
-    (OLD.status = 'PROCESSING' AND NEW.status IN ('APPLIED', 'REJECTED', 'RECOVERY')) OR
-    (OLD.status = 'RECOVERY' AND NEW.status IN ('APPLIED', 'REJECTED'))
+    (OLD.status = 'RECEIVED' AND NEW.status IN ('ACCEPTED', 'REJECTED', 'RECOVERY_REQUIRED')) OR
+    (OLD.status = 'ACCEPTED' AND NEW.status IN ('PROCESSING', 'REJECTED', 'RECOVERY_REQUIRED')) OR
+    (OLD.status = 'PROCESSING' AND NEW.status IN ('APPLIED', 'REJECTED', 'RECOVERY_REQUIRED')) OR
+    (OLD.status = 'RECOVERY_REQUIRED' AND NEW.status IN ('PROCESSING', 'APPLIED', 'REJECTED'))
   ) THEN
     RAISE EXCEPTION 'invalid command status transition: % -> %', OLD.status, NEW.status
       USING ERRCODE = '23514';

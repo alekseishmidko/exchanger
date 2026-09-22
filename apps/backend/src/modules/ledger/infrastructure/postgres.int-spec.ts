@@ -139,9 +139,11 @@ describePostgres('PostgreSQL durable runtime', () => {
         (command_id, idempotency_key_digest, payload_hash, command_payload,
          owner_id, instrument_id, sequence, command_type, status)
        VALUES ('recover-1', 'digest', 'hash', '{}', 'owner-1', 'BTC-USD', 1,
-               'PLACE_ORDER', 'ACCEPTED')`,
+               'PLACE_ORDER', 'RECEIVED')`,
     );
-    await pool.query("UPDATE command_journal SET status='RECOVERY' WHERE command_id='recover-1'");
+    await pool.query(
+      "UPDATE command_journal SET status='RECOVERY_REQUIRED' WHERE command_id='recover-1'",
+    );
     await pool.query("UPDATE command_journal SET status='REJECTED' WHERE command_id='recover-1'");
     expect(
       (
@@ -149,7 +151,7 @@ describePostgres('PostgreSQL durable runtime', () => {
           "SELECT status FROM command_status_history WHERE command_id='recover-1' ORDER BY transition_number",
         )
       ).rows.map(({ status }) => status),
-    ).toEqual(['ACCEPTED', 'RECOVERY', 'REJECTED']);
+    ).toEqual(['RECEIVED', 'RECOVERY_REQUIRED', 'REJECTED']);
     await expect(
       pool.query("UPDATE command_journal SET status='APPLIED' WHERE command_id='recover-1'"),
     ).rejects.toThrow('invalid command status transition');
@@ -178,9 +180,17 @@ describePostgres('PostgreSQL durable runtime', () => {
     const counts = await pool.query(`SELECT
       (SELECT count(*)::int FROM command_journal) AS commands,
       (SELECT count(*)::int FROM outbox_events) AS events,
-      (SELECT count(*)::int FROM api_idempotency_records) AS keys,
-      (SELECT count(*)::int FROM command_status_history) AS transitions`);
-    expect(counts.rows[0]).toEqual({ commands: 1, events: 1, keys: 1, transitions: 3 });
+      (SELECT count(*)::int FROM api_idempotency_records) AS keys`);
+    expect(counts.rows[0]).toEqual({ commands: 1, events: 1, keys: 1 });
+    const transitions = await pool.query<{ status: string }>(
+      "SELECT status FROM command_status_history WHERE command_id='command-1' ORDER BY transition_number",
+    );
+    expect(transitions.rows.map(({ status }) => status)).toEqual([
+      'RECEIVED',
+      'ACCEPTED',
+      'PROCESSING',
+      'APPLIED',
+    ]);
     const serialized = JSON.stringify(await pool.query('SELECT * FROM command_journal'));
     expect(serialized).not.toContain('raw-secret-key');
   });

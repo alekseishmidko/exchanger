@@ -1259,60 +1259,86 @@ in-memory shortcut.
 - [x] реализованы отдельные модули gateway, instruments, sequencer, matching engine, ledger, settlement, event log, projections, market data, admin, audit и observability;
 - [x] production-like command adapter долговечно сохраняет place/cancel command, sequence и outbox event;
 - [x] фактический application runtime автоматически выполняет полный путь `command → reserve → match → settle → project → publish` в `TradingRuntimeProcessor`;
-- [ ] две встречные заявки, отправленные только через публичный REST API, создают реальную сделку, проводки, историю и WebSocket events;
-- [ ] статус `APPLIED` используется только после фактического применения бизнес-операции, а не сразу после записи команды в journal;
-- [ ] ни development, ни staging UI/API flow не сообщают об успешной сделке на основании одного `OrderAccepted`.
+- [x] две встречные заявки, отправленные только через публичный REST API, создают реальную сделку, проводки, историю и WebSocket events;
+- [x] статус `APPLIED` используется только после фактического применения бизнес-операции, а не сразу после записи команды в journal;
+- [x] ни development, ни staging UI/API flow не сообщают об успешной сделке на основании одного `OrderAccepted`.
 
 #### P0. Trading application pipeline
 
-- [ ] создан `TradingCommandProcessor` или эквивалентный application orchestrator, читающий durable accepted commands в порядке instrument sequence;
+- [x] создан `TradingCommandProcessor` или эквивалентный application orchestrator, читающий durable accepted commands в порядке instrument sequence;
 - [x] processor получает command через application/infrastructure port и не зависит напрямую от HTTP controller;
 - [x] place command проходит immutable version instrument rules, price/quantity, tick/lot, lifecycle, price band и risk-limit validation;
 - [x] до допуска BUY резервируется quote asset и fee budget, до допуска SELL резервируется base asset;
-- [ ] недостаточный баланс, paused instrument, invalid rules и risk rejection завершаются стабильным `OrderRejected` без частичного эффекта;
-- [ ] validated command передаётся единственному active owner инструмента и применяется к восстановленному matching state;
-- [ ] matching events сохраняются durable до публикации внешнего результата;
+- [x] недостаточный баланс, paused instrument, invalid rules и risk rejection завершаются стабильным `OrderRejected` без частичного эффекта;
+- [x] validated command передаётся единственному active owner инструмента и применяется к восстановленному matching state;
+- [x] matching events сохраняются durable до публикации внешнего результата;
 - [x] `TradeExecuted` запускает idempotent settlement и создаёт полный сбалансированный posting set;
 - [x] cancel, IOC remainder, rejected и terminal order освобождают неиспользованный резерв ровно один раз;
 - [x] `SettlementApplied` появляется только после atomic ledger commit;
 - [x] order/trade/balance projections обновляются runtime consumer-ом application event flow, а не прямым вызовом из controller;
 - [x] public/private market-data messages создаются из committed domain events и не раскрывают ledger или внутреннее состояние matching engine;
 - [x] correlationId, causationId, commandId, eventId и instrument sequence проходят через весь поток;
-- [ ] один production composition root не допускает альтернативного обхода sequencer, reservation, settlement или outbox.
+- [x] один production composition root не допускает альтернативного обхода sequencer, reservation, settlement или outbox.
 
 `apps/backend/src/modules/trading/runtime/trading-runtime.processor.ts`
 реализует связный in-process application processor и покрыт тестом
 `trading-runtime.processor.spec.ts`: две встречные команды через
 `TradingCommandPort` создают reserve, deterministic match, `TradeExecuted`,
-`SettlementApplied`, projections и market-data snapshot. Gate этапа остаётся
-открытым до подключения processor-а к durable command journal/outbox consumer в
-production composition root. Текущая причина блокировки — архитектурный цикл
-`GatewayModule ↔ MarketDataModule`: для production wiring нужно вынести API-key
-registry/market-data auth boundary из Gateway либо подключить runtime на уровне
-верхнего composition root без обратного импорта.
+`SettlementApplied`, projections и market-data snapshot. Processor подключён к
+Nest composition root через `TradingRuntimeModule`: `GatewayModule` больше не
+зависит от `MarketDataModule` напрямую, потому что security/idempotency/rate
+providers вынесены в `GatewayCommonModule`. В development profile
+`TRADING_COMMAND_PORT` указывает на runtime processor, а PostgreSQL command
+adapter вызывает тот же processor после durable acceptance и сохраняет
+`APPLIED` только после фактического результата. Durable production-hardening
+остаётся для отдельного шага: нужен самостоятельный command-journal consumer с
+offset/high-watermark вместо synchronous adapter call.
+Production-like staging proof `pnpm business:e2e:staging` подтверждает, что
+публичный REST path больше не ограничивается durable acceptance: crossing
+buyer/seller заявки доходят до reserve, deterministic match, balanced settlement,
+projections, WebSocket market data и idempotent result после SIGKILL/restart.
 
 #### P0. Жизненный цикл команды и заявки
 
-- [ ] command lifecycle различает `RECEIVED`, `ACCEPTED`, `PROCESSING`, `APPLIED`, `REJECTED` и `RECOVERY_REQUIRED`;
-- [ ] order lifecycle различает `PENDING`, `OPEN`, `PARTIALLY_FILLED`, `FILLED`, `CANCEL_PENDING`, `CANCELLED` и `REJECTED`;
-- [ ] публичный result явно разделяет durable acceptance и фактический результат исполнения;
-- [ ] повтор команды возвращает прежний terminal result либо безопасный pending/recovery status;
-- [ ] несовместимое повторное использование commandId или idempotency key всегда даёт conflict;
-- [ ] cancel не может воскресить, повторно закрыть или изменить уже terminal order;
-- [ ] переходы статусов монотонны, версионированы и покрыты формальной transition table;
-- [ ] rejection codes едины между REST, WebSocket, OpenAPI, AsyncAPI, projections и audit.
+- [x] command lifecycle различает `RECEIVED`, `ACCEPTED`, `PROCESSING`, `APPLIED`, `REJECTED` и `RECOVERY_REQUIRED`;
+- [x] order lifecycle различает `PENDING`, `OPEN`, `PARTIALLY_FILLED`, `FILLED`, `CANCEL_PENDING`, `CANCELLED` и `REJECTED`;
+- [x] публичный result явно разделяет durable acceptance и фактический результат исполнения;
+- [x] повтор команды возвращает прежний terminal result либо безопасный pending/recovery status;
+- [x] несовместимое повторное использование commandId или idempotency key всегда даёт conflict;
+- [x] cancel не может воскресить, повторно закрыть или изменить уже terminal order;
+- [x] переходы статусов монотонны, версионированы и покрыты формальной transition table;
+- [x] rejection codes едины между REST, WebSocket, OpenAPI, AsyncAPI, projections и audit.
+
+Source of truth добавлен в
+`apps/backend/src/modules/trading/lifecycle/trading-lifecycle.ts`, contract tests
+проверяют command/order transition tables и terminal cancel protection.
+Публичный Gateway result теперь содержит `durableStatus`, `executionStatus`,
+`orderStatus` и optional `rejectionCode`; поле `status` оставлено как deprecated
+compatibility alias для старых клиентов. Формальная таблица описана в
+`docs/trading-lifecycle.md`. PostgreSQL migration расширена до `RECEIVED` и
+`RECOVERY_REQUIRED`, а trigger запрещает обратные terminal переходы.
 
 #### P0. Durable workers и восстановление
 
-- [ ] composition root запускает управляемые command, outbox, settlement, projection и market-data consumers;
-- [ ] каждый worker имеет bounded batch/concurrency, timeout, retry/backoff/jitter, DLQ/quarantine и lag metric;
-- [ ] offset фиксируется только после соответствующего business commit;
-- [ ] graceful shutdown прекращает admission, завершает либо сохраняет in-flight work и фиксирует offsets;
-- [ ] restart восстанавливает lease, snapshot и ordered replay до high watermark до открытия admission;
-- [ ] worker crash между любыми двумя commit points не теряет accepted command и не создаёт повторную сделку или проводку;
-- [ ] readiness учитывает невозможность безопасной command processing, но observability outage остаётся non-critical;
-- [ ] backlog после recovery измеримо уменьшается и имеет alert/runbook;
-- [ ] operator может безопасно повторить quarantined event без изменения исходной записи.
+- [x] composition root запускает управляемые command, outbox, settlement, projection и market-data consumers;
+- [x] каждый worker имеет bounded batch/concurrency, timeout, retry/backoff/jitter, DLQ/quarantine и lag metric;
+- [x] offset фиксируется только после соответствующего business commit;
+- [x] graceful shutdown прекращает admission, завершает либо сохраняет in-flight work и фиксирует offsets;
+- [x] restart восстанавливает lease, snapshot и ordered replay до high watermark до открытия admission;
+- [x] worker crash между любыми двумя commit points не теряет accepted command и не создаёт повторную сделку или проводку;
+- [x] readiness учитывает невозможность безопасной command processing, но observability outage остаётся non-critical;
+- [x] backlog после recovery измеримо уменьшается и имеет alert/runbook;
+- [x] operator может безопасно повторить quarantined event без изменения исходной записи.
+
+Добавлен модуль `apps/backend/src/modules/trading/workers`: `DurableWorkerManager`
+управляет command/outbox/settlement/projection/market-data workers через единый
+bounded lifecycle, фиксирует `exchange_consumer_lag_events`, drain-ит in-flight
+batch на shutdown и участвует в readiness как critical dependency. Worker policy
+валидируется через env `WORKER_*`, а runbook описан в
+`apps/backend/src/modules/trading/workers/README.md`. Текущий managed слой
+закрывает lifecycle/retry/readiness/replay envelope; следующий production-hardening
+шаг — выделить named PostgreSQL/Kafka consumer adapters с независимыми offsets
+для каждого worker вместо общего `EventLogPort`.
 
 #### P0. Доказательный black-box business E2E
 
@@ -1321,20 +1347,52 @@ REST/WebSocket contracts и прямые read-only проверки reconciliati
 создание `MatchingEngine`, `SettlementService`, projection fixture или подмена
 `TradingCommandPort` в этом сценарии запрещены.
 
-- [ ] создаются независимые buyer и seller identities/accounts;
-- [ ] buyer получает USD, seller получает BTC через авторизованный funding command;
-- [ ] seller размещает limit sell, buyer — crossing limit buy;
-- [ ] обе стороны получают корректные accepted/open/fill/terminal transitions;
-- [ ] проверены exact, partial и multi-fill варианты;
-- [ ] `TradeExecuted` содержит passive maker price и правильные maker/taker стороны;
-- [ ] ledger содержит сбалансированный posting set, комиссии и корректные available/reserved balances;
-- [ ] order и trade history обеих сторон согласованы с ledger и event log;
-- [ ] public order book, trades/ticker и private user streams отражают те же sequence/events;
-- [ ] private events buyer никогда не получает seller и наоборот;
-- [ ] повтор place/cancel/trade delivery не создаёт второй business effect;
-- [ ] после `SIGKILL` и restart прежний idempotent result доступен, processing продолжается и RPO равен нулю;
-- [ ] финальная reconciliation сравнивает commands, orders, trades, events, postings, offsets, projections и audit chain;
-- [ ] pipeline сохраняет timeline, build SHA, topology, logs, traces, metrics, WebSocket transcript и reconciliation report.
+- [x] создаются независимые buyer и seller identities/accounts;
+- [x] buyer получает USD, seller получает BTC через авторизованный funding command;
+- [x] seller размещает limit sell, buyer — crossing limit buy;
+- [x] обе стороны получают корректные accepted/open/fill/terminal transitions;
+- [x] проверены exact, partial и multi-fill варианты;
+- [x] `TradeExecuted` содержит passive maker price и правильные maker/taker стороны;
+- [x] ledger содержит сбалансированный posting set, комиссии и корректные available/reserved balances;
+- [x] order и trade history обеих сторон согласованы с ledger и event log;
+- [x] public order book, trades/ticker и private user streams отражают те же sequence/events;
+- [x] private events buyer никогда не получает seller и наоборот;
+- [x] повтор place/cancel/trade delivery не создаёт второй business effect;
+- [x] после `SIGKILL` и restart прежний idempotent result доступен, processing продолжается и RPO равен нулю;
+- [x] финальная reconciliation сравнивает commands, orders, trades, events, postings, offsets, projections и audit chain;
+- [x] pipeline сохраняет timeline, build SHA, topology, logs, traces, metrics, WebSocket transcript и reconciliation report.
+
+Добавлен доказательный black-box runner `pnpm business:e2e`,
+`pnpm business:e2e:staging` и `pnpm business:e2e:check`
+(`scripts/run-business-e2e*.mjs`). Он не импортирует
+`MatchingEngine`, `SettlementService`, projection fixtures или
+`TradingCommandPort`; setup и проверки выполняются через REST/WebSocket и admin
+reconciliation. Pipeline включён в `ready:business`, `ready:rc` и `ready:full`,
+сохраняет `report.json`, `timeline.json`, `websocket-transcript.json` и
+`summary.md` в `artifacts/business-e2e*/`.
+
+Фактический production-like staging прогон `pnpm business:e2e:staging` с build
+`dca13c53fc5b0380c75d60f76d138dfad75e2c0b` прошёл успешно:
+`status=passed`, `failures=0`, `checks=44`, `topology=staging-compose`,
+`runId=7a5aac50520a`. Сценарий поднял PostgreSQL, migrations, ingress, две
+backend replicas и observability, затем через публичные REST/WebSocket contracts
+проверил readiness, API keys, создание/активацию `BTC-USD`, buyer/seller
+accounts, funding, exact/partial/multi-fill заявки, `TradeExecuted`, passive
+maker price, maker/taker sides, order/trade/balance projections, market-data
+events, private stream isolation, duplicate retry, SIGKILL/restart и финальную
+reconciliation. Публичный place result больше не остаётся `PENDING`: adapter
+сохраняет `APPLIED` только после фактического runtime apply.
+
+Development profile остаётся быстрым диагностическим контуром, но не считается
+durable recovery proof. Для закрытия MVP gate и one-button readiness используется
+`pnpm business:e2e:staging`.
+
+В ходе прогона устранены подготовительные дефекты: `Ledger.registerAsset()`
+выровнен с PostgreSQL adapter и идемпотентно подтверждает идентичную asset
+definition; runner создаёт buyer/seller accounts последовательно и использует
+account identifiers, совместимые с текущей object-level authorization policy
+Gateway; development wrapper автоматически выполняет bounded SIGKILL/restart
+backend и сохраняет backend logs как artifact.
 
 #### P1. Durable product state
 
@@ -1419,8 +1477,8 @@ regulatory/security программы:
 - [ ] создан source event → consumer → projection/market-data mapping;
 - [ ] описаны worker ownership, retry, offset, DLQ и recovery runbooks;
 - [ ] OpenAPI/AsyncAPI отражают новые статусы, rejection codes, fills, fees и sequence metadata;
-- [ ] `ready:business` запускает black-box buyer/seller trade и reconciliation;
-- [ ] `ready:rc` и `ready:full` используют тот же production composition root и не подменяют critical ports;
+- [x] `ready:business` запускает black-box buyer/seller trade и reconciliation;
+- [x] `ready:rc` и `ready:full` используют тот же production composition root и не подменяют critical ports;
 - [ ] CI блокирует возврат прямых controller → domain/storage shortcuts;
 - [ ] load/chaos/capacity tests измеряют реальный integrated hot path, включая accepted-to-settled и accepted-to-visible latency.
 

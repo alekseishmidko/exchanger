@@ -312,6 +312,35 @@ components:
     DecimalString:
       type: string
       pattern: '^(0|[1-9][0-9]*)(\.[0-9]+)?$'
+    OrderLifecycleStatus:
+      type: string
+      enum: [PENDING, OPEN, PARTIALLY_FILLED, FILLED, CANCEL_PENDING, CANCELLED, REJECTED]
+      description: Публичный lifecycle заявки; совпадает с REST, projections и audit catalog.
+    TradingRejectionCode:
+      type: string
+      enum:
+        [
+          COMMAND_ID_REUSED,
+          IDEMPOTENCY_KEY_REUSED,
+          IDEMPOTENCY_OPERATION_PENDING,
+          INSTRUMENT_PAUSED,
+          INSTRUMENT_RULES_MISSING,
+          INVALID_QUANTITY,
+          INVALID_PRICE,
+          LIMIT_PRICE_REQUIRED,
+          MARKET_PRICE_NOT_ALLOWED,
+          OPEN_ORDER_LIMIT,
+          NOTIONAL_LIMIT,
+          INSUFFICIENT_BALANCE,
+          ORDER_REJECTED,
+          ORDER_CANCEL_REJECTED,
+          ORDER_NOT_FOUND,
+          ORDER_NOT_ACTIVE,
+          SELF_TRADE,
+          FOK_NOT_FILLED,
+          RISK_REJECTED,
+          RECOVERY_REQUIRED,
+        ]
     SubscribeRequest:
       oneOf:
         - type: object
@@ -431,11 +460,41 @@ components:
         channel: { type: string, const: user }
         userId: { $ref: '#/components/schemas/Identifier' }
         sequence: { type: integer, minimum: 1 }
-        type: { type: string, minLength: 1, maxLength: 128 }
+        type:
+          type: string
+          enum: [ORDER_UPDATED, ORDER_REJECTED, TRADE_EXECUTED, SETTLEMENT_APPLIED]
         payload:
-          type: object
           description: Allow-listed public user-event payload; never contains ledger postings.
-          additionalProperties: true
+          oneOf:
+            - $ref: '#/components/schemas/PrivateOrderPayload'
+            - $ref: '#/components/schemas/PrivateTradePayload'
+            - $ref: '#/components/schemas/PrivateSettlementPayload'
+    PrivateOrderPayload:
+      type: object
+      additionalProperties: false
+      required: [orderId, status]
+      properties:
+        orderId: { $ref: '#/components/schemas/Identifier' }
+        status: { $ref: '#/components/schemas/OrderLifecycleStatus' }
+        rejectionCode: { $ref: '#/components/schemas/TradingRejectionCode' }
+    PrivateTradePayload:
+      type: object
+      additionalProperties: false
+      required: [tradeId, orderId, instrumentId, price, quantity]
+      properties:
+        tradeId: { $ref: '#/components/schemas/Identifier' }
+        orderId: { $ref: '#/components/schemas/Identifier' }
+        instrumentId: { $ref: '#/components/schemas/Identifier' }
+        price: { $ref: '#/components/schemas/DecimalString' }
+        quantity: { $ref: '#/components/schemas/DecimalString' }
+    PrivateSettlementPayload:
+      type: object
+      additionalProperties: false
+      required: [settlementId, orderId, status]
+      properties:
+        settlementId: { $ref: '#/components/schemas/Identifier' }
+        orderId: { $ref: '#/components/schemas/Identifier' }
+        status: { type: string, enum: [APPLIED] }
     SubscriptionAck:
       type: object
       additionalProperties: false

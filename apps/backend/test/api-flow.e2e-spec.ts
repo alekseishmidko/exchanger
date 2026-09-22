@@ -59,6 +59,9 @@ class ProjectingTradingPort implements TradingCommandPort {
       commandId: command.commandId,
       orderId: command.clientOrderId,
       status: 'ACCEPTED',
+      durableStatus: 'ACCEPTED',
+      executionStatus: 'APPLIED',
+      orderStatus: 'OPEN',
     } as const;
     this.results.set(result.orderId, { ownerId: command.userId, result });
     return result;
@@ -84,6 +87,9 @@ class ProjectingTradingPort implements TradingCommandPort {
       commandId: command.commandId,
       orderId: command.orderId,
       status: 'CANCEL_ACCEPTED',
+      durableStatus: 'ACCEPTED',
+      executionStatus: 'APPLIED',
+      orderStatus: 'CANCELLED',
     } as const;
     this.results.set(result.orderId, { ownerId: command.userId, result });
     return result;
@@ -154,7 +160,7 @@ describe('HTTP command to domain and projection flow', () => {
       .expect(({ body }) => {
         const page = body as { items: Array<{ orderId: string; status: string }> };
         expect(page.items).toEqual([
-          expect.objectContaining({ orderId: 'order-flow-1', status: 'ACCEPTED' }),
+          expect.objectContaining({ orderId: 'order-flow-1', status: 'OPEN' }),
         ]);
       });
   });

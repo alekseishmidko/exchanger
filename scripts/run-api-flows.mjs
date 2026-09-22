@@ -6,6 +6,8 @@ import { resolve } from 'node:path';
 const baseUrl = (process.env['API_FLOW_BASE_URL'] ?? 'http://localhost:5001').replace(/\/+$/, '');
 /** API key читается только из process environment и никогда не попадает в отчёт. */
 const apiKey = process.env['API_FLOW_API_KEY'] ?? 'dev-key';
+/** Admin key нужен только для безопасной подготовки smoke-данных через public API. */
+const adminApiKey = process.env['API_FLOW_ADMIN_API_KEY'] ?? 'dev-admin-key';
 /** Ограничивает один HTTP-вызов, чтобы зависшая зависимость завершала pipeline. */
 const requestTimeoutMs = Number(process.env['API_FLOW_REQUEST_TIMEOUT_MS'] ?? 5000);
 /** Ограничивает ожидание старта Compose/Nest перед выполнением business flows. */
@@ -69,6 +71,7 @@ async function runStep({
   expectedStatus = 200,
   body,
   validate,
+  key = apiKey,
 }) {
   const stepStartedAt = performance.now();
   let statusCode = null;
@@ -78,7 +81,7 @@ async function runStep({
       signal: AbortSignal.timeout(requestTimeoutMs),
       headers: {
         accept: 'application/json',
-        'x-api-key': apiKey,
+        'x-api-key': key,
         ...(body ? { 'content-type': 'application/json' } : {}),
         ...(body?.idempotencyKey ? { 'idempotency-key': body.idempotencyKey } : {}),
       },
@@ -86,8 +89,11 @@ async function runStep({
     });
     statusCode = response.status;
     const responseBody = await response.json().catch(() => null);
-    if (response.status !== expectedStatus) {
-      throw new Error(`ожидался HTTP ${expectedStatus}, получен HTTP ${response.status}`);
+    const expectedStatuses = Array.isArray(expectedStatus) ? expectedStatus : [expectedStatus];
+    if (!expectedStatuses.includes(response.status)) {
+      throw new Error(
+        `ожидался HTTP ${expectedStatuses.join('/')} получен HTTP ${response.status}`,
+      );
     }
     validate?.(responseBody);
     const result = {
@@ -111,6 +117,155 @@ async function runStep({
     steps.push(result);
     process.stderr.write(`✗ [${group}] ${name}: ${result.error}\n`);
   }
+}
+
+/**
+ * Выполняет служебный HTTP-запрос для подготовки smoke-flow.
+ *
+ * В отличие от `runStep`, helper не добавляет отдельную строку в summary:
+ * setup остаётся технической предпосылкой для проверки публичного user-flow.
+ * Credentials и payload не сохраняются в artifacts.
+ */
+async function requestJson(path, { method = 'GET', key = apiKey, idempotencyKey, body, expected }) {
+  const response = await fetch(`${baseUrl}${path}`, {
+    method,
+    signal: AbortSignal.timeout(requestTimeoutMs),
+    headers: {
+      accept: 'application/json',
+      'x-api-key': key,
+      ...(body ? { 'content-type': 'application/json' } : {}),
+      ...(idempotencyKey ? { 'idempotency-key': idempotencyKey } : {}),
+    },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const responseBody = await response.json().catch(() => null);
+  const expectedStatuses = Array.isArray(expected) ? expected : [expected];
+  if (!expectedStatuses.includes(response.status)) {
+    throw new Error(
+      `setup ${method} ${path}: ожидался HTTP ${expectedStatuses.join('/')} получен HTTP ${response.status}`,
+    );
+  }
+  return { status: response.status, body: responseBody };
+}
+
+/** Выпускает второй admin key, чтобы dual-control команды проходили как в UI. */
+async function issueApprovalAdminKey() {
+  const commandId = `smoke-approval-admin-${runId}`;
+  const issued = await requestJson('/api/v1/auth/api-keys', {
+    method: 'POST',
+    key: adminApiKey,
+    idempotencyKey: commandId,
+    expected: 201,
+    body: {
+      commandId,
+      userId: `smoke-approval-admin-${runId}`,
+      role: 'admin',
+      label: `api-flow-approval-${runId}`,
+    },
+  });
+  assert(typeof issued.body?.apiKey === 'string', 'approval admin key не выпущен');
+  return issued.body.apiKey;
+}
+
+/**
+ * Выпускает одноразовый trader key, чей subject совпадает с тестовым accountId.
+ *
+ * Gateway intentionally проверяет object-level authorization через
+ * `principal.userId === accountId`; поэтому smoke-flow не может создать
+ * произвольный account и затем торговать фиксированным `dev-key`.
+ */
+async function issueTraderKeyForAccount(accountId) {
+  const commandId = `smoke-trader-key-${runId}`;
+  const issued = await requestJson('/api/v1/auth/api-keys', {
+    method: 'POST',
+    key: adminApiKey,
+    idempotencyKey: commandId,
+    expected: 201,
+    body: {
+      commandId,
+      userId: accountId,
+      role: 'trader',
+      label: `api-flow-trader-${runId}`,
+    },
+  });
+  assert(typeof issued.body?.apiKey === 'string', 'trader key не выпущен');
+  return issued.body.apiKey;
+}
+
+/**
+ * Выполняет admin-команду с dual-control approval, если политика требует
+ * второго администратора. Это важно для smoke-flow: он проверяет реальные
+ * transport boundaries, а не мутирует instrument catalog напрямую.
+ */
+async function dualControl(path, body, idempotencyKey, approvalAdminKey) {
+  const requested = await requestJson(path, {
+    method: 'POST',
+    key: adminApiKey,
+    idempotencyKey,
+    expected: [201, 409],
+    body,
+  });
+  if (requested.status === 409 || requested.body?.status !== 'PENDING_APPROVAL') return requested;
+  await requestJson(`/api/v1/admin/approvals/${body.commandId}`, {
+    method: 'POST',
+    key: approvalAdminKey,
+    idempotencyKey: `${idempotencyKey}-approval`,
+    expected: [201, 409],
+  });
+  return requested;
+}
+
+/** Гарантирует, что order smoke не зависит от случайного состояния каталога. */
+async function ensureTradingPrerequisites(accountId) {
+  const approvalAdminKey = await issueApprovalAdminKey();
+  const existing = await requestJson('/api/v1/instruments/BTC-USD', {
+    key: adminApiKey,
+    expected: [200, 404],
+  });
+  if (existing.status === 404) {
+    const createCommandId = `smoke-instrument-create-${runId}`;
+    await dualControl(
+      '/api/v1/admin/instruments',
+      {
+        commandId: createCommandId,
+        mode: 'CREATE',
+        instrumentId: 'BTC-USD',
+        baseAssetId: 'BTC',
+        quoteAssetId: 'USD',
+        rules: {
+          version: `smoke-rules-${runId}`,
+          effectiveAt: '2026-01-01T00:00:00.000Z',
+          tickSize: '0.5',
+          lotSize: '0.001',
+          minQuantity: '0.001',
+          maxQuantity: '100',
+          minPrice: '1',
+          maxPrice: '1000000',
+          feePolicyVersion: `smoke-fees-${runId}`,
+          maxOrderQuantity: '100',
+          maxOpenOrders: 1000,
+          maxNotional: '100000000',
+        },
+      },
+      createCommandId,
+      approvalAdminKey,
+    );
+  }
+  const activateCommandId = `smoke-instrument-activate-${runId}`;
+  await dualControl(
+    '/api/v1/admin/instruments/BTC-USD/status',
+    { commandId: activateCommandId, status: 'ACTIVE' },
+    activateCommandId,
+    approvalAdminKey,
+  );
+  const fundCommandId = `smoke-fund-usd-${runId}`;
+  await requestJson(`/api/v1/accounts/${accountId}/balances/USD/commands`, {
+    method: 'POST',
+    key: adminApiKey,
+    idempotencyKey: fundCommandId,
+    expected: 201,
+    body: { commandId: fundCommandId, action: 'CREDIT', amount: '10000' },
+  });
 }
 
 /** Завершает step ошибкой, если публичный JSON-контракт нарушен. */
@@ -221,18 +376,20 @@ async function main() {
     });
 
     const accountId = `smoke-account-${runId}`;
+    const traderApiKey = await issueTraderKeyForAccount(accountId);
     await runStep({
       group: 'accounts',
       name: 'create account',
       method: 'POST',
       path: '/api/v1/accounts',
       expectedStatus: 201,
+      key: traderApiKey,
       body: {
         idempotencyKey: `smoke-account-idem-${runId}`,
         payload: {
           commandId: `smoke-account-command-${runId}`,
           accountId,
-          ownerId: authenticatedSubjectId,
+          ownerId: accountId,
           balances: [{ assetId: 'USD', code: 'USD', scale: 2 }],
         },
       },
@@ -242,21 +399,23 @@ async function main() {
       group: 'accounts',
       name: 'read account',
       path: `/api/v1/accounts/${accountId}`,
-      validate: (body) =>
-        assert(body?.ownerId === authenticatedSubjectId, 'account ownership invalid'),
+      key: traderApiKey,
+      validate: (body) => assert(body?.ownerId === accountId, 'account ownership invalid'),
     });
     await runStep({
       group: 'accounts',
       name: 'read balances',
       path: `/api/v1/accounts/${accountId}/balances`,
+      key: traderApiKey,
       validate: (body) => assert(Array.isArray(body?.items), 'balance page invalid'),
     });
+    await ensureTradingPrerequisites(accountId);
 
     const orderId = `smoke-order-${runId}`;
     const orderPayload = {
       commandId: `smoke-order-command-${runId}`,
       orderId,
-      accountId: authenticatedSubjectId,
+      accountId,
       instrumentId: 'BTC-USD',
       clientOrderId: orderId,
       side: 'BUY',
@@ -273,9 +432,11 @@ async function main() {
       method: 'POST',
       path: '/api/v1/orders',
       expectedStatus: 201,
+      key: traderApiKey,
       body: orderBody,
       validate: (body) => {
         assert(body?.status === 'ACCEPTED', 'order не принят');
+        assert(body?.executionStatus === 'APPLIED', 'order не применён runtime processor');
         firstOrderResult = body;
       },
     });
@@ -285,6 +446,7 @@ async function main() {
       method: 'POST',
       path: '/api/v1/orders',
       expectedStatus: 201,
+      key: traderApiKey,
       body: orderBody,
       validate: (body) =>
         assert(
@@ -296,6 +458,7 @@ async function main() {
       group: 'orders',
       name: 'order query',
       path: '/api/v1/orders?limit=100',
+      key: traderApiKey,
       validate: (body) =>
         assert(
           body?.items?.some((item) => item.orderId === orderId),
@@ -308,12 +471,13 @@ async function main() {
       method: 'POST',
       path: `/api/v1/orders/${orderId}/cancel`,
       expectedStatus: 201,
+      key: traderApiKey,
       body: {
         idempotencyKey: `smoke-cancel-idem-${runId}`,
         payload: {
           commandId: `smoke-cancel-command-${runId}`,
           orderId,
-          accountId: authenticatedSubjectId,
+          accountId,
           instrumentId: 'BTC-USD',
         },
       },

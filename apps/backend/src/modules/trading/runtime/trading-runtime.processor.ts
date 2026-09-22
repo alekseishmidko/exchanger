@@ -4,14 +4,15 @@ import type {
   GatewayCommandResult,
   GatewayPlaceOrderCommand,
   TradingCommandPort,
-} from '../../gateway';
+} from '../../gateway/types/gateway.types';
 import { MarketDataHub } from '../../market-data';
 import { LedgerPort } from '../../ledger';
-import { ProjectionStore } from '../../projections';
+import type { ProjectionStorePort } from '../../projections';
 import { Decimal, createId, type AccountId, type AssetId } from '../../shared-kernel';
 import { InstrumentCatalogService, InstrumentSnapshot } from '../instruments';
 import { MatchingEngine, MatchingEvent, MatchingCommand } from '../matching-engine/matching-engine';
 import { SettlementService, TradeExecuted } from '../settlement';
+import type { OrderLifecycleStatus } from '../lifecycle';
 
 /** Сохранённый application snapshot заявки, необходимый для settlement/release. */
 type RuntimeOrderState = Readonly<{
@@ -60,7 +61,7 @@ export class TradingRuntimeProcessor implements TradingCommandPort {
     private readonly instruments: InstrumentCatalogService,
     private readonly ledger: LedgerPort,
     private readonly settlement: SettlementService,
-    private readonly projections: ProjectionStore,
+    private readonly projections: ProjectionStorePort,
     private readonly marketData: MarketDataHub,
   ) {}
 
@@ -115,6 +116,9 @@ export class TradingRuntimeProcessor implements TradingCommandPort {
       commandId: command.commandId,
       orderId: command.clientOrderId,
       status: 'ACCEPTED',
+      durableStatus: 'ACCEPTED',
+      executionStatus: 'APPLIED',
+      orderStatus: this.orderStatus(events),
     } as const;
     this.results.set(command.commandId, result);
     return result;
@@ -138,6 +142,9 @@ export class TradingRuntimeProcessor implements TradingCommandPort {
       commandId: command.commandId,
       orderId: command.orderId,
       status: 'CANCEL_ACCEPTED',
+      durableStatus: 'ACCEPTED',
+      executionStatus: 'APPLIED',
+      orderStatus: 'CANCELLED',
     } as const;
     this.results.set(command.commandId, result);
     return result;
@@ -240,7 +247,7 @@ export class TradingRuntimeProcessor implements TradingCommandPort {
   ): Promise<void> {
     for (const event of events) {
       if (event.kind === 'ORDER_ACCEPTED' || event.kind === 'ORDER_CANCELLED') {
-        this.projections.apply({
+        await this.projections.apply({
           eventId: `projection-${commandId}-${event.kind}-${event.sequence}`,
           eventType: event.kind === 'ORDER_ACCEPTED' ? 'OrderAccepted' : 'OrderCancelled',
           sequence: this.nextProjectionSequence(),
@@ -290,7 +297,7 @@ export class TradingRuntimeProcessor implements TradingCommandPort {
     };
     await this.settlement.appendTrade(trade);
     const settlement = await this.settlement.settleTrade(trade);
-    this.projections.apply({
+    await this.projections.apply({
       eventId: trade.eventId,
       eventType: 'TradeExecuted',
       sequence: this.nextProjectionSequence(),
@@ -307,7 +314,7 @@ export class TradingRuntimeProcessor implements TradingCommandPort {
         price: event.price,
       },
     });
-    this.projections.apply({
+    await this.projections.apply({
       eventId: settlement.eventId,
       eventType: 'SettlementApplied',
       sequence: this.nextProjectionSequence(),
@@ -375,5 +382,14 @@ export class TradingRuntimeProcessor implements TradingCommandPort {
         message: 'Order state is missing',
       });
     return state;
+  }
+
+  /** Выбирает публичный order lifecycle из событий matching engine. */
+  private orderStatus(events: readonly MatchingEvent[]): OrderLifecycleStatus {
+    for (const event of [...events].reverse()) {
+      if (event.kind === 'ORDER_CANCELLED') return 'CANCELLED';
+      if (event.kind === 'ORDER_ACCEPTED') return event.status;
+    }
+    return 'OPEN';
   }
 }

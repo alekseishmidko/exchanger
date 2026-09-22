@@ -36,6 +36,42 @@ pnpm build
 зелёные, а новые изменения не ухудшили maintainability baseline”. Она не
 доказывает устойчивость под production load.
 
+## Локальная проверка backend одной командой
+
+Для проверки именно backend-контура используйте:
+
+```bash
+pnpm backend:check
+```
+
+Если в локальном shell нет прямого `pnpm` shim, используйте эквивалент:
+
+```bash
+corepack pnpm backend:check
+# или
+npm run backend:check
+```
+
+Команда последовательно запускает security, maintainability, lint, format,
+typecheck, contract/adversarial/observability checks, lightweight load/chaos
+guards, readiness framework, backend test/build и durable PostgreSQL int-spec.
+Если `POSTGRES_URL` не задан, runner сам поднимает одноразовый
+`postgres:16-alpine`, прогоняет durable repository tests и удаляет контейнер.
+
+Для более широкого локального прогона с black-box API flow и коротким k6 smoke:
+
+```bash
+pnpm backend:check:full
+```
+
+Обе команды сохраняют машинный отчёт и markdown summary в
+`artifacts/backend-checks/<run-id>/`. Если нужно прогнать durable int-spec
+против своей БД, передайте `POSTGRES_URL`:
+
+```bash
+POSTGRES_URL=postgresql://postgres:postgres@127.0.0.1:5432/exchange pnpm backend:check
+```
+
 ## Maintainability gate
 
 Перед любым рефакторингом и после него нужно сохранить baseline:

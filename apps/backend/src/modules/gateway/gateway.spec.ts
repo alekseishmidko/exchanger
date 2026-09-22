@@ -4,6 +4,7 @@ import request from 'supertest';
 import { AppModule } from '../../app.module';
 import { ApiKeyRegistry } from './auth/gateway.auth';
 import { ADMISSION_CONTROL_PORT, AdmissionControlPort } from '../admin/admission-control';
+import { InMemoryTradingCommandPort, TRADING_COMMAND_PORT } from './types/gateway.types';
 
 /**
  * E2E-проверки внешнего Gateway-контракта.
@@ -24,6 +25,8 @@ describe('Gateway command API', () => {
           { keyId: 'admin-key', role: 'admin', userId: 'admin-user' },
         ]),
       )
+      .overrideProvider(TRADING_COMMAND_PORT)
+      .useValue(new InMemoryTradingCommandPort())
       .compile();
     app = moduleRef.createNestApplication<NestFastifyApplication>(new FastifyAdapter());
     await app.init();
@@ -159,7 +162,14 @@ describe('Gateway command API', () => {
       .set('idempotency-key', 'idem-1')
       .send(order)
       .expect(201)
-      .expect({ commandId: 'command-1', orderId: 'client-1', status: 'ACCEPTED' });
+      .expect({
+        commandId: 'command-1',
+        orderId: 'client-1',
+        status: 'ACCEPTED',
+        durableStatus: 'ACCEPTED',
+        executionStatus: 'PENDING',
+        orderStatus: 'PENDING',
+      });
   });
 
   /** Lookup endpoint даёт стабильную ручную проверку без offset-cursor race. */
@@ -175,7 +185,14 @@ describe('Gateway command API', () => {
       .get('/api/v1/orders/lookup-order-1')
       .set('x-api-key', 'dev-key')
       .expect(200)
-      .expect({ commandId: 'lookup-command-1', orderId: 'lookup-order-1', status: 'ACCEPTED' });
+      .expect({
+        commandId: 'lookup-command-1',
+        orderId: 'lookup-order-1',
+        status: 'ACCEPTED',
+        durableStatus: 'ACCEPTED',
+        executionStatus: 'PENDING',
+        orderStatus: 'PENDING',
+      });
 
     await request(app.getHttpServer())
       .get('/api/v1/orders/missing-order')
@@ -263,7 +280,14 @@ describe('Gateway command API', () => {
         instrumentId: 'BTC-USD',
       })
       .expect(201)
-      .expect({ commandId: 'cancel-1', orderId: 'order-1', status: 'CANCEL_ACCEPTED' });
+      .expect({
+        commandId: 'cancel-1',
+        orderId: 'order-1',
+        status: 'CANCEL_ACCEPTED',
+        durableStatus: 'ACCEPTED',
+        executionStatus: 'PENDING',
+        orderStatus: 'CANCEL_PENDING',
+      });
   });
 
   it('enforces bounded pagination limits', async () => {

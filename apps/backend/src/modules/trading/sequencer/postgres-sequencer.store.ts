@@ -240,7 +240,7 @@ export class PostgresSequencerStore implements SequencerStorePort {
       if (lastSequence < 0) throw new Error('PARTITION_NOT_FOUND');
       const inFlight = await client.query(
         `SELECT 1 FROM command_journal
-          WHERE instrument_id=$1 AND status IN ('ACCEPTED', 'PROCESSING', 'RECOVERY') LIMIT 1`,
+          WHERE instrument_id=$1 AND status IN ('RECEIVED', 'ACCEPTED', 'PROCESSING', 'RECOVERY_REQUIRED') LIMIT 1`,
         [lease.instrumentId],
       );
       if (inFlight.rowCount) throw new Error('SNAPSHOT_IN_FLIGHT_COMMANDS');
@@ -295,7 +295,7 @@ export class PostgresSequencerStore implements SequencerStorePort {
       );
       const inFlight = await client.query(
         `SELECT 1 FROM command_journal
-          WHERE instrument_id=$1 AND status IN ('ACCEPTED', 'PROCESSING', 'RECOVERY') LIMIT 1`,
+          WHERE instrument_id=$1 AND status IN ('RECEIVED', 'ACCEPTED', 'PROCESSING', 'RECOVERY_REQUIRED') LIMIT 1`,
         [lease.instrumentId],
       );
       if (inFlight.rowCount) throw new Error('GRACEFUL_SHUTDOWN_IN_FLIGHT');

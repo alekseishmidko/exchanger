@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
 import { AuditModule } from '../audit';
-import { GatewayModule } from '../gateway';
+import { GatewayCommonModule } from '../gateway/gateway-common.module';
 import { ConfigService } from '@nestjs/config';
 import { POSTGRES_TRANSACTION, PostgresTransactionManager } from '../../infrastructure/postgres';
 import { LedgerApplicationService } from './application/ledger-application.service';
@@ -12,7 +12,7 @@ import type { LedgerPort } from './ports/ledger.port';
 
 /** Composition root ledger application boundary и его REST adapter. */
 @Module({
-  imports: [AuditModule, GatewayModule],
+  imports: [AuditModule, GatewayCommonModule],
   controllers: [LedgerController],
   providers: [
     {

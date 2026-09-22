@@ -1,4 +1,5 @@
 import { check, sleep } from 'k6';
+import http from 'k6/http';
 import { Counter, Rate, Trend } from 'k6/metrics';
 import { WebSocket } from 'k6/websockets';
 import exec from 'k6/execution';
@@ -11,6 +12,8 @@ const selected = profile(selectedProfile);
 const baseUrl = (__ENV.LOAD_BASE_URL || 'http://backend:5000').replace(/\/+$/, '');
 const wsUrl = (__ENV.LOAD_WS_URL || baseUrl.replace(/^http/, 'ws')).replace(/\/+$/, '');
 const apiKey = __ENV.LOAD_API_KEY || 'dev-key';
+const adminApiKey = __ENV.LOAD_ADMIN_API_KEY || 'dev-admin-key';
+const accountId = __ENV.LOAD_ACCOUNT_ID || 'dev-user';
 const runId = __ENV.LOAD_RUN_ID || 'local';
 const distribution = __ENV.LOAD_DISTRIBUTION || 'hot';
 const durationOverride = __ENV.LOAD_DURATION;
@@ -91,10 +94,171 @@ export function setup() {
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     const response = getQuery(baseUrl, '/health/ready', apiKey, '/health/ready');
     status = response.status;
-    if (status === 200) return { runId };
+    if (status === 200) {
+      prepareLoadState(runId);
+      return { runId };
+    }
     sleep(1);
   }
   throw new Error(`SUT не готов после ${attempts} попыток: HTTP ${status}`);
+}
+
+/**
+ * k6 setup выполняет public/admin подготовку данных перед измеряемой нагрузкой.
+ *
+ * Stage 21 убрал acceptance shortcut: place command теперь проходит instrument
+ * rules, account ownership и ledger reservation. Поэтому нагрузочный профиль не
+ * может начинаться с пустого in-memory состояния и должен создать активные
+ * инструменты, account и funding через те же transport boundaries, что и UI.
+ */
+function prepareLoadState(runIdForSetup) {
+  const approvalAdminKey = issueApprovalAdminKey(runIdForSetup);
+  for (const instrumentId of ['BTC-USD', 'ETH-USD', 'SOL-USD', 'ADA-USD']) {
+    ensureInstrument(instrumentId, approvalAdminKey, runIdForSetup);
+  }
+  requestJson('/api/v1/accounts', {
+    method: 'POST',
+    apiKey,
+    idempotencyKey: `load-account-${runIdForSetup}`,
+    expected: [201, 409],
+    body: {
+      commandId: `load-account-${runIdForSetup}`,
+      accountId,
+      ownerId: accountId,
+      balances: [
+        { assetId: 'USD', code: 'USD', scale: 2 },
+        { assetId: 'BTC', code: 'BTC', scale: 8 },
+        { assetId: 'ETH', code: 'ETH', scale: 8 },
+        { assetId: 'SOL', code: 'SOL', scale: 8 },
+        { assetId: 'ADA', code: 'ADA', scale: 8 },
+      ],
+    },
+  });
+  for (const [assetId, amount] of [
+    ['USD', '1000000000'],
+    ['BTC', '1000000'],
+    ['ETH', '1000000'],
+    ['SOL', '1000000'],
+    ['ADA', '1000000'],
+  ]) {
+    requestJson(`/api/v1/accounts/${accountId}/balances/${assetId}/commands`, {
+      method: 'POST',
+      apiKey: adminApiKey,
+      idempotencyKey: `load-fund-${assetId}-${runIdForSetup}`,
+      expected: [201],
+      body: {
+        commandId: `load-fund-${assetId}-${runIdForSetup}`,
+        action: 'CREDIT',
+        amount,
+      },
+    });
+  }
+}
+
+/** Выполняет HTTP-запрос setup-фазы без сохранения credentials в custom metrics. */
+function requestJson(path, { method = 'GET', apiKey: key = apiKey, idempotencyKey, body, expected }) {
+  const hasBody = body !== undefined;
+  const response = http.request(method, `${baseUrl}${path}`, hasBody ? JSON.stringify(body) : undefined, {
+    headers: {
+      accept: 'application/json',
+      'x-api-key': key,
+      ...(hasBody ? { 'content-type': 'application/json' } : {}),
+      ...(idempotencyKey ? { 'idempotency-key': idempotencyKey } : {}),
+    },
+    tags: { name: `setup ${method} ${path.replace(/\/[^/]+$/, '/:id')}` },
+    timeout: __ENV.LOAD_REQUEST_TIMEOUT || '5s',
+  });
+  const expectedStatuses = Array.isArray(expected) ? expected : [expected];
+  if (!expectedStatuses.includes(response.status)) {
+    throw new Error(`setup ${method} ${path}: ожидался HTTP ${expectedStatuses.join('/')} получен HTTP ${response.status}`);
+  }
+  return response;
+}
+
+/** Выпускает второго admin для dual-control instrument lifecycle операций. */
+function issueApprovalAdminKey(runIdForSetup) {
+  const response = requestJson('/api/v1/auth/api-keys', {
+    method: 'POST',
+    apiKey: adminApiKey,
+    idempotencyKey: `load-approval-admin-${runIdForSetup}`,
+    expected: [201],
+    body: {
+      commandId: `load-approval-admin-${runIdForSetup}`,
+      userId: `load-approval-admin-${runIdForSetup}`,
+      role: 'admin',
+      label: `load-approval-${runIdForSetup}`,
+    },
+  });
+  const payload = response.json();
+  if (!payload || typeof payload.apiKey !== 'string') {
+    throw new Error('setup не получил approval admin apiKey');
+  }
+  return payload.apiKey;
+}
+
+/** Выполняет admin command и approval, если policy вернула PENDING_APPROVAL. */
+function dualControl(path, body, idempotencyKey, approvalAdminKey) {
+  const requested = requestJson(path, {
+    method: 'POST',
+    apiKey: adminApiKey,
+    idempotencyKey,
+    expected: [201, 409],
+    body,
+  });
+  const payload = requested.json();
+  if (requested.status !== 409 && payload && payload.status === 'PENDING_APPROVAL') {
+    requestJson(`/api/v1/admin/approvals/${body.commandId}`, {
+      method: 'POST',
+      apiKey: approvalAdminKey,
+      idempotencyKey: `${idempotencyKey}-approval`,
+      expected: [201, 409],
+    });
+  }
+}
+
+/** Создаёт и активирует инструмент с валидными immutable trading rules. */
+function ensureInstrument(instrumentId, approvalAdminKey, runIdForSetup) {
+  const existing = requestJson(`/api/v1/instruments/${instrumentId}`, {
+    apiKey: adminApiKey,
+    expected: [200, 404],
+  });
+  if (existing.status === 404) {
+    const [baseAssetId, quoteAssetId] = instrumentId.split('-');
+    const commandId = `load-instrument-${instrumentId}-${runIdForSetup}`;
+    dualControl(
+      '/api/v1/admin/instruments',
+      {
+        commandId,
+        mode: 'CREATE',
+        instrumentId,
+        baseAssetId,
+        quoteAssetId,
+        rules: {
+          version: `load-rules-${instrumentId}-${runIdForSetup}`,
+          effectiveAt: '2026-01-01T00:00:00.000Z',
+          tickSize: '0.5',
+          lotSize: '0.001',
+          minQuantity: '0.001',
+          maxQuantity: '100',
+          minPrice: '1',
+          maxPrice: '1000000',
+          feePolicyVersion: `load-fees-${instrumentId}-${runIdForSetup}`,
+          maxOrderQuantity: '100',
+          maxOpenOrders: 100000,
+          maxNotional: '1000000000',
+        },
+      },
+      commandId,
+      approvalAdminKey,
+    );
+  }
+  const activateCommandId = `load-activate-${instrumentId}-${runIdForSetup}`;
+  dualControl(
+    `/api/v1/admin/instruments/${instrumentId}/status`,
+    { commandId: activateCommandId, status: 'ACTIVE' },
+    activateCommandId,
+    approvalAdminKey,
+  );
 }
 
 /**

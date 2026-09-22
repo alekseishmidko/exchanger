@@ -24,13 +24,27 @@ class SlowTradingPort implements TradingCommandPort {
   async placeOrder(command: GatewayPlaceOrderCommand): Promise<GatewayCommandResult> {
     this.placeCommands.push(command);
     await new Promise((resolve) => setTimeout(resolve, 20));
-    return { commandId: command.commandId, orderId: command.clientOrderId, status: 'ACCEPTED' };
+    return {
+      commandId: command.commandId,
+      orderId: command.clientOrderId,
+      status: 'ACCEPTED',
+      durableStatus: 'ACCEPTED',
+      executionStatus: 'PENDING',
+      orderStatus: 'PENDING',
+    };
   }
 
   async cancelOrder(command: GatewayCancelOrderCommand): Promise<GatewayCommandResult> {
     this.cancelCommands.push(command);
     await Promise.resolve();
-    return { commandId: command.commandId, orderId: command.orderId, status: 'CANCEL_ACCEPTED' };
+    return {
+      commandId: command.commandId,
+      orderId: command.orderId,
+      status: 'CANCEL_ACCEPTED',
+      durableStatus: 'ACCEPTED',
+      executionStatus: 'PENDING',
+      orderStatus: 'CANCEL_PENDING',
+    };
   }
 
   /** Lookup в abuse tests не используется, но interface требует owner-safe метод. */

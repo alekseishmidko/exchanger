@@ -17,6 +17,17 @@ function createLedger(): Ledger {
 }
 
 describe('Ledger', () => {
+  it('accepts identical asset registration as an idempotent catalog confirmation', () => {
+    const ledger = new Ledger();
+
+    ledger.registerAsset(asset);
+    ledger.registerAsset(new Asset(assetId, 'USD', 2));
+
+    expect(() => ledger.registerAsset(new Asset(assetId, 'USDT', 6))).toThrow(
+      'Asset already exists',
+    );
+  });
+
   it('keeps debit and credit postings balanced', () => {
     const ledger = createLedger();
     ledger.credit(createId<'OperationId'>('credit-1'), accountA, assetId, Decimal.from('100'));

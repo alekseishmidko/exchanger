@@ -51,6 +51,7 @@ Duplicate/idempotent retry не получает второй business-success: 
 | Settlement  | `settlement.applied`                                               | `settlement.retry`, `settlement.rejected`      |
 | Ledger      | `ledger.command.applied`                                           | `ledger.command.rejected`                      |
 | Event log   | `event-log.appended`, `event-log.consumed`, `event-log.recovered`  | `event-log.timeout`, `event-log.dead-lettered` |
+| Workers     | `worker.batch.applied`                                             | `worker.batch.failed`                          |
 | Projections | `projection.applied`, `projection.duplicate`, `projection.rebuilt` | `projection.gap`                               |
 | Admin       | `admin.action.applied`                                             | `admin.action.rejected`                        |
 | Audit       | `audit.record.appended`                                            | `audit.integrity.failed`                       |

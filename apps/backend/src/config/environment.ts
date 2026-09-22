@@ -190,6 +190,34 @@ export function validateEnvironment(config: EnvironmentConfig): EnvironmentConfi
     throw new Error('WEBSOCKET_ALLOWED_ORIGINS must be a non-empty comma-separated list');
   }
 
+  const workersEnabled = config['WORKERS_ENABLED'];
+  if (
+    workersEnabled !== undefined &&
+    (typeof workersEnabled !== 'string' || !['true', 'false', '1', '0'].includes(workersEnabled))
+  ) {
+    throw new Error('WORKERS_ENABLED must be true, false, 1, or 0');
+  }
+
+  for (const key of [
+    'WORKER_BATCH_SIZE',
+    'WORKER_CONCURRENCY',
+    'WORKER_TIMEOUT_MS',
+    'WORKER_MAX_ATTEMPTS',
+    'WORKER_BASE_BACKOFF_MS',
+    'WORKER_MAX_BACKOFF_MS',
+    'WORKER_POLL_INTERVAL_MS',
+  ] as const) {
+    const value = config[key];
+    const normalized =
+      typeof value === 'string' || typeof value === 'number' ? `${value}` : undefined;
+    if (
+      value !== undefined &&
+      (normalized === undefined || !/^\d+$/.test(normalized) || Number(normalized) < 1)
+    ) {
+      throw new Error(`${key} must be a positive integer`);
+    }
+  }
+
   const runtimeAdapters = validateRuntimeAdapters(config);
   const instanceId =
     config['INSTANCE_ID'] ??

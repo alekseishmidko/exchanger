@@ -1,5 +1,5 @@
 import { Module } from '@nestjs/common';
-import { GatewayModule } from '../gateway';
+import { GatewayCommonModule } from '../gateway/gateway-common.module';
 import { ConfigService } from '@nestjs/config';
 import { POSTGRES_TRANSACTION, PostgresTransactionManager } from '../../infrastructure/postgres';
 import { ProjectionStore } from './application/projection.store';
@@ -10,7 +10,7 @@ import type { ProjectionStorePort } from './ports/projection.port';
 
 /** Собирает read-model store и query API, используя только gateway auth boundary. */
 @Module({
-  imports: [GatewayModule],
+  imports: [GatewayCommonModule],
   controllers: [ProjectionsController],
   providers: [
     ProjectionStore,
