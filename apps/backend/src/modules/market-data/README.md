@@ -23,6 +23,8 @@ subscriber callbacks. `MarketDataGateway` — настоящий NestJS Socket.I
 - `gateways/market-data.gateway.ts` — NestJS Socket.IO orchestration boundary;
 - `policies/market-data.connection-policy.ts` — browser origin и optional API key
   handshake policy;
+- `policies/market-data-error.policy.ts` — безопасный protocol error mapping
+  без stack trace, headers и внутренних exception payloads;
 - `registries/market-data.subscription-registry.ts` — lifecycle active
   subscriptions и idempotent replace/unsubscribe;
 - `transport/market-data.gateway.types.ts` — типизированные Socket.IO events и

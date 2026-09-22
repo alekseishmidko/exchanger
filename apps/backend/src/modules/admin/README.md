@@ -23,6 +23,16 @@ Control state читается из PostgreSQL после restart; process-local
 control: инициатор получает `PENDING_APPROVAL`, а применение выполняется только
 после `approve` другим уполномоченным actor.
 
+Внутри модуля фасад разделён на отдельные роли:
+
+- `services/admin-dual-control.service.ts` хранит pending approval lifecycle;
+- `policies/admin-policy-registry.service.ts` отвечает за fee/risk policy
+  versions и effective-time lookup;
+- `services/admin-reconciliation.service.ts` строит dashboard по audit,
+  admission controls, instruments и policy registry;
+- `admin.service.ts` координирует authorization, audit records и вызовы этих
+  сервисов, сохраняя прежний публичный API.
+
 ## Operational state
 
 - `FREEZE_USER` блокирует все accounts пользователя;
@@ -47,6 +57,7 @@ control: инициатор получает `PENDING_APPROVAL`, а примен
 - `dto/` — публичные request/response DTO и Zod validation schemas;
 - `types/` — application-level команды, результаты и read models;
 - `policies/` — role matrix, dual-control decision и fee/risk policy registry;
+- `services/` — dual-control state и reconciliation dashboard;
 - `ports/` — durable admission-control contracts и DI tokens;
 - `infrastructure/` — memory/PostgreSQL admission-control adapters;
 - `admin.service.ts` — application facade, который оркестрирует audit,

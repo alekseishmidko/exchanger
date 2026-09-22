@@ -18,11 +18,12 @@ import {
   AdminCommand,
   AdminResult,
   FeePolicy,
-  PendingAdminAction,
   ReconciliationDashboard,
   RiskPolicy,
 } from './types/admin.types';
 import { MemoryAdmissionControl } from './infrastructure/memory-admission-control';
+import { AdminDualControlService } from './services/admin-dual-control.service';
+import { AdminReconciliationService } from './services/admin-reconciliation.service';
 
 export type { AdminCommand, AdminResult, FeePolicy, ReconciliationDashboard, RiskPolicy };
 
@@ -40,7 +41,6 @@ export type { AdminCommand, AdminResult, FeePolicy, ReconciliationDashboard, Ris
  */
 @Injectable()
 export class AdminService {
-  private readonly pending = new Map<string, PendingAdminAction>();
   private readonly results = new Map<string, AdminResult>();
   private readonly commands = new Map<string, AdminCommand>();
   private readonly frozenUsers = new Set<string>();
@@ -69,6 +69,10 @@ export class AdminService {
     private readonly admission: AdmissionControlPort = new MemoryAdmissionControl(),
     @Optional()
     private readonly policies: AdminPolicyRegistry = new AdminPolicyRegistry(),
+    @Optional()
+    private readonly dualControl: AdminDualControlService = new AdminDualControlService(),
+    @Optional()
+    private readonly reconciliation: AdminReconciliationService = new AdminReconciliationService(),
   ) {}
 
   /**
@@ -94,7 +98,7 @@ export class AdminService {
     );
     if (requiresDualControl(command.type)) {
       const result = buildAdminResult(command, 'PENDING_APPROVAL', [actor.actorId]);
-      this.pending.set(command.commandId, { command, requestedBy: actor, requestedAt: now });
+      this.dualControl.request(command, actor, now);
       this.results.set(command.commandId, result);
       return result;
     }
@@ -126,7 +130,7 @@ export class AdminService {
   async approve(commandId: string, actor: AuditActor, now = new Date()): Promise<AdminResult> {
     const current = this.results.get(commandId);
     if (current?.status === 'APPLIED') return current;
-    const pending = this.pending.get(commandId);
+    const pending = this.dualControl.get(commandId);
     if (!pending) throw new Error('Pending administrative action does not exist');
     await this.assertRole(pending.command.type, actor, commandId, pending.command.targetId);
     if (pending.requestedBy.actorId === actor.actorId)
@@ -148,7 +152,7 @@ export class AdminService {
       pending.requestedBy.actorId,
       actor.actorId,
     ]);
-    this.pending.delete(commandId);
+    this.dualControl.complete(commandId);
     this.results.set(commandId, result);
     await this.audit.append(
       actor,
@@ -231,29 +235,14 @@ export class AdminService {
   async getDashboard(actor: AuditActor, now = new Date()): Promise<ReconciliationDashboard> {
     const records = await this.audit.getRecords();
     await this.assertRole('RECONCILIATION', actor, `reconcile-${records.length + 1}`, 'system');
-    const controls = await this.admission.list();
-    const dashboard = {
-      auditIntegrity: await this.audit.verifyIntegrity(records),
-      pendingApprovals: this.pending.size,
-      frozenUsers: controls.filter(({ type, state }) => type === 'USER' && state === 'FROZEN')
-        .length,
-      frozenAccounts: controls.filter(({ type, state }) => type === 'ACCOUNT' && state === 'FROZEN')
-        .length,
-      stoppedTargets: controls
-        .filter(
-          ({ type, state }) =>
-            (type === 'GLOBAL' || type === 'INSTRUMENT') &&
-            (state === 'OPEN' || state === 'PAUSED'),
-        )
-        .map(({ targetId }) => targetId),
-      instrumentStatuses: this.instruments.list().map((instrument) => ({
-        instrumentId: instrument.id,
-        status: instrument.status,
-      })),
-      feePolicyVersions: this.policies.listFeeVersions(),
-      riskPolicyVersions: this.policies.listRiskVersions(),
-    };
-    if (!dashboard.auditIntegrity) this.metrics?.observeReconciliationDifference('ledger');
+    const dashboard = await this.reconciliation.build({
+      audit: this.audit,
+      admission: this.admission,
+      instruments: this.instruments,
+      policies: this.policies,
+      pendingApprovals: this.dualControl.count(),
+      ...(this.metrics ? { metrics: this.metrics } : {}),
+    });
     await this.audit.append(
       actor,
       'RECONCILIATION_EXECUTED',

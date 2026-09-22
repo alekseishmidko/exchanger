@@ -79,6 +79,16 @@ blocking guard от ухудшения baseline. Финальные строги
   `gateways/`, `policies/`, `registries/`, `transport/`, `validation/`;
 - `observability` переведён на семантическую структуру `logging/`, `metrics/`,
   `tracing/`, `alerts/` с сохранением public barrel `../observability`;
+- `market-data` получил `policies/market-data-error.policy.ts`, поэтому
+  безопасное WebSocket error mapping отделено от Socket.IO handlers;
+- `admin` получил `services/admin-dual-control.service.ts` и
+  `services/admin-reconciliation.service.ts`; `AdminService` остался фасадом;
+- `settlement` получил `policies/settlement-posting.policy.ts` и
+  `mappers/settlement-event.mapper.ts` для posting matrix и event payload
+  mapping;
+- PostgreSQL durable runtime spec начал использовать
+  `test/builders/durable-runtime-builders.ts` для place-order и settlement
+  fixtures;
 - `AdminService` оставлен публичным фасадом для контроллера и тестов, поэтому
   transport API и imports из `admin.service.ts` не изменились;
 - policy registry изолирует fee/risk policy validation и effective-time lookup;
@@ -100,7 +110,7 @@ maintainability:report`.
 | P0        | `observability/metrics/metrics.ts` / `observability/tracing/tracing.ts` | catalog, adapters и policy вместе                                | metrics catalog/policy вынесены; дальше tracing-context/exporter config                      |
 | P1        | `postgres-ledger.adapter.ts`                     | SQL mapping, transaction orchestration, domain mapping           | repositories вынесены; дальше mapper/policy для posting matrix                               |
 | P1        | `projection.ts` / `postgres-projection.store.ts` | apply logic, pagination, rebuild и storage смешаны               | repositories вынесены; дальше event appliers, pagination policy, rebuild coordinator         |
-| P1        | `settlement.ts`                                  | reserve, settle, fees, event publish/retry                       | reserve service, posting matrix builder, settlement publisher                                |
+| P1        | `settlement.ts`                                  | reserve, settle, fees, event publish/retry                       | posting matrix и event mapper вынесены; дальше reserve service и settlement publisher        |
 | P1        | `matching-engine.ts`                             | book state, matching loop, TIF policy                            | order book, price-level queue, execution policy                                              |
 | P2        | large e2e specs                                  | сценарий, setup, builders и assertions вместе                    | fixtures/builders + сценарии по бизнес-флоу                                                  |
 

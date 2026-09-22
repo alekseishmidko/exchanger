@@ -37,6 +37,15 @@ Decimal values `TradeExecuted` сериализуются строками и в
 расчётом. Это исключает IEEE-754 и ошибку JSON serialization внутреннего
 `bigint`. Poison payload не применяется к ledger и попадает в DLQ.
 
+## Внутренняя структура
+
+- `policies/settlement-posting.policy.ts` вычисляет buyer/seller, quote value и
+  maker/taker fee side без доступа к ledger или event log;
+- `mappers/settlement-event.mapper.ts` сериализует decimal values строками,
+  восстанавливает `TradeExecuted` из JSON payload и строит `SettlementApplied`;
+- `settlement.ts` остаётся orchestration boundary: вызывает ledger port,
+  публикует event log и управляет идемпотентностью.
+
 ## Operational log events
 
 `settlement.applied`, `settlement.retry` и `settlement.rejected` связываются по

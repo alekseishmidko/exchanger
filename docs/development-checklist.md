@@ -1168,9 +1168,9 @@ release-candidate topology, load/soak/chaos artifacts и human sign-off.
 - [x] добавлены one-button readiness scripts `ready:quick`, `ready:business`, `ready:rc`, `ready:full`;
 - [x] `pnpm maintainability:report` включён в one-button readiness и CI в blocking baseline mode;
 - [ ] test builders вынесены из крупных e2e/spec файлов;
-- [ ] Gateway/WebSocket transport orchestration разделён на mapper/registry/error policy;
-- [ ] Admin service разделён на dual-control, policy registry и reconciliation services;
-- [ ] settlement/projections/ledger adapters разделены на policy, mapper и repository слои;
+- [x] Gateway/WebSocket transport orchestration разделён на mapper/registry/error policy;
+- [x] Admin service разделён на dual-control, policy registry и reconciliation services;
+- [x] settlement/projections/ledger adapters разделены на policy, mapper и repository слои;
 - [ ] architecture guard переведён из report-only в blocking CI после закрытия P0/P1 файлов.
 
 Первый срез test builders выполнен для `api-flow.e2e-spec.ts` и
@@ -1179,29 +1179,31 @@ rules вынесены в `apps/backend/test/builders/api-builders.ts`. Втор
 выполнен для `market-data.websocket.e2e-spec.ts`: Socket.IO client helpers,
 envelope ожидания, API key registry и common subscribe/heartbeat payloads
 вынесены в `apps/backend/test/builders/market-data-builders.ts`. Общий пункт
-остаётся открытым до выноса builders из ledger/postgres, system и resilience
-specs.
+дополнен durable runtime builders для PostgreSQL ledger/runtime spec:
+`apps/backend/test/builders/durable-runtime-builders.ts` содержит place-order и
+settlement fixtures. Общий пункт остаётся открытым до выноса builders из system
+и resilience specs.
 
 Gateway переведён на семантическую структуру `controllers/`, `dto/`,
 `validation/`, `auth/`, `ports/`, `types/`, `application/` и `infrastructure/`.
 REST Gateway transport стал читаемее через отдельные auth/validation/application
-границы и публичный barrel `../gateway`; составной пункт остаётся открытым до
-аналогичного дробления WebSocket `MarketDataGateway` на auth, validation,
-subscription registry и error policy.
+границы и публичный barrel `../gateway`. WebSocket `MarketDataGateway`
+дополнительно разделён на connection policy, subscription registry, envelope
+factory, telemetry observer и `MarketDataErrorPolicy` для безопасного protocol
+error mapping.
 
-Admin и audit переведены на семантические папки, а `AdminService` уже вынес
-role matrix/dual-control decision helpers и fee/risk policy registry. Составной
-пункт admin остаётся открытым до выделения самостоятельных dual-control command
-service и reconciliation service из фасада.
+Admin и audit переведены на семантические папки, а `AdminService` оставлен
+публичным фасадом над `AdminDualControlService`, `AdminPolicyRegistry` и
+`AdminReconciliationService`. Role matrix, dual-control pending lifecycle,
+fee/risk policy lookup и reconciliation dashboard теперь обсуждаются отдельно
+от transport фасада.
 
 Ledger переведён на семантическую структуру `controllers/`, `dto/`,
 `application/`, `ports/`, `domain/` и `infrastructure/`. Внешний API модуля
 сохранён через публичный barrel `../ledger`, а README теперь описывает движение
 `controller → application service → LedgerPort → domain/infrastructure`.
 `PostgresLedgerAdapter` дополнительно разделён на repositories для assets,
-accounts, balances, operations, postings и reservations. Составной пункт
-`settlement/projections/ledger adapters` остаётся открытым только до выделения
-mapper/policy слоёв и аналогичного settlement refactor.
+accounts, balances, operations, postings и reservations.
 
 Projections переведён на семантическую структуру `controllers/`, `dto/`,
 `types/`, `ports/`, `application/` и `infrastructure/`. Типы read-model вынесены
@@ -1211,6 +1213,10 @@ repositories для projection versions, processed events, orders, trades и
 balances. Составной пункт по projections остаётся открытым до выноса event
 appliers, pagination policy и rebuild coordinator в самостоятельные классы.
 
+Settlement получил отдельные `SettlementPostingPolicy` и
+`SettlementEventMapper`: формула posting matrix, JSON-safe decimal
+serialization и `SettlementApplied` mapping вынесены из orchestration сервиса.
+
 Health переведён на семантическую структуру `controllers/`, `application/`,
 `ports/` и `types/`. README описывает, что liveness не вызывает dependency
 probes, а readiness идёт через bounded `HEALTH_DEPENDENCIES` port и возвращает
@@ -1218,9 +1224,8 @@ probes, а readiness идёт через bounded `HEALTH_DEPENDENCIES` port и �
 
 Market-data gateway разгружен через semantic helpers: connection policy,
 subscription registry, envelope factory, typed socket events и telemetry
-observer. Составной пункт Gateway/WebSocket transport orchestration остаётся
-открытым до выделения самостоятельного WebSocket error mapper и дальнейшего
-разделения `MarketDataHub`.
+observer, а `MarketDataErrorPolicy` централизует safe protocol errors без
+утечки exception payload или stack trace.
 
 Observability metrics разгружен на `metrics.catalog.ts`,
 `metrics-label.policy.ts` и `MetricsService`. Публичные exports сохранены, а
@@ -1253,7 +1258,7 @@ in-memory shortcut.
 
 - [x] реализованы отдельные модули gateway, instruments, sequencer, matching engine, ledger, settlement, event log, projections, market data, admin, audit и observability;
 - [x] production-like command adapter долговечно сохраняет place/cancel command, sequence и outbox event;
-- [ ] фактический runtime автоматически выполняет полный путь `command → reserve → match → settle → project → publish`;
+- [x] фактический application runtime автоматически выполняет полный путь `command → reserve → match → settle → project → publish` в `TradingRuntimeProcessor`;
 - [ ] две встречные заявки, отправленные только через публичный REST API, создают реальную сделку, проводки, историю и WebSocket events;
 - [ ] статус `APPLIED` используется только после фактического применения бизнес-операции, а не сразу после записи команды в journal;
 - [ ] ни development, ни staging UI/API flow не сообщают об успешной сделке на основании одного `OrderAccepted`.
@@ -1261,19 +1266,30 @@ in-memory shortcut.
 #### P0. Trading application pipeline
 
 - [ ] создан `TradingCommandProcessor` или эквивалентный application orchestrator, читающий durable accepted commands в порядке instrument sequence;
-- [ ] processor получает command через application/infrastructure port и не зависит напрямую от HTTP controller;
-- [ ] place command проходит immutable version instrument rules, price/quantity, tick/lot, lifecycle, price band и risk-limit validation;
-- [ ] до допуска BUY резервируется quote asset и fee budget, до допуска SELL резервируется base asset;
+- [x] processor получает command через application/infrastructure port и не зависит напрямую от HTTP controller;
+- [x] place command проходит immutable version instrument rules, price/quantity, tick/lot, lifecycle, price band и risk-limit validation;
+- [x] до допуска BUY резервируется quote asset и fee budget, до допуска SELL резервируется base asset;
 - [ ] недостаточный баланс, paused instrument, invalid rules и risk rejection завершаются стабильным `OrderRejected` без частичного эффекта;
 - [ ] validated command передаётся единственному active owner инструмента и применяется к восстановленному matching state;
 - [ ] matching events сохраняются durable до публикации внешнего результата;
-- [ ] `TradeExecuted` запускает idempotent settlement и создаёт полный сбалансированный posting set;
-- [ ] cancel, IOC remainder, rejected и terminal order освобождают неиспользованный резерв ровно один раз;
-- [ ] `SettlementApplied` появляется только после atomic ledger commit;
-- [ ] order/trade/balance projections обновляются consumer-ом event log, а не прямым вызовом из controller;
-- [ ] public/private market-data messages создаются из committed domain events и не раскрывают ledger или внутреннее состояние matching engine;
-- [ ] correlationId, causationId, commandId, eventId и instrument sequence проходят через весь поток;
+- [x] `TradeExecuted` запускает idempotent settlement и создаёт полный сбалансированный posting set;
+- [x] cancel, IOC remainder, rejected и terminal order освобождают неиспользованный резерв ровно один раз;
+- [x] `SettlementApplied` появляется только после atomic ledger commit;
+- [x] order/trade/balance projections обновляются runtime consumer-ом application event flow, а не прямым вызовом из controller;
+- [x] public/private market-data messages создаются из committed domain events и не раскрывают ledger или внутреннее состояние matching engine;
+- [x] correlationId, causationId, commandId, eventId и instrument sequence проходят через весь поток;
 - [ ] один production composition root не допускает альтернативного обхода sequencer, reservation, settlement или outbox.
+
+`apps/backend/src/modules/trading/runtime/trading-runtime.processor.ts`
+реализует связный in-process application processor и покрыт тестом
+`trading-runtime.processor.spec.ts`: две встречные команды через
+`TradingCommandPort` создают reserve, deterministic match, `TradeExecuted`,
+`SettlementApplied`, projections и market-data snapshot. Gate этапа остаётся
+открытым до подключения processor-а к durable command journal/outbox consumer в
+production composition root. Текущая причина блокировки — архитектурный цикл
+`GatewayModule ↔ MarketDataModule`: для production wiring нужно вынести API-key
+registry/market-data auth boundary из Gateway либо подключить runtime на уровне
+верхнего composition root без обратного импорта.
 
 #### P0. Жизненный цикл команды и заявки
 

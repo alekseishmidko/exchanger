@@ -12,6 +12,10 @@ import { ApiKeyRegistry } from '../../gateway';
 import { BackpressureError, MarketDataHub, MarketDataMessage } from '../domain/market-data';
 import { MarketDataConnectionPolicy } from '../policies/market-data.connection-policy';
 import {
+  MarketDataErrorPolicy,
+  MarketDataProtocolError,
+} from '../policies/market-data-error.policy';
+import {
   HeartbeatRequestDto,
   HeartbeatResponseDto,
   ResyncRequestDto,
@@ -70,6 +74,7 @@ import {
 export class MarketDataGateway implements OnGatewayConnection, OnGatewayDisconnect {
   private readonly subscriptions = new MarketDataSubscriptionRegistry();
   private readonly connectionPolicy: MarketDataConnectionPolicy;
+  private readonly errorPolicy = new MarketDataErrorPolicy();
   private readonly envelopes = new MarketDataEnvelopeFactory();
   private readonly observer: MarketDataTelemetryObserver;
   private readonly maxPendingMessages: number;
@@ -116,7 +121,11 @@ export class MarketDataGateway implements OnGatewayConnection, OnGatewayDisconne
   handleConnection(client: AuthenticatedSocket): void {
     const decision = this.connectionPolicy.authenticate(client, this.apiKeys);
     if (!decision.ok) {
-      this.emitError(client, 'handshake', decision.code, decision.message, false);
+      this.emitError(
+        client,
+        'handshake',
+        this.errorPolicy.handshake(decision.code, decision.message),
+      );
       client.disconnect(true);
       return;
     }
@@ -151,9 +160,7 @@ export class MarketDataGateway implements OnGatewayConnection, OnGatewayDisconne
       this.emitError(
         client,
         this.requestId(raw),
-        'REQUEST_MALFORMED',
-        'Subscription is invalid',
-        true,
+        this.errorPolicy.malformed('Subscription is invalid'),
       );
       return;
     }
@@ -215,9 +222,7 @@ export class MarketDataGateway implements OnGatewayConnection, OnGatewayDisconne
       this.emitError(
         client,
         this.requestId(raw),
-        'REQUEST_MALFORMED',
-        'Unsubscribe is invalid',
-        true,
+        this.errorPolicy.malformed('Unsubscribe is invalid'),
       );
       return;
     }
@@ -243,7 +248,7 @@ export class MarketDataGateway implements OnGatewayConnection, OnGatewayDisconne
   resync(@ConnectedSocket() client: AuthenticatedSocket, @MessageBody() raw: unknown): void {
     const result = resyncSchema.safeParse(raw);
     if (!result.success) {
-      this.emitError(client, this.requestId(raw), 'REQUEST_MALFORMED', 'Resync is invalid', true);
+      this.emitError(client, this.requestId(raw), this.errorPolicy.malformed('Resync is invalid'));
       return;
     }
     const request: ResyncRequestDto = result.data;
@@ -272,9 +277,7 @@ export class MarketDataGateway implements OnGatewayConnection, OnGatewayDisconne
       this.emitError(
         client,
         this.requestId(raw),
-        'REQUEST_MALFORMED',
-        'Heartbeat is invalid',
-        true,
+        this.errorPolicy.malformed('Heartbeat is invalid'),
       );
       return;
     }
@@ -309,25 +312,13 @@ export class MarketDataGateway implements OnGatewayConnection, OnGatewayDisconne
   ): void {
     const validated = marketDataMessageSchema.safeParse(message);
     if (!validated.success) {
-      this.emitError(
-        client,
-        correlationId,
-        'MARKET_DATA_CONTRACT_VIOLATION',
-        'Market data message is invalid',
-        false,
-      );
+      this.emitError(client, correlationId, this.errorPolicy.contractViolation());
       client.disconnect(true);
       return;
     }
     const connection = client.conn as unknown as { writeBuffer?: readonly unknown[] };
     if ((connection.writeBuffer?.length ?? 0) >= this.maxPendingMessages) {
-      this.emitError(
-        client,
-        correlationId,
-        'MARKET_DATA_BACKPRESSURE',
-        'Consumer is too slow',
-        false,
-      );
+      this.emitError(client, correlationId, this.errorPolicy.backpressure());
       client.disconnect(true);
       throw new BackpressureError();
     }
@@ -346,43 +337,23 @@ export class MarketDataGateway implements OnGatewayConnection, OnGatewayDisconne
 
   /** Преобразует domain/HTTP exception в allow-listed protocol error. */
   private emitKnownError(client: AuthenticatedSocket, correlationId: string, error: unknown): void {
-    if (error instanceof HttpException) {
-      const response = error.getResponse();
-      const fields = typeof response === 'object' ? (response as Record<string, unknown>) : {};
-      this.emitError(
-        client,
-        correlationId,
-        typeof fields['code'] === 'string' ? fields['code'] : 'REQUEST_REJECTED',
-        typeof fields['message'] === 'string' ? fields['message'] : 'Request was rejected',
-        error.getStatus() < 500,
-      );
-      return;
-    }
-    this.emitError(
-      client,
-      correlationId,
-      'MARKET_DATA_UNAVAILABLE',
-      'Market data is unavailable',
-      true,
-    );
+    this.emitError(client, correlationId, this.errorPolicy.fromUnknown(error));
   }
 
   /** Отправляет безопасную ошибку, не сериализуя исходный exception. */
   private emitError(
     client: AuthenticatedSocket,
     correlationId: string,
-    code: string,
-    message: string,
-    recoverable: boolean,
+    error: MarketDataProtocolError,
   ): void {
     this.logger.warn('market-data', LOG_EVENTS.WEBSOCKET_REJECTED, {
       correlationId,
-      metadata: { code, recoverable },
+      metadata: { code: error.code, recoverable: error.recoverable },
     });
     this.emitEnvelope<WebSocketErrorDto>(client, 'market.error', correlationId, {
-      code,
-      message,
-      recoverable,
+      code: error.code,
+      message: error.message,
+      recoverable: error.recoverable,
     });
   }
 
@@ -395,11 +366,7 @@ export class MarketDataGateway implements OnGatewayConnection, OnGatewayDisconne
 
   /** Извлекает безопасный correlation fallback из malformed payload. */
   private requestId(raw: unknown): string {
-    if (typeof raw === 'object' && raw && 'requestId' in raw) {
-      const value = (raw as { requestId?: unknown }).requestId;
-      if (typeof value === 'string' && value.length <= 128) return value;
-    }
-    return 'unknown';
+    return this.errorPolicy.requestId(raw);
   }
 
   /**
