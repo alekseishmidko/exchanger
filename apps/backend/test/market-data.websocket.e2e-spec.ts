@@ -1,61 +1,20 @@
 import { Test } from '@nestjs/testing';
 import { FastifyAdapter, NestFastifyApplication } from '@nestjs/platform-fastify';
-import { io, Socket } from 'socket.io-client';
 import { AppModule } from '../src/app.module';
+import { MarketDataHub } from '../src/modules/market-data/domain/market-data';
 import { ApiKeyRegistry } from '../src/modules/gateway';
-import { MarketDataHub } from '../src/modules/market-data/market-data';
-
-/** Минимальный envelope shape, проверяемый WebSocket integration-тестом. */
-type TestEnvelope = Readonly<{
-  messageVersion: string;
-  correlationId: string;
-  emittedAt: string;
-  sequence: number;
-  data: unknown;
-}>;
-
-/** Типы server events тестового Socket.IO client. */
-interface ServerEvents {
-  [event: string]: (payload: TestEnvelope) => void;
-}
-
-/** Типы client commands; runtime payload всё равно проверяет Zod на сервере. */
-interface ClientEvents {
-  [event: string]: (payload: unknown) => void;
-}
-
-/** Socket.IO client с versioned envelope server events. */
-type MarketDataClient = Socket<ServerEvents, ClientEvents>;
-
-/** Ожидает одно server event и завершает тест по timeout вместо зависания. */
-function nextEnvelope(
-  socket: MarketDataClient,
-  event: 'market.data' | 'market.ack' | 'market.error' | 'heartbeat.ack',
-): Promise<TestEnvelope> {
-  return new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => reject(new Error(`Timed out waiting for ${event}`)), 2000);
-    socket.once(event, (payload) => {
-      clearTimeout(timeout);
-      resolve(payload);
-    });
-  });
-}
-
-/** Дожидается реального namespace connection либо отдаёт connect_error. */
-function waitForConnection(socket: MarketDataClient): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => reject(new Error('WebSocket connection timeout')), 2000);
-    socket.once('connect', () => {
-      clearTimeout(timeout);
-      resolve();
-    });
-    socket.once('connect_error', (error) => {
-      clearTimeout(timeout);
-      reject(error);
-    });
-    socket.connect();
-  });
-}
+import {
+  heartbeatPayload,
+  marketDataApiKeyRegistry,
+  marketDataClient,
+  MarketDataClient,
+  nextEnvelope,
+  privateUserSubscription,
+  publicBookSubscription,
+  publishDefaultBookSnapshot,
+  TestEnvelope,
+  waitForConnection,
+} from './builders/market-data-builders';
 
 describe('Market data WebSocket transport', () => {
   let app: NestFastifyApplication;
@@ -66,12 +25,7 @@ describe('Market data WebSocket transport', () => {
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(ApiKeyRegistry)
-      .useValue(
-        new ApiKeyRegistry([
-          { keyId: 'user-1-key', role: 'trader', userId: 'user-1' },
-          { keyId: 'user-2-key', role: 'trader', userId: 'user-2' },
-        ]),
-      )
+      .useValue(marketDataApiKeyRegistry())
       .compile();
 
     app = moduleRef.createNestApplication<NestFastifyApplication>(new FastifyAdapter());
@@ -81,13 +35,7 @@ describe('Market data WebSocket transport', () => {
   });
 
   beforeEach(() => {
-    hub.publishSnapshot({
-      channel: 'book',
-      instrumentId: 'BTC-USD',
-      sequence: 1,
-      bids: [{ price: '60000', quantity: '1' }],
-      asks: [{ price: '60000.5', quantity: '2' }],
-    });
+    publishDefaultBookSnapshot(hub);
   });
 
   afterEach(() => {
@@ -100,12 +48,7 @@ describe('Market data WebSocket transport', () => {
 
   /** Создаёт client с отключённым polling и автоматическим reconnect. */
   function client(apiKey?: string): MarketDataClient {
-    const socket = io(endpoint, {
-      autoConnect: false,
-      transports: ['websocket'],
-      reconnection: false,
-      ...(apiKey ? { auth: { apiKey } } : {}),
-    });
+    const socket = marketDataClient(endpoint, apiKey);
     clients.push(socket);
     return socket;
   }
@@ -115,11 +58,7 @@ describe('Market data WebSocket transport', () => {
     await waitForConnection(socket);
     const ack = nextEnvelope(socket, 'market.ack');
     const snapshot = nextEnvelope(socket, 'market.data');
-    socket.emit('market.subscribe', {
-      requestId: 'public-book-1',
-      channel: 'book',
-      instrumentId: 'BTC-USD',
-    });
+    socket.emit('market.subscribe', publicBookSubscription());
 
     expect(await ack).toMatchObject({
       messageVersion: '1.0',
@@ -151,11 +90,7 @@ describe('Market data WebSocket transport', () => {
     const first = client();
     await waitForConnection(first);
     const firstSnapshot = nextEnvelope(first, 'market.data');
-    first.emit('market.subscribe', {
-      requestId: 'before-disconnect',
-      channel: 'book',
-      instrumentId: 'BTC-USD',
-    });
+    first.emit('market.subscribe', publicBookSubscription('before-disconnect'));
     await firstSnapshot;
     hub.publishIncrement({
       channel: 'book_update',
@@ -185,22 +120,14 @@ describe('Market data WebSocket transport', () => {
     const socket = client('user-1-key');
     await waitForConnection(socket);
     const forbidden = nextEnvelope(socket, 'market.error');
-    socket.emit('market.subscribe', {
-      requestId: 'private-forbidden',
-      channel: 'user',
-      userId: 'user-2',
-    });
+    socket.emit('market.subscribe', privateUserSubscription('private-forbidden', 'user-2'));
     expect(await forbidden).toMatchObject({
       correlationId: 'private-forbidden',
       data: { code: 'PRIVATE_STREAM_FORBIDDEN' },
     });
 
     const ack = nextEnvelope(socket, 'market.ack');
-    socket.emit('market.subscribe', {
-      requestId: 'private-user-1',
-      channel: 'user',
-      userId: 'user-1',
-    });
+    socket.emit('market.subscribe', privateUserSubscription('private-user-1', 'user-1'));
     await ack;
 
     const received: TestEnvelope[] = [];
@@ -231,11 +158,7 @@ describe('Market data WebSocket transport', () => {
     const socket = client();
     await waitForConnection(socket);
     const authError = nextEnvelope(socket, 'market.error');
-    socket.emit('market.subscribe', {
-      requestId: 'private-no-auth',
-      channel: 'user',
-      userId: 'user-1',
-    });
+    socket.emit('market.subscribe', privateUserSubscription('private-no-auth', 'user-1'));
     expect(await authError).toMatchObject({ data: { code: 'AUTH_REQUIRED' } });
 
     const malformed = nextEnvelope(socket, 'market.error');
@@ -258,10 +181,7 @@ describe('Market data WebSocket transport', () => {
     const socket = client();
     await waitForConnection(socket);
     const response = nextEnvelope(socket, 'heartbeat.ack');
-    socket.emit('heartbeat', {
-      requestId: 'heartbeat-1',
-      sentAt: '2026-09-09T00:00:00.000Z',
-    });
+    socket.emit('heartbeat', heartbeatPayload());
     expect(await response).toMatchObject({
       correlationId: 'heartbeat-1',
       sequence: 0,

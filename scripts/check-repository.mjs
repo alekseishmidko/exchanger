@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 
 const trackedFiles = execFileSync('git', ['ls-files'], { encoding: 'utf8' })
   .split('\n')
@@ -15,7 +15,8 @@ const sourceFiles = execFileSync(
   { encoding: 'utf8' },
 )
   .split('\n')
-  .filter((file) => /\.(ts|tsx|js|mjs|cjs)$/.test(file));
+  .filter((file) => /\.(ts|tsx|js|mjs|cjs)$/.test(file))
+  .filter((file) => existsSync(file) && statSync(file).isFile());
 
 const deepImports = sourceFiles.filter((file) => {
   const content = readFileSync(file, 'utf8');

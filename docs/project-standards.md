@@ -88,6 +88,8 @@ module-name/
 
 - `system-design-requirements.md` — требования и бизнес-правила;
 - `architecture.md` — компоненты, потоки и хранение;
+- `architecture-concepts.md` — единый словарь понятий `domain`, `port`,
+  `adapter`, `store`, `repository` с примерами из проекта;
 - `technology-stack.md` — технологические решения;
 - `project-standards.md` — этот документ;
 - `adr/` — архитектурные решения;

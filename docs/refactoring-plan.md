@@ -29,8 +29,8 @@
 Baseline от `pnpm maintainability:report` на момент ввода этапа 20:
 
 - `apps/backend/src/modules/admin/admin.service.ts` — 545 строк;
-- `apps/backend/src/modules/market-data/market-data.gateway.ts` — 511 строк;
-- `apps/backend/src/modules/observability/metrics.ts` — 428 строк;
+- `apps/backend/src/modules/market-data/gateways/market-data.gateway.ts` — transport orchestration;
+- `apps/backend/src/modules/observability/metrics/metrics.ts` — Prometheus registry;
 - `apps/backend/src/modules/admin/admin.controller.ts` — 408 строк;
 - `apps/backend/src/modules/ledger/infrastructure/postgres.int-spec.ts` — 690 строк.
 
@@ -51,26 +51,55 @@ blocking guard от ухудшения baseline. Финальные строги
   `infrastructure/`;
 - для control-plane создан `admin/admission-control.ts`, чтобы Gateway и Health
   зависели от admission sub-boundary, а не от полного `AdminModule`;
+- `market-data.websocket.e2e-spec.ts` разгружен через
+  `test/builders/market-data-builders.ts`: вынесены Socket.IO helpers, envelope
+  ожидания, test API keys и common subscribe/heartbeat payloads;
 - `audit` переведён на семантическую структуру `domain/`, `ports/` и
   `infrastructure/` с сохранением публичного barrel API;
+- `ledger` переведён на семантическую структуру `controllers/`, `dto/`,
+  `application/`, `ports/`, `domain/` и `infrastructure/` с сохранением
+  публичного barrel API `../ledger`;
+- `projections` переведён на семантическую структуру `controllers/`, `dto/`,
+  `types/`, `ports/`, `application/` и `infrastructure/`; read-model типы
+  вынесены отдельно от in-memory store;
+- `projections/infrastructure` разделён на repositories для versions,
+  processed events, orders, trades и balances; `PostgresProjectionStore` теперь
+  координирует transaction/rebuild, а не держит SQL каждой таблицы;
+- `ledger/infrastructure` разделён на repositories для assets, accounts,
+  balances, operations, postings и reservations; `PostgresLedgerAdapter` теперь
+  координирует atomic ledger mutation и idempotency flow;
+- `health` переведён на семантическую структуру `controllers/`, `application/`,
+  `ports/` и `types/` с сохранением compatibility alias для
+  `CorrelationIdInterceptor`;
+- `market-data.gateway.ts` разгружен через semantic helpers: connection policy,
+  subscription registry, envelope factory, gateway types и telemetry observer;
+- `observability/metrics.ts` разделён на metrics catalog, label policy и
+  recording service без изменения публичных exports;
+- `market-data` переведён на семантическую структуру `domain/`, `dto/`,
+  `gateways/`, `policies/`, `registries/`, `transport/`, `validation/`;
+- `observability` переведён на семантическую структуру `logging/`, `metrics/`,
+  `tracing/`, `alerts/` с сохранением public barrel `../observability`;
 - `AdminService` оставлен публичным фасадом для контроллера и тестов, поэтому
   transport API и imports из `admin.service.ts` не изменились;
 - policy registry изолирует fee/risk policy validation и effective-time lookup;
 - command policy изолирует role matrix, dual-control decision, result mapping и
   compensation reverse mapping;
 - relevant checks: `corepack pnpm --filter @exchange/backend test --
-  admin.service.spec.ts gateway.spec.ts structured-logger.spec.ts --runInBand`,
+admin.service.spec.ts gateway.spec.ts structured-logger.spec.ts
+test/market-data.websocket.e2e-spec.ts src/modules/ledger/ledger.spec.ts
+src/modules/projections/projection.spec.ts
+--runInBand`,
   `corepack pnpm --filter @exchange/backend typecheck`,
   `corepack pnpm --filter @exchange/backend lint`, `corepack pnpm
-  maintainability:report`.
+maintainability:report`.
 
 | Приоритет | Файл                                             | Почему тяжёлый                                                   | Целевое дробление                                                                            |
 | --------- | ------------------------------------------------ | ---------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
 | P0        | `admin.service.ts`                               | lifecycle, dual-control, policies, reconciliation в одном классе | `admin-command.service`, `dual-control.service`, `policy-registry`, `reconciliation.service` |
-| P0        | `market-data.gateway.ts`                         | transport auth, validation, subscription registry, error mapping | `market-data-auth`, `subscription-registry`, `ws-error-mapper`, gateway orchestration        |
-| P0        | `metrics.ts` / `tracing.ts`                      | catalog, adapters и policy вместе                                | `metrics-catalog`, `metrics-recorder`, `tracing-context`, exporter config                    |
-| P1        | `postgres-ledger.adapter.ts`                     | SQL mapping, transaction orchestration, domain mapping           | repositories per aggregate + mapper                                                          |
-| P1        | `projection.ts` / `postgres-projection.store.ts` | apply logic, pagination, rebuild и storage смешаны               | event appliers, pagination policy, rebuild coordinator                                       |
+| P0        | `market-data/gateways/market-data.gateway.ts`    | transport auth, validation, subscription registry, error mapping | connection policy, subscription registry, envelope и telemetry вынесены; дальше error mapper |
+| P0        | `observability/metrics/metrics.ts` / `observability/tracing/tracing.ts` | catalog, adapters и policy вместе                                | metrics catalog/policy вынесены; дальше tracing-context/exporter config                      |
+| P1        | `postgres-ledger.adapter.ts`                     | SQL mapping, transaction orchestration, domain mapping           | repositories вынесены; дальше mapper/policy для posting matrix                               |
+| P1        | `projection.ts` / `postgres-projection.store.ts` | apply logic, pagination, rebuild и storage смешаны               | repositories вынесены; дальше event appliers, pagination policy, rebuild coordinator         |
 | P1        | `settlement.ts`                                  | reserve, settle, fees, event publish/retry                       | reserve service, posting matrix builder, settlement publisher                                |
 | P1        | `matching-engine.ts`                             | book state, matching loop, TIF policy                            | order book, price-level queue, execution policy                                              |
 | P2        | large e2e specs                                  | сценарий, setup, builders и assertions вместе                    | fixtures/builders + сценарии по бизнес-флоу                                                  |

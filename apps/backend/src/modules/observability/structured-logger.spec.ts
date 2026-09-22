@@ -1,9 +1,14 @@
 import { ConfigService } from '@nestjs/config';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { KNOWN_LOG_EVENTS, LOG_EVENTS, MODULE_LOG_EVENT_POLICY, LogEventName } from './log-events';
-import { LoggingContext } from './logging-context';
-import { StructuredLogRecord, StructuredLogger } from './structured-logger';
+import {
+  KNOWN_LOG_EVENTS,
+  LOG_EVENTS,
+  MODULE_LOG_EVENT_POLICY,
+  LogEventName,
+} from './logging/log-events';
+import { LoggingContext } from './logging/logging-context';
+import { StructuredLogRecord, StructuredLogger } from './logging/structured-logger';
 
 /** Создаёт logger с контролируемым in-memory sink без stdout I/O. */
 function createLogger(overrides: Record<string, unknown> = {}): Readonly<{
@@ -43,16 +48,16 @@ describe('StructuredLogger contract', () => {
     const sources: Readonly<
       Record<keyof typeof MODULE_LOG_EVENT_POLICY, string | readonly string[]>
     > = {
-      http: 'src/modules/observability/http-logging.interceptor.ts',
-      websocket: 'src/modules/market-data/market-data.gateway.ts',
-      health: 'src/modules/health/health.service.ts',
+      http: 'src/modules/observability/logging/http-logging.interceptor.ts',
+      websocket: 'src/modules/market-data/gateways/market-data.gateway.ts',
+      health: 'src/modules/health/application/health.service.ts',
       gateway: 'src/modules/gateway/controllers/gateway.controller.ts',
       sequencer: 'src/modules/trading/sequencer/sequencer.ts',
       matching: 'src/modules/trading/matching-engine/matching-engine.ts',
       settlement: 'src/modules/trading/settlement/settlement.ts',
-      ledger: 'src/modules/ledger/ledger-application.service.ts',
+      ledger: 'src/modules/ledger/application/ledger-application.service.ts',
       'event-log': 'src/modules/trading/event-log/event-log.ts',
-      projections: 'src/modules/projections/projection.ts',
+      projections: 'src/modules/projections/application/projection.store.ts',
       instruments: 'src/modules/trading/instruments/instrument-catalog.service.ts',
       admin: [
         'src/modules/admin/admin.service.ts',

@@ -1,6 +1,6 @@
 import { BadRequestException } from '@nestjs/common';
 import { Account, Asset, Ledger } from '../src/modules/ledger';
-import { ProjectionEvent, ProjectionStore } from '../src/modules/projections/projection';
+import { ProjectionEvent, ProjectionStore } from '../src/modules/projections';
 import { createId, Decimal } from '../src/modules/shared-kernel';
 import { EventLog, EventLogTimeout } from '../src/modules/trading/event-log';
 import {

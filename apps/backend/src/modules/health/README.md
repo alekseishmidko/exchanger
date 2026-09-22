@@ -1,5 +1,40 @@
 # Health module
 
+## Структура файлов
+
+Health разделён на небольшие слои, чтобы liveness/readiness contract не
+смешивался с composition root зависимостей:
+
+- `controllers/` — HTTP endpoints `/health`, `/health/live` и `/health/ready`.
+  Controller только выбирает HTTP status и не выполняет probes напрямую.
+- `application/` — `HealthService`, который агрегирует dependency checks,
+  применяет timeout policy и пишет стабильные structured log events.
+- `ports/` — `HEALTH_DEPENDENCIES` и `HealthDependency`, то есть порт
+  инфраструктурных probes, влияющих на readiness.
+- `types/` — публичные `LivenessResponse` и `ReadinessResponse`, безопасные для
+  ответа клиенту и тестов.
+- `index.ts` — публичный barrel модуля. Соседние модули импортируют health через
+  `../health`, а не через deep imports.
+- `correlation-id.interceptor.ts` — compatibility alias на observability
+  interceptor, оставленный для старых imports.
+
+## Как части взаимодействуют
+
+```mermaid
+flowchart LR
+  HTTP["GET /health/live|ready"] --> Controller["controllers/HealthController"]
+  Controller --> Service["application/HealthService"]
+  Service --> Port["ports/HEALTH_DEPENDENCIES"]
+  Port --> Db["PostgreSQL probe"]
+  Port --> Outbox["outbox/event-log probe"]
+  Port --> Lease["partition lease probe"]
+  Port --> Admission["admission-control probe"]
+```
+
+Liveness не обращается к `HEALTH_DEPENDENCIES`. Readiness вызывает только
+bounded read-only probes и возвращает безопасный агрегированный статус без
+исключений, SQL ошибок, connection strings или секретов.
+
 ## Production readiness
 
 `/health/live` проверяет только процесс. `/health/ready` выполняет bounded

@@ -1,5 +1,5 @@
 import { Account, Asset, Ledger } from '../src/modules/ledger';
-import { ProjectionStore } from '../src/modules/projections/projection';
+import { ProjectionStore } from '../src/modules/projections';
 import { createId, Decimal } from '../src/modules/shared-kernel';
 import { EventLog } from '../src/modules/trading/event-log';
 import {

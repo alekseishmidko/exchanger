@@ -1,7 +1,7 @@
 import { ConfigService } from '@nestjs/config';
-import { LOG_EVENTS } from './log-events';
-import { LoggingContext } from './logging-context';
-import { StructuredLogger } from './structured-logger';
+import { LOG_EVENTS } from './logging/log-events';
+import { LoggingContext } from './logging/logging-context';
+import { StructuredLogger } from './logging/structured-logger';
 
 describe('StructuredLogger hot-path budget', () => {
   /**

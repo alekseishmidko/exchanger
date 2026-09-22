@@ -1,9 +1,9 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { environmentFilePaths, validateEnvironment } from './config/environment';
-import { HealthModule } from './modules/health/health.module';
+import { HealthModule } from './modules/health';
 import { GatewayModule } from './modules/gateway';
-import { ProjectionsModule } from './modules/projections/projections.module';
+import { ProjectionsModule } from './modules/projections';
 import { MarketDataModule } from './modules/market-data/market-data.module';
 import { AdminModule } from './modules/admin';
 import { InstrumentsModule } from './modules/trading/instruments';

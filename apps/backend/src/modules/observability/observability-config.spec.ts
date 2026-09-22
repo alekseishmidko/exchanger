@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { parse } from 'yaml';
-import { ALERT_NAMES, evaluateAlerts, NORMAL_SIGNALS } from './alert-policy';
+import { ALERT_NAMES, evaluateAlerts, NORMAL_SIGNALS } from './alerts/alert-policy';
 
 /** Возвращает путь от backend package к repository root fixture. */
 const repositoryFile = (path: string): string => resolve(__dirname, '../../../../..', path);

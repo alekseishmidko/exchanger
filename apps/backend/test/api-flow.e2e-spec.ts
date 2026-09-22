@@ -10,7 +10,7 @@ import {
   TRADING_COMMAND_PORT,
   TradingCommandPort,
 } from '../src/modules/gateway';
-import { ProjectionStore } from '../src/modules/projections/projection';
+import { ProjectionStore } from '../src/modules/projections';
 import { Decimal } from '../src/modules/shared-kernel';
 import { MatchingEngine } from '../src/modules/trading/matching-engine/matching-engine';
 import { flowApiKeyRegistry, placeOrderBody } from './builders/api-builders';

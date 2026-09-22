@@ -1,5 +1,5 @@
-import { MarketDataHub } from '../src/modules/market-data/market-data';
-import { ProjectionStore } from '../src/modules/projections/projection';
+import { MarketDataHub } from '../src/modules/market-data/domain/market-data';
+import { ProjectionStore } from '../src/modules/projections';
 import { Decimal } from '../src/modules/shared-kernel';
 import { MatchingEngine } from '../src/modules/trading/matching-engine/matching-engine';
 

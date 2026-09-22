@@ -7,7 +7,7 @@ import {
   marketDataMessageSchema,
   resyncSchema,
   subscriptionSchema,
-} from '../src/modules/market-data/market-data.validation';
+} from '../src/modules/market-data/validation/market-data.validation';
 
 /** Возвращает абсолютный путь к версионируемому API-контракту из backend test root. */
 function contractPath(...segments: string[]): string {

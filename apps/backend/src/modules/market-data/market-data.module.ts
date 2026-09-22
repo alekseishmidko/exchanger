@@ -1,8 +1,8 @@
 import { Module } from '@nestjs/common';
-import { MarketDataHub } from './market-data';
+import { MarketDataHub } from './domain/market-data';
 import { ConfigService } from '@nestjs/config';
 import { GatewayModule } from '../gateway';
-import { MarketDataGateway } from './market-data.gateway';
+import { MarketDataGateway } from './gateways/market-data.gateway';
 import { MetricsService } from '../observability';
 
 /**
