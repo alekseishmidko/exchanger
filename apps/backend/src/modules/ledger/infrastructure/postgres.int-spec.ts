@@ -14,6 +14,11 @@ import { SettlementService } from '../../trading/settlement';
 import { PostgresSequencerStore } from '../../trading/sequencer';
 import { PostgresAdmissionControl } from '../../admin/admission-control';
 import { PostgresProjectionStore } from '../../projections';
+import {
+  durablePlaceOrderCommand,
+  settlementFixtureIds,
+  settlementTradeFixture,
+} from '../../../../test/builders/durable-runtime-builders';
 
 const postgresUrl = process.env['POSTGRES_URL'];
 const describePostgres = postgresUrl ? describe : describe.skip;
@@ -154,19 +159,11 @@ describePostgres('PostgreSQL durable runtime', () => {
   it('serializes duplicate command admission and survives adapter restart', async () => {
     const store = new PostgresIdempotencyStore(transactions);
     const trading = new PostgresTradingCommandAdapter(transactions);
-    const command = {
+    const command = durablePlaceOrderCommand({
       commandId: 'command-1',
       idempotencyKey: 'raw-secret-key',
-      userId: 'user-1',
-      accountId: 'account-1',
-      instrumentId: 'BTC-USD',
       clientOrderId: 'order-1',
-      side: 'BUY' as const,
-      orderType: 'LIMIT' as const,
-      quantity: '1',
-      limitPrice: '100',
-      timeInForce: 'GTC' as const,
-    };
+    });
     const execute = () =>
       store.execute('api-key:raw-secret-key', command, () => trading.placeOrder(command));
     const [first, duplicate] = await Promise.all([execute(), execute()]);
@@ -193,19 +190,13 @@ describePostgres('PostgreSQL durable runtime', () => {
     const sequencer = new PostgresSequencerStore(transactions);
     const ownerOne = await sequencer.acquire('BTC-USD', 'worker-1', 30_000);
     const trading = new PostgresTradingCommandAdapter(transactions, sequencer, 'worker-1', 30_000);
-    const command = (number: number) => ({
-      commandId: `lease-command-${number}`,
-      idempotencyKey: `lease-key-${number}`,
-      userId: 'user-1',
-      accountId: 'account-1',
-      instrumentId: 'BTC-USD',
-      clientOrderId: `lease-order-${number}`,
-      side: 'BUY' as const,
-      orderType: 'LIMIT' as const,
-      quantity: '1',
-      limitPrice: '100',
-      timeInForce: 'GTC' as const,
-    });
+    const command = (number: number) =>
+      durablePlaceOrderCommand({
+        number,
+        commandId: `lease-command-${number}`,
+        idempotencyKey: `lease-key-${number}`,
+        clientOrderId: `lease-order-${number}`,
+      });
     await trading.placeOrder(command(1));
     await trading.placeOrder(command(2));
     const snapshot = await sequencer.saveSnapshot(ownerOne, 1, { book: 'snapshot-v1' });
@@ -271,19 +262,12 @@ describePostgres('PostgreSQL durable runtime', () => {
         (event_id,aggregate_type,aggregate_id,event_type,payload)
        VALUES ('event-sequence-rollback','test','test','Conflict','{}')`,
     );
-    const command = {
+    const command = durablePlaceOrderCommand({
       commandId: 'sequence-rollback',
       idempotencyKey: 'sequence-rollback-key',
-      userId: 'user-1',
-      accountId: 'account-1',
       instrumentId: 'ETH-USD',
       clientOrderId: 'sequence-rollback-order',
-      side: 'BUY' as const,
-      orderType: 'LIMIT' as const,
-      quantity: '1',
-      limitPrice: '100',
-      timeInForce: 'GTC' as const,
-    };
+    });
     await expect(trading.placeOrder(command)).rejects.toThrow();
     expect(
       (
@@ -476,11 +460,7 @@ describePostgres('PostgreSQL durable runtime', () => {
   it('commits settlement ledger effects and event as one transaction', async () => {
     const ledger = new PostgresLedgerAdapter(transactions);
     const eventLog = new PostgresEventLogAdapter(transactions, 'settlement-test');
-    const btc = createId<'AssetId'>('BTC');
-    const usd = createId<'AssetId'>('USD');
-    const buyer = createId<'AccountId'>('buyer');
-    const seller = createId<'AccountId'>('seller');
-    const fees = createId<'AccountId'>('fees-USD');
+    const { btc, usd, buyer, seller, fees } = settlementFixtureIds();
     await ledger.registerAsset(new Asset(btc, 'BTC', 8));
     await ledger.registerAsset(new Asset(usd, 'USD', 2));
     for (const [id, owner] of [
@@ -529,22 +509,7 @@ describePostgres('PostgreSQL durable runtime', () => {
       price: Decimal.from('100'),
       feeRate: Decimal.from('0.01'),
     });
-    const trade = {
-      eventId: 'trade-event-1',
-      tradeId: 'trade-1',
-      makerOrderId: 'maker-1',
-      takerOrderId: 'taker-1',
-      makerAccountId: buyer,
-      takerAccountId: seller,
-      makerSide: 'BUY',
-      quantity: Decimal.from('2'),
-      price: Decimal.from('100'),
-      makerFee: Decimal.from('2'),
-      takerFee: Decimal.from('2'),
-      feeAssetId: usd,
-      quoteAssetId: usd,
-      baseAssetId: btc,
-    } as const;
+    const trade = settlementTradeFixture({ buyer, seller, usd, btc });
     await settlement.appendTrade(trade);
 
     const durableAppend = eventLog.append.bind(eventLog);

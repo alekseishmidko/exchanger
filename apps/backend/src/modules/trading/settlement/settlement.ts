@@ -19,6 +19,8 @@ import {
   TelemetryPort,
   TRACE_SPANS,
 } from '../../observability';
+import { SettlementEventMapper } from './mappers/settlement-event.mapper';
+import { SettlementPostingPolicy } from './policies/settlement-posting.policy';
 
 /** Данные заявки, необходимые для предварительного резервирования. */
 export type OrderToReserve = Readonly<{
@@ -90,6 +92,8 @@ export type ReservationResult = Readonly<{
 export class SettlementService {
   private readonly reservations = new Map<string, ReservationResult>();
   private readonly applied = new Map<string, SettlementApplied>();
+  private readonly events = new SettlementEventMapper();
+  private readonly postings = new SettlementPostingPolicy();
 
   /**
    * Создаёт settlement orchestrator поверх ledger и durable event-log ports.
@@ -146,9 +150,11 @@ export class SettlementService {
     const baseOperationId = createId<'OperationId'>(`reserve-${order.orderId}-base`);
     await this.ledger.reserve(baseOperationId, order.accountId, order.baseAssetId, order.quantity);
     operations.push(baseOperationId);
-    const feeOperationId = createId<'OperationId'>(`reserve-${order.orderId}-fee`);
-    await this.ledger.reserve(feeOperationId, order.accountId, order.quoteAssetId, fee);
-    operations.push(feeOperationId);
+    if (!fee.isZero()) {
+      const feeOperationId = createId<'OperationId'>(`reserve-${order.orderId}-fee`);
+      await this.ledger.reserve(feeOperationId, order.accountId, order.quoteAssetId, fee);
+      operations.push(feeOperationId);
+    }
     return {
       orderId: order.orderId,
       reserved: order.quantity,
@@ -164,7 +170,7 @@ export class SettlementService {
         await this.eventLog.append({
           eventId: event.eventId,
           eventType: 'TradeExecuted',
-          payload: this.serializeTrade(event),
+          payload: this.events.serializeTrade(event),
           ...(event.correlationId ? { correlationId: event.correlationId } : {}),
           ...(event.causationId ? { causationId: event.causationId } : {}),
         });
@@ -216,20 +222,13 @@ export class SettlementService {
   private async settleTradeObserved(event: TradeExecuted): Promise<SettlementApplied> {
     const previous = this.applied.get(event.tradeId);
     if (previous) return previous;
-    const makerIsBuyer = event.makerSide === 'BUY';
-    const buyerAccountId = makerIsBuyer ? event.makerAccountId : event.takerAccountId;
-    const sellerAccountId = makerIsBuyer ? event.takerAccountId : event.makerAccountId;
-    const makerFee = event.makerFee;
-    const takerFee = event.takerFee;
-    const buyerFee = makerIsBuyer ? makerFee : takerFee;
-    const sellerFee = makerIsBuyer ? takerFee : makerFee;
-    const value = event.quantity.multiply(event.price);
+    const plan = this.postings.buildPlan(event);
     const operationIds: OperationResult[] = [];
     operationIds.push(
       await this.ledger.settleReservedTransfer(
         createId<'OperationId'>(`settle-${event.tradeId}-base`),
-        sellerAccountId,
-        buyerAccountId,
+        plan.sellerAccountId,
+        plan.buyerAccountId,
         event.baseAssetId,
         event.quantity,
       ),
@@ -237,42 +236,38 @@ export class SettlementService {
     operationIds.push(
       await this.ledger.settleReservedTransfer(
         createId<'OperationId'>(`settle-${event.tradeId}-quote`),
-        buyerAccountId,
-        sellerAccountId,
+        plan.buyerAccountId,
+        plan.sellerAccountId,
         event.quoteAssetId,
-        value,
+        plan.value,
       ),
     );
-    if (!buyerFee.isZero()) {
+    if (!plan.buyerFee.isZero()) {
       operationIds.push(
         await this.ledger.settleReservedTransfer(
           createId<'OperationId'>(`settle-${event.tradeId}-buyer-fee`),
-          buyerAccountId,
+          plan.buyerAccountId,
           await this.feeAccount(event.feeAssetId),
           event.feeAssetId,
-          buyerFee,
+          plan.buyerFee,
         ),
       );
     }
-    if (!sellerFee.isZero()) {
+    if (!plan.sellerFee.isZero()) {
       operationIds.push(
         await this.ledger.settleReservedTransfer(
           createId<'OperationId'>(`settle-${event.tradeId}-seller-fee`),
-          sellerAccountId,
+          plan.sellerAccountId,
           await this.feeAccount(event.feeAssetId),
           event.feeAssetId,
-          sellerFee,
+          plan.sellerFee,
         ),
       );
     }
-    const result: SettlementApplied = {
-      eventId: `settlement-event-${event.tradeId}`,
-      ...(event.correlationId ? { correlationId: event.correlationId } : {}),
-      causationId: event.eventId,
-      settlementId: `settlement-${event.tradeId}`,
-      tradeId: event.tradeId,
-      postingIds: operationIds.flatMap(({ postingIds }) => postingIds.map(String)),
-    };
+    const result = this.events.toSettlementApplied(
+      event,
+      operationIds.flatMap(({ postingIds }) => postingIds.map(String)),
+    );
     await this.eventLog.append({
       eventId: result.eventId,
       eventType: 'SettlementApplied',
@@ -298,34 +293,8 @@ export class SettlementService {
     }, maxRetries);
   }
 
-  /**
-   * Преобразует domain event в стабильный JSON payload без floating point.
-   * Повторная сериализация одинакового события даёт одинаковые decimal strings.
-   */
-  private serializeTrade(event: TradeExecuted): TradeExecutedPayload {
-    return {
-      ...event,
-      quantity: event.quantity.toString(),
-      price: event.price.toString(),
-      makerFee: event.makerFee.toString(),
-      takerFee: event.takerFee.toString(),
-    };
-  }
-
-  /**
-   * Восстанавливает точные domain decimals после чтения JSONB/event transport.
-   * Некорректная decimal-строка приводит к исключению и штатному retry/DLQ,
-   * поэтому poison payload не может незаметно попасть в ledger posting.
-   */
   private deserializeTrade(payload: unknown): TradeExecuted {
-    const event = payload as TradeExecutedPayload;
-    return {
-      ...event,
-      quantity: Decimal.from(event.quantity),
-      price: Decimal.from(event.price),
-      makerFee: Decimal.from(event.makerFee),
-      takerFee: Decimal.from(event.takerFee),
-    };
+    return this.events.deserializeTrade(payload);
   }
 
   /** Находит заранее provisioned fee account для заданного asset. */
