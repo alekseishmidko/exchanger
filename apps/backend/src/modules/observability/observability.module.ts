@@ -1,5 +1,5 @@
 import { Global, Module } from '@nestjs/common';
-import { APP_INTERCEPTOR } from '@nestjs/core';
+import { APP_FILTER, APP_INTERCEPTOR } from '@nestjs/core';
 import { HttpLoggingInterceptor } from './logging/http-logging.interceptor';
 import { LoggingContext } from './logging/logging-context';
 import { StructuredLogger } from './logging/structured-logger';
@@ -7,6 +7,7 @@ import { LifecycleReporter } from './logging/lifecycle-reporter';
 import { MetricsController } from './metrics/metrics.controller';
 import { MetricsService } from './metrics/metrics';
 import { TelemetryService } from './tracing/tracing';
+import { PublicErrorFilter } from './logging/public-error.filter';
 
 /**
  * Глобальный composition root operational logging.
@@ -25,6 +26,7 @@ import { TelemetryService } from './tracing/tracing';
     StructuredLogger,
     LifecycleReporter,
     { provide: APP_INTERCEPTOR, useClass: HttpLoggingInterceptor },
+    { provide: APP_FILTER, useClass: PublicErrorFilter },
   ],
   exports: [LoggingContext, MetricsService, StructuredLogger, TelemetryService],
 })

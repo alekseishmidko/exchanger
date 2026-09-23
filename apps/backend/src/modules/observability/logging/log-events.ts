@@ -46,6 +46,7 @@ export const LOG_EVENTS = {
   AUDIT_INTEGRITY_FAILED: 'audit.integrity.failed',
   INSTRUMENT_CHANGED: 'instrument.changed',
   INSTRUMENT_REJECTED: 'instrument.rejected',
+  AUTH_TEST_BYPASS_USED: 'auth.test-bypass.used',
 } as const;
 
 /** Union всех допустимых production event names. */
@@ -61,6 +62,7 @@ export const UNSAMPLED_LOG_EVENTS: ReadonlySet<LogEventName> = new Set([
   LOG_EVENTS.ADMIN_ACTION_REJECTED,
   LOG_EVENTS.AUDIT_RECORD_APPENDED,
   LOG_EVENTS.AUDIT_INTEGRITY_FAILED,
+  LOG_EVENTS.AUTH_TEST_BYPASS_USED,
 ]);
 
 /**

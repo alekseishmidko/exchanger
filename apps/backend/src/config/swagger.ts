@@ -49,6 +49,15 @@ export function configureSwagger(
       },
       'ApiKeyAuth',
     )
+    .addCookieAuth(
+      config.get<string>('AUTH_COOKIE_NAME', 'exchange_session'),
+      {
+        type: 'apiKey',
+        in: 'cookie',
+        description: 'Opaque server session cookie. Raw token не возвращается в DTO.',
+      },
+      'SessionCookie',
+    )
     .build();
 
   SwaggerModule.setup(path, app, () => SwaggerModule.createDocument(app, documentConfig), {

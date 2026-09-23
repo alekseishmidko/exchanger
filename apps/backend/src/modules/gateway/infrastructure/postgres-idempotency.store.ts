@@ -97,6 +97,49 @@ export class PostgresIdempotencyStore implements IdempotencyStorePort {
     });
   }
 
+  /** Credential возвращается первой transaction, а public_result получает только marker. */
+  executeSensitive<T>(
+    key: string,
+    request: unknown,
+    operation: () => Promise<T>,
+  ): Promise<Readonly<{ replayed: false; value: T } | { replayed: true }>> {
+    return this.transactions.run(async (client) => {
+      const { identity, rawKey } = this.splitScopedKey(key);
+      const keyDigest = sha256(rawKey);
+      const payloadHash = sha256(request);
+      const inserted = await client.query(
+        `INSERT INTO api_idempotency_records (identity_key,key_digest,payload_hash,status)
+         VALUES ($1,$2,$3,'PENDING') ON CONFLICT DO NOTHING RETURNING identity_key`,
+        [identity, keyDigest, payloadHash],
+      );
+      if (inserted.rowCount === 0) {
+        const existing = await client.query<IdempotencyRow>(
+          'SELECT payload_hash,status,public_result FROM api_idempotency_records WHERE identity_key=$1 AND key_digest=$2 FOR UPDATE',
+          [identity, keyDigest],
+        );
+        const row = existing.rows[0];
+        if (!row || row.payload_hash !== payloadHash)
+          throw new ConflictException({
+            code: 'IDEMPOTENCY_KEY_REUSED',
+            message: 'Idempotency key was reused with another request',
+          });
+        if (row.status === 'APPLIED') return { replayed: true };
+        throw new ConflictException({
+          code: 'IDEMPOTENCY_OPERATION_PENDING',
+          message: 'Previous operation has not reached a terminal state',
+        });
+      }
+      const value = await operation();
+      await client.query(
+        `UPDATE api_idempotency_records SET status='APPLIED',
+         public_result='{"credentialIssued":true}'::jsonb, updated_at=clock_timestamp()
+         WHERE identity_key=$1 AND key_digest=$2`,
+        [identity, keyDigest],
+      );
+      return { replayed: false, value };
+    });
+  }
+
   /** Разделяет identity и raw key, не записывая raw key в PostgreSQL. */
   private splitScopedKey(value: string): Readonly<{ identity: string; rawKey: string }> {
     const separator = value.indexOf(':');

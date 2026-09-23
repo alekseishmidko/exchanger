@@ -826,7 +826,9 @@ async function reconcile() {
 
 /** Собирает и проверяет логи, не сохраняя canary/credentials в artifacts. */
 async function collectDiagnostics() {
-  await http('/api/v1/auth/me', { headers: { 'x-api-key': canary } }).catch(() => undefined);
+  await http('/api/v1/machine-auth/me', { headers: { 'x-api-key': canary } }).catch(
+    () => undefined,
+  );
   const logs = command('docker', [...compose, 'logs', '--no-color'], {}, false).output;
   const forbidden = [canary, traderKey, adminOneKey, adminTwoKey, 'staging-only-password'];
   report.secretLeakDetected = forbidden.some((value) => logs.includes(value));

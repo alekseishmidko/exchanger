@@ -125,4 +125,39 @@ export class IdempotencyStore implements IdempotencyStorePort {
     this.inFlight.set(key, { fingerprint, result });
     return result;
   }
+
+  /** Сохраняет marker вместо credential и не выдаёт secret при retry. */
+  async executeSensitive<T>(
+    key: string,
+    request: unknown,
+    operation: () => Promise<T>,
+  ): Promise<Readonly<{ replayed: false; value: T } | { replayed: true }>> {
+    const fingerprint = createHash('sha256').update(JSON.stringify(request)).digest('hex');
+    const previous = this.records.get(key);
+    if (previous) {
+      if (previous.fingerprint !== fingerprint)
+        throw new ConflictException({
+          code: 'IDEMPOTENCY_KEY_REUSED',
+          message: 'Idempotency key was reused with another request',
+        });
+      return { replayed: true };
+    }
+    const active = this.inFlight.get(key);
+    if (active) {
+      if (active.fingerprint !== fingerprint)
+        throw new ConflictException({
+          code: 'IDEMPOTENCY_KEY_REUSED',
+          message: 'Idempotency key was reused with another request',
+        });
+      return { replayed: true };
+    }
+    const running = operation()
+      .then((value) => {
+        this.records.set(key, { fingerprint, result: { credentialIssued: true } });
+        return value;
+      })
+      .finally(() => this.inFlight.delete(key));
+    this.inFlight.set(key, { fingerprint, result: running });
+    return { replayed: false, value: await running };
+  }
 }

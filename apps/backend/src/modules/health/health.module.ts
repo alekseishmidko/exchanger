@@ -16,10 +16,11 @@ import {
   DurableWorkerManager,
   TradingWorkersModule,
 } from '../trading/workers';
+import { IdentityModule, SESSION_STORE, SessionStore } from '../identity';
 
 /** Собирает health endpoints, проверки зависимостей и HTTP-наблюдаемость. */
 @Module({
-  imports: [SequencerModule, AdmissionControlModule, TradingWorkersModule],
+  imports: [SequencerModule, AdmissionControlModule, TradingWorkersModule, IdentityModule],
   controllers: [HealthController],
   providers: [
     HealthService,
@@ -31,6 +32,7 @@ import {
         SEQUENCER_STORE_PORT,
         ADMISSION_CONTROL_PORT,
         DURABLE_WORKER_MANAGER,
+        SESSION_STORE,
       ],
       useFactory: (
         config: ConfigService,
@@ -38,6 +40,7 @@ import {
         sequencer: SequencerStorePort,
         admission: AdmissionControlPort,
         workers: DurableWorkerManager,
+        sessions: SessionStore,
       ) => {
         if (config.getOrThrow('RUNTIME_PROFILE') === 'component') return [];
         return [
@@ -58,6 +61,7 @@ import {
           { name: 'partition-lease', critical: true, check: () => sequencer.checkReady() },
           { name: 'admission-control', critical: true, check: () => admission.checkReady() },
           { name: 'durable-workers', critical: true, check: () => workers.checkReady() },
+          { name: 'redis-sessions', critical: true, check: () => sessions.check() },
         ];
       },
     },

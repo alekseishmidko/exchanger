@@ -173,8 +173,8 @@ export class ReconciliationResponseDto {
 /** Проверенная identity сотрудника, зафиксированная в audit record. */
 export class AuditActorResponseDto {
   @ApiProperty({ example: 'admin-1' }) actorId!: string;
-  @ApiProperty({ enum: ['ADMIN', 'RISK_MANAGER', 'AUDITOR', 'SUPPORT'], example: 'ADMIN' })
-  role!: 'ADMIN' | 'RISK_MANAGER' | 'AUDITOR' | 'SUPPORT';
+  @ApiProperty({ enum: ['ADMIN', 'RISK_MANAGER', 'AUDITOR', 'SUPPORT', 'USER'], example: 'ADMIN' })
+  role!: 'ADMIN' | 'RISK_MANAGER' | 'AUDITOR' | 'SUPPORT' | 'USER';
 }
 
 /**

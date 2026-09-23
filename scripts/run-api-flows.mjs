@@ -151,7 +151,7 @@ async function requestJson(path, { method = 'GET', key = apiKey, idempotencyKey,
 /** Выпускает второй admin key, чтобы dual-control команды проходили как в UI. */
 async function issueApprovalAdminKey() {
   const commandId = `smoke-approval-admin-${runId}`;
-  const issued = await requestJson('/api/v1/auth/api-keys', {
+  const issued = await requestJson('/api/v1/machine-auth/api-keys', {
     method: 'POST',
     key: adminApiKey,
     idempotencyKey: commandId,
@@ -161,6 +161,8 @@ async function issueApprovalAdminKey() {
       userId: `smoke-approval-admin-${runId}`,
       role: 'admin',
       label: `api-flow-approval-${runId}`,
+      ownerType: 'SYSTEM',
+      scopes: ['admin:*', 'trading:read', 'trading:write'],
     },
   });
   assert(typeof issued.body?.apiKey === 'string', 'approval admin key не выпущен');
@@ -176,7 +178,7 @@ async function issueApprovalAdminKey() {
  */
 async function issueTraderKeyForAccount(accountId) {
   const commandId = `smoke-trader-key-${runId}`;
-  const issued = await requestJson('/api/v1/auth/api-keys', {
+  const issued = await requestJson('/api/v1/machine-auth/api-keys', {
     method: 'POST',
     key: adminApiKey,
     idempotencyKey: commandId,
@@ -186,6 +188,8 @@ async function issueTraderKeyForAccount(accountId) {
       userId: accountId,
       role: 'trader',
       label: `api-flow-trader-${runId}`,
+      ownerType: 'USER',
+      scopes: ['trading:read', 'trading:write'],
     },
   });
   assert(typeof issued.body?.apiKey === 'string', 'trader key не выпущен');
@@ -353,12 +357,12 @@ async function main() {
       name: 'OpenAPI document',
       path: '/docs/openapi.json',
       validate: (body) =>
-        assert(Boolean(body?.paths?.['/api/v1/auth/me']), 'auth route отсутствует'),
+        assert(Boolean(body?.paths?.['/api/v1/machine-auth/me']), 'machine auth route отсутствует'),
     });
     await runStep({
       group: 'authentication',
       name: 'current principal',
-      path: '/api/v1/auth/me',
+      path: '/api/v1/machine-auth/me',
       validate: (body) => {
         assert(
           body?.authenticated === true && typeof body?.subjectId === 'string',

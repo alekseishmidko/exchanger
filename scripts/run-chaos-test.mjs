@@ -189,7 +189,7 @@ try {
   mark('environment.ready', { durationMs: startupMs });
 
   const canarySecret = `chaos-canary-${runId}`;
-  await fetch(`${hostBaseUrl}/api/v1/auth/me`, {
+  await fetch(`${hostBaseUrl}/api/v1/machine-auth/me`, {
     headers: { 'x-api-key': canarySecret },
     signal: AbortSignal.timeout(5000),
   });

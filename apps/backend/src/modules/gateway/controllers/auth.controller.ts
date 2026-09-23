@@ -10,6 +10,7 @@ import {
   BadRequestException,
   Body,
   Controller,
+  ConflictException,
   ForbiddenException,
   Get,
   Headers,
@@ -50,6 +51,7 @@ import {
   ApiKeyPrincipal,
   ApiKeyRegistry,
   assertAdminAccess,
+  assertApiKeyScope,
 } from '../auth/gateway.auth';
 import { RateLimitService } from '../application/gateway.rate-limit';
 import { IDEMPOTENCY_STORE_PORT, IdempotencyStorePort } from '../ports/gateway.idempotency.port';
@@ -71,7 +73,7 @@ type AuthenticationRequest = Readonly<{ principal: ApiKeyPrincipal }>;
  * `GET /api/v1/auth/me` с `x-api-key: <secret>` возвращает subject и role; тот
  * же запрос без ключа получает безопасный `401 AUTH_INVALID_API_KEY`.
  */
-@Controller('api/v1/auth')
+@Controller('api/v1/machine-auth')
 @UseGuards(ApiKeyGuard)
 @ApiTags('Authentication')
 @ApiSecurity('ApiKeyAuth')
@@ -141,18 +143,27 @@ export class AuthenticationController {
   ): Promise<IssuedApiKeyResponseDto> {
     this.admitAdmin(request.principal);
     const key = this.requireIdempotencyKey(idempotencyKey);
-    return this.idempotency.execute(`${request.principal.keyId}:${key}`, body, async () => {
-      const issued = this.registry.issue(body);
-      await this.audit.append(
-        { actorId: request.principal.userId, role: 'ADMIN' },
-        'ACTION_APPLIED',
-        'ISSUE_API_KEY',
-        body.commandId,
-        issued.metadata.keyId,
-        { subjectId: body.userId, role: body.role, label: body.label },
-      );
-      return Promise.resolve({ apiKey: issued.apiKey, metadata: issued.metadata });
-    });
+    return this.idempotency
+      .executeSensitive(`${request.principal.keyId}:${key}`, body, async () => {
+        const issued = await this.registry.issue(body);
+        await this.audit.append(
+          { actorId: request.principal.userId, role: 'ADMIN' },
+          'ACTION_APPLIED',
+          'ISSUE_API_KEY',
+          body.commandId,
+          issued.metadata.keyId,
+          { subjectId: body.userId, role: body.role, label: body.label },
+        );
+        return Promise.resolve({ apiKey: issued.apiKey, metadata: issued.metadata });
+      })
+      .then((result) => {
+        if (result.replayed)
+          throw new ConflictException({
+            code: 'CREDENTIAL_SECRET_ALREADY_SHOWN',
+            message: 'Credential was already issued; rotate it to obtain a new secret',
+          });
+        return result.value;
+      });
   }
 
   /** Возвращает admin-only список active/revoked metadata без secret/digest. */
@@ -160,9 +171,9 @@ export class AuthenticationController {
   @ApiOperation({ summary: 'Получить безопасный список API keys' })
   @ApiOkResponse({ type: ApiKeyMetadataPageResponseDto })
   @ApiForbiddenResponse({ description: 'Требуется роль admin.' })
-  listApiKeys(@Req() request: AuthenticationRequest): ApiKeyMetadataPageResponseDto {
+  async listApiKeys(@Req() request: AuthenticationRequest): Promise<ApiKeyMetadataPageResponseDto> {
     this.admitAdmin(request.principal);
-    return { items: [...this.registry.list()] };
+    return { items: [...(await this.registry.list())] };
   }
 
   /**
@@ -186,11 +197,9 @@ export class AuthenticationController {
     this.admitAdmin(request.principal);
     this.rejectSelfMutation(request.principal, keyId);
     const key = this.requireIdempotencyKey(idempotencyKey);
-    return this.idempotency.execute(
-      `${request.principal.keyId}:${key}`,
-      { keyId, ...body },
-      async () => {
-        const issued = this.registry.rotate(keyId);
+    return this.idempotency
+      .executeSensitive(`${request.principal.keyId}:${key}`, { keyId, ...body }, async () => {
+        const issued = await this.registry.rotate(keyId);
         await this.audit.append(
           { actorId: request.principal.userId, role: 'ADMIN' },
           'ACTION_APPLIED',
@@ -199,8 +208,15 @@ export class AuthenticationController {
           keyId,
         );
         return Promise.resolve({ apiKey: issued.apiKey, metadata: issued.metadata });
-      },
-    );
+      })
+      .then((result) => {
+        if (result.replayed)
+          throw new ConflictException({
+            code: 'CREDENTIAL_SECRET_ALREADY_SHOWN',
+            message: 'Credential was already issued; rotate it to obtain a new secret',
+          });
+        return result.value;
+      });
   }
 
   /** Отзывает credential, сохраняя metadata и audit chain для расследования. */
@@ -224,7 +240,7 @@ export class AuthenticationController {
       `${request.principal.keyId}:${key}`,
       { keyId, ...body },
       async () => {
-        const metadata = this.registry.revoke(keyId);
+        const metadata = await this.registry.revoke(keyId);
         await this.audit.append(
           { actorId: request.principal.userId, role: 'ADMIN' },
           'ACTION_APPLIED',
@@ -240,6 +256,7 @@ export class AuthenticationController {
   /** Выполняет общие role/rate checks до любого auth administration handler. */
   private admitAdmin(principal: ApiKeyPrincipal): void {
     assertAdminAccess(principal);
+    assertApiKeyScope(principal, 'admin:*');
     this.rateLimit.check(principal.keyId);
   }
 

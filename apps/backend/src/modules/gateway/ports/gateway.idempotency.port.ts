@@ -34,4 +34,14 @@ export interface IdempotencyStorePort {
    * @throws ConflictException Если тот же key связан с другим payload.
    */
   execute<T>(key: string, request: unknown, operation: () => Promise<T>): Promise<T>;
+
+  /**
+   * Выполняет one-time credential command, сохраняя только безопасный marker.
+   * Retry не может вернуть secret повторно и получает `replayed=true`.
+   */
+  executeSensitive<T>(
+    key: string,
+    request: unknown,
+    operation: () => Promise<T>,
+  ): Promise<Readonly<{ replayed: false; value: T } | { replayed: true }>>;
 }
