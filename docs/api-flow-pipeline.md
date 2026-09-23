@@ -23,12 +23,15 @@ pipeline и удаляет containers/volumes в `finally`. Поэтому пр�
 pnpm api:flows:check
 ```
 
-По умолчанию используются `http://localhost:5001` и development API key
-`dev-key`. Для другого окружения значения передаются явно:
+По умолчанию используются `http://localhost:5001`, development trader key
+`dev-key` и admin key `dev-admin-key`. Admin key нужен только для подготовки
+smoke-данных через публичные endpoints: выпуск transient trader key, настройка
+инструмента и funding баланса. Для другого окружения значения передаются явно:
 
 ```bash
 API_FLOW_BASE_URL=https://dev.exchange.example.com \
 API_FLOW_API_KEY="$EXCHANGE_SMOKE_API_KEY" \
+API_FLOW_ADMIN_API_KEY="$EXCHANGE_SMOKE_ADMIN_KEY" \
 pnpm api:flows:check
 ```
 
@@ -41,8 +44,9 @@ API key не печатается и не сохраняется. Для уда�
 2. `documentation`: OpenAPI и обязательный auth route;
 3. `authentication`: проверка API-key identity;
 4. `catalog/queries`: instruments и projection lag;
-5. `accounts`: создание аккаунта и чтение его балансов;
-6. `orders`: place, повтор с тем же idempotency key, query и cancel.
+5. `accounts`: выпуск transient trader key, создание аккаунта и чтение его балансов;
+6. `setup`: через admin boundary гарантируется активный `BTC-USD` и USD funding;
+7. `orders`: place, повтор с тем же idempotency key, query и cancel.
 
 Каждый запуск использует уникальные command/account/order IDs. Pipeline не
 изменяет ledger напрямую и не сохраняет credential в отчётах.
@@ -69,8 +73,8 @@ API key не печатается и не сохраняется. Для уда�
 
 ## Граница проверки
 
-Pipeline подтверждает доступность transport-сценариев reference application.
-Он не заменяет системный E2E settlement: текущий локальный `TradingCommandPort`
-принимает команды in-memory и не связывает REST place order с реальным
-sequencer/settlement adapter. После подключения production application port в
-pipeline следует добавить funding → match → settlement → projection flow.
+Pipeline подтверждает доступность transport-сценариев reference application и
+минимальный runtime path `account → funding → place → query → cancel` через
+публичные REST-контракты. Он намеренно остаётся smoke-проверкой: для полного
+доказательства spot MVP, matching, settlement, WebSocket isolation и RPO=0
+используется `pnpm business:e2e:staging`.

@@ -28,4 +28,4 @@ COPY --from=build /workspace/apps/backend/dist ./apps/backend/dist
 COPY --from=build /workspace/packages/contracts/dist ./packages/contracts/dist
 COPY --from=build /workspace/apps/backend/package.json ./apps/backend/package.json
 COPY --from=build /workspace/packages/contracts/package.json ./packages/contracts/package.json
-CMD ["node", "apps/backend/dist/main.js"]
+CMD ["node", "apps/backend/dist/src/main.js"]

@@ -1,5 +1,5 @@
 import type { Socket } from 'socket.io';
-import type { ApiKeyPrincipal } from '../../gateway';
+import type { ApiKeyPrincipal } from '../../gateway/auth/gateway.auth';
 import type { WebSocketEnvelope } from '../dto/market-data.dto';
 
 /** Client events принимают unknown payload и валидируют его до использования. */

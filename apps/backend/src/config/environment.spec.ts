@@ -125,4 +125,20 @@ describe('environment validation', () => {
       }),
     ).toThrow(`${key} must be a positive integer`);
   });
+
+  /** Worker policy не может иметь нулевой batch/timeout, иначе recovery зависнет. */
+  it.each([
+    ['WORKERS_ENABLED', 'maybe', 'WORKERS_ENABLED must be true, false, 1, or 0'],
+    ['WORKER_BATCH_SIZE', '0', 'WORKER_BATCH_SIZE must be a positive integer'],
+    ['WORKER_TIMEOUT_MS', 'forever', 'WORKER_TIMEOUT_MS must be a positive integer'],
+  ])('rejects invalid worker setting %s=%s', (key, value, message) => {
+    expect(() =>
+      validateEnvironment({
+        NODE_ENV: 'development',
+        PORT: '5000',
+        SERVICE_NAME: 'exchange-backend',
+        [key]: value,
+      }),
+    ).toThrow(message);
+  });
 });

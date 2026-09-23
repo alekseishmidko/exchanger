@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 import { MarketDataHub } from './domain/market-data';
 import { ConfigService } from '@nestjs/config';
-import { GatewayModule } from '../gateway';
+import { GatewayCommonModule } from '../gateway/gateway-common.module';
 import { MarketDataGateway } from './gateways/market-data.gateway';
 import { MetricsService } from '../observability';
 
@@ -16,7 +16,7 @@ import { MetricsService } from '../observability';
  * вызвать `publishPublic(...)` без зависимости от Socket.IO.
  */
 @Module({
-  imports: [GatewayModule],
+  imports: [GatewayCommonModule],
   providers: [
     {
       provide: MarketDataHub,

@@ -43,8 +43,8 @@ row и сверяет instrument, owner, epoch и deadline. Следовател
 4. State machine применяет snapshot и ordered commands. Только после достижения
    high watermark вызывается `completeRecovery`, переводящий partition в
    `READY` и открывающий admission.
-5. Snapshot создаётся только при отсутствии `ACCEPTED`, `PROCESSING` и
-   `RECOVERY` commands. Он содержит version, instrument, last sequence,
+5. Snapshot создаётся только при отсутствии `RECEIVED`, `ACCEPTED`,
+   `PROCESSING` и `RECOVERY_REQUIRED` commands. Он содержит version, instrument, last sequence,
    outbox boundary offset, fencing epoch, payload и checksum.
 
 Storage adapter формирует и проверяет recovery plan, но фактическое применение

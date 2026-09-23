@@ -57,6 +57,7 @@ describe('StructuredLogger contract', () => {
       settlement: 'src/modules/trading/settlement/settlement.ts',
       ledger: 'src/modules/ledger/application/ledger-application.service.ts',
       'event-log': 'src/modules/trading/event-log/event-log.ts',
+      workers: 'src/modules/trading/workers/durable-worker.manager.ts',
       projections: 'src/modules/projections/application/projection.store.ts',
       instruments: 'src/modules/trading/instruments/instrument-catalog.service.ts',
       admin: [

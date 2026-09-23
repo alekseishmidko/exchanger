@@ -8,6 +8,7 @@ x-backend: &backend
   environment: &backend-environment
     POSTGRES_URL: postgres://exchange:staging-only-password@toxiproxy:8666/exchange
     BUILD_VERSION: ${BUILD_SHA:-local-dirty}
+    GATEWAY_API_KEYS: ${GATEWAY_API_KEYS:-staging-trader-key:trader:staging-user,staging-admin-key:admin:staging-admin,staging-admin-2-key:admin:staging-admin-2,staging-risk-key:risk_manager:staging-risk}
   depends_on:
     migrate:
       condition: service_completed_successfully

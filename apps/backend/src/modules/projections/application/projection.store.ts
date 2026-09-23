@@ -125,7 +125,7 @@ export class ProjectionStore implements ProjectionStorePort {
     this.sourceSequence = Math.max(this.sourceSequence, event.sequence);
     switch (event.eventType) {
       case 'OrderAccepted':
-        this.applyOrder(event, 'ACCEPTED');
+        this.applyOrder(event, asOrderStatus(event.payload['status'], 'OPEN'));
         break;
       case 'OrderRejected':
         this.applyOrder(event, 'REJECTED');
@@ -310,4 +310,9 @@ function addDecimal(left: string, right: string): string {
 /** Безопасно извлекает строковое decimal-поле из непроверенного event payload. */
 function asString(value: unknown, fallback: string): string {
   return typeof value === 'string' ? value : fallback;
+}
+
+/** Безопасно извлекает order lifecycle status из event payload. */
+function asOrderStatus(value: unknown, fallback: OrderView['status']): OrderView['status'] {
+  return typeof value === 'string' ? (value as OrderView['status']) : fallback;
 }

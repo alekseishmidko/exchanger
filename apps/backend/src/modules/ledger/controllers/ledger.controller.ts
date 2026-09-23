@@ -26,13 +26,16 @@ import {
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
 import { z } from 'zod';
-import { ApiKeyGuard, ApiKeyPrincipal, assertAdminAccess, assertObjectAccess } from '../../gateway';
 import {
-  IDEMPOTENCY_STORE_PORT,
-  IdempotencyStorePort,
-  RateLimitService,
-  ZodValidationPipe,
-} from '../../gateway';
+  ApiKeyGuard,
+  ApiKeyPrincipal,
+  assertAdminAccess,
+  assertObjectAccess,
+} from '../../gateway/auth/gateway.auth';
+import { IDEMPOTENCY_STORE_PORT } from '../../gateway/ports/gateway.idempotency.port';
+import type { IdempotencyStorePort } from '../../gateway/ports/gateway.idempotency.port';
+import { RateLimitService } from '../../gateway/application/gateway.rate-limit';
+import { ZodValidationPipe } from '../../gateway/validation/gateway.validation';
 import {
   AccountBalancesResponseDto,
   AccountResponseDto,

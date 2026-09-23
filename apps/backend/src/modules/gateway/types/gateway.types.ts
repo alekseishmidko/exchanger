@@ -6,6 +6,13 @@
  * `TradingCommandPort`. Внутренние order book, ledger postings и settlement
  * здесь не представлены намеренно.
  */
+import type {
+  CommandExecutionStatus,
+  CommandLifecycleStatus,
+  OrderLifecycleStatus,
+  TradingRejectionCode,
+} from '../../trading/lifecycle';
+
 /** Сторона заявки во внешнем command API. */
 export type GatewaySide = 'BUY' | 'SELL';
 /** Тип заявки во внешнем command API. */
@@ -78,7 +85,16 @@ export interface TradingCommandPort {
 export type GatewayCommandResult = Readonly<{
   commandId: string;
   orderId: string;
+  /** Deprecated compatibility field; новые клиенты используют durable/execution/order statuses. */
   status: 'ACCEPTED' | 'CANCEL_ACCEPTED';
+  /** Факт durable acceptance command journal, отдельно от бизнес-применения. */
+  durableStatus: CommandLifecycleStatus;
+  /** Фактический результат processor-а: pending/applied/rejected/recovery. */
+  executionStatus: CommandExecutionStatus;
+  /** Текущее состояние заявки после применения доступных domain events. */
+  orderStatus: OrderLifecycleStatus;
+  /** Stable public rejection code без stack trace и internal payload. */
+  rejectionCode?: TradingRejectionCode;
 }>;
 
 /**
@@ -101,6 +117,9 @@ export class InMemoryTradingCommandPort implements TradingCommandPort {
       commandId: command.commandId,
       orderId: command.clientOrderId,
       status: 'ACCEPTED',
+      durableStatus: 'ACCEPTED',
+      executionStatus: 'PENDING',
+      orderStatus: 'PENDING',
     } as const;
     this.orders.set(command.clientOrderId, { ownerId: command.userId, result });
     return result;
@@ -113,6 +132,9 @@ export class InMemoryTradingCommandPort implements TradingCommandPort {
       commandId: command.commandId,
       orderId: command.orderId,
       status: 'CANCEL_ACCEPTED',
+      durableStatus: 'ACCEPTED',
+      executionStatus: 'PENDING',
+      orderStatus: 'CANCEL_PENDING',
     } as const;
     this.orders.set(command.orderId, { ownerId: command.userId, result });
     return result;

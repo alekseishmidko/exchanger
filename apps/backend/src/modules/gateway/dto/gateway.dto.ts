@@ -7,6 +7,16 @@
  */
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { GatewayOrderType, GatewaySide, GatewayTimeInForce } from '../types/gateway.types';
+import {
+  COMMAND_EXECUTION_STATUSES,
+  COMMAND_LIFECYCLE_STATUSES,
+  ORDER_LIFECYCLE_STATUSES,
+  TRADING_REJECTION_CODES,
+  CommandExecutionStatus,
+  CommandLifecycleStatus,
+  OrderLifecycleStatus,
+  TradingRejectionCode,
+} from '../../trading/lifecycle';
 
 /**
  * Документирует внешний запрос размещения заявки.
@@ -82,6 +92,18 @@ export class GatewayCommandResponseDto {
 
   @ApiProperty({ enum: ['ACCEPTED', 'CANCEL_ACCEPTED'], example: 'ACCEPTED' })
   status!: 'ACCEPTED' | 'CANCEL_ACCEPTED';
+
+  @ApiProperty({ enum: COMMAND_LIFECYCLE_STATUSES, example: 'ACCEPTED' })
+  durableStatus!: CommandLifecycleStatus;
+
+  @ApiProperty({ enum: COMMAND_EXECUTION_STATUSES, example: 'PENDING' })
+  executionStatus!: CommandExecutionStatus;
+
+  @ApiProperty({ enum: ORDER_LIFECYCLE_STATUSES, example: 'PENDING' })
+  orderStatus!: OrderLifecycleStatus;
+
+  @ApiProperty({ enum: TRADING_REJECTION_CODES, required: false, example: 'INVALID_PRICE' })
+  rejectionCode?: TradingRejectionCode;
 }
 
 /** Страница истории заявок с непрозрачным курсором следующей страницы. */

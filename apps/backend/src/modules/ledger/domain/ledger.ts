@@ -32,9 +32,28 @@ export class Ledger implements LedgerPort {
    */
   constructor(private readonly telemetry: TelemetryPort = NOOP_TELEMETRY) {}
 
-  /** Регистрирует asset definition до проведения операций. */
+  /**
+   * Регистрирует asset definition до проведения операций.
+   *
+   * Повторная регистрация того же asset с тем же `code/scale` считается
+   * подтверждением уже опубликованного справочника и не меняет состояние. Это
+   * важно для black-box flows, где каждый account может передавать одинаковый
+   * набор открываемых balances: второй account не должен падать только потому,
+   * что `USD` или `BTC` уже есть в каталоге. Если же identifier совпал, а
+   * точность или код отличаются, операция отклоняется — менять precision уже
+   * использованного asset небезопасно для ledger.
+   *
+   * @example
+   * ledger.registerAsset(new Asset(usd, 'USD', 2));
+   * ledger.registerAsset(new Asset(usd, 'USD', 2)); // no-op
+   * ledger.registerAsset(new Asset(usd, 'USDT', 6)); // error
+   */
   registerAsset(asset: Asset): void {
-    if (this.assets.has(asset.id)) {
+    const existing = this.assets.get(asset.id);
+    if (existing && existing.code === asset.code && existing.scale === asset.scale) {
+      return;
+    }
+    if (existing) {
       throw new Error('Asset already exists');
     }
     this.assets.set(asset.id, asset);

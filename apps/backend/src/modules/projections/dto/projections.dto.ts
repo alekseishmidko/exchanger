@@ -1,4 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
+import { ORDER_LIFECYCLE_STATUSES, OrderLifecycleStatus } from '../../trading/lifecycle';
 
 /** Read-model заявки, построенная только из упорядоченных domain events. */
 export class OrderViewResponseDto {
@@ -6,8 +7,8 @@ export class OrderViewResponseDto {
   @ApiProperty({ example: 'user-1' }) userId!: string;
   @ApiProperty({ example: 'account-1' }) accountId!: string;
   @ApiProperty({ example: 'BTC-USD' }) instrumentId!: string;
-  @ApiProperty({ enum: ['ACCEPTED', 'REJECTED', 'CANCELLED'] })
-  status!: 'ACCEPTED' | 'REJECTED' | 'CANCELLED';
+  @ApiProperty({ enum: ORDER_LIFECYCLE_STATUSES })
+  status!: OrderLifecycleStatus;
   @ApiProperty({ example: '0.25' }) remainingQuantity!: string;
   @ApiProperty({ example: 42 }) updatedAtSequence!: number;
 }

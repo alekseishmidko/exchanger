@@ -1,4 +1,5 @@
 import type { TraceCarrier } from '../../observability';
+import type { OrderLifecycleStatus } from '../../trading/lifecycle';
 
 /** Событие event log, достаточное для построения read-моделей. */
 export type ProjectionEvent = Readonly<{
@@ -18,7 +19,7 @@ export type OrderView = Readonly<{
   userId: string;
   accountId: string;
   instrumentId: string;
-  status: 'ACCEPTED' | 'REJECTED' | 'CANCELLED';
+  status: OrderLifecycleStatus;
   remainingQuantity: string;
   updatedAtSequence: number;
 }>;
