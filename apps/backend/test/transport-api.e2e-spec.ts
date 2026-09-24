@@ -344,6 +344,12 @@ describe('Transport API completeness', () => {
     await request(app.getHttpServer())
       .get('/api/v1/projections/metrics')
       .set('x-api-key', 'trader-1-key')
+      .expect(403)
+      .expect(({ body }) => expect(body).toHaveProperty('code', 'AUTH_ROLE_FORBIDDEN'));
+
+    await request(app.getHttpServer())
+      .get('/api/v1/projections/metrics')
+      .set('x-api-key', 'auditor-key')
       .expect(200)
       .expect(({ body }) => expect(body).toHaveProperty('schemaVersion', 1));
   });
@@ -410,44 +416,27 @@ describe('Transport API completeness', () => {
    * write routes допустим пустой body: ожидаемый результат всегда 401.
    */
   it('rejects unauthenticated access to every protected REST operation', async () => {
-    const getPaths = [
-      '/api/v1/auth/me',
-      '/api/v1/machine-auth/api-keys',
-      '/api/v1/orders',
-      '/api/v1/instruments',
-      '/api/v1/instruments/BTC-USD',
-      '/api/v1/accounts/account-1',
-      '/api/v1/accounts/account-1/balances',
-      '/api/v1/accounts/account-1/balances/USD',
-      '/api/v1/projections/orders',
-      '/api/v1/projections/trades',
-      '/api/v1/projections/balances',
-      '/api/v1/projections/metrics',
-      '/api/v1/admin/reconciliation',
-      '/api/v1/admin/audit-events',
-    ];
-    for (const path of getPaths) {
-      await request(app.getHttpServer()).get(path).expect(401);
-    }
-
-    const postPaths = [
-      '/api/v1/machine-auth/api-keys',
-      '/api/v1/machine-auth/api-keys/key-1/rotate',
-      '/api/v1/machine-auth/api-keys/key-1/revoke',
-      '/api/v1/orders',
-      '/api/v1/orders/order-1/cancel',
-      '/api/v1/accounts',
-      '/api/v1/accounts/account-1/balances/USD/commands',
-      '/api/v1/admin/instruments',
-      '/api/v1/admin/instruments/BTC-USD/status',
-      '/api/v1/admin/freezes',
-      '/api/v1/admin/circuit-breakers',
-      '/api/v1/admin/fee-policies',
-      '/api/v1/admin/risk-policies',
-      '/api/v1/admin/approvals/command-1',
-    ];
-    for (const path of postPaths) {
-      await request(app.getHttpServer()).post(path).send({}).expect(401);
+    const response = await request(app.getHttpServer()).get('/docs/openapi.json').expect(200);
+    const document = response.body as TransportOpenApiDocument;
+    const protectedInventory = Object.entries(document.paths).flatMap(([template, item]) =>
+      Object.entries(item)
+        .filter(
+          ([method, operation]) =>
+            httpMethods.has(method) &&
+            Array.isArray((operation as { security?: unknown }).security) &&
+            ((operation as { security: unknown[] }).security.length ?? 0) > 0,
+        )
+        .map(([method]) => ({ method, path: template.replaceAll(/\{[^}]+\}/g, 'test-id') })),
+    );
+    expect(protectedInventory.length).toBeGreaterThan(20);
+    for (const operation of protectedInventory) {
+      const transport = request(app.getHttpServer());
+      if (operation.method === 'get') await transport.get(operation.path).expect(401);
+      else if (operation.method === 'delete') await transport.delete(operation.path).expect(401);
+      else if (operation.method === 'patch')
+        await transport.patch(operation.path).send({}).expect(401);
+      else if (operation.method === 'put') await transport.put(operation.path).send({}).expect(401);
+      else await transport.post(operation.path).send({}).expect(401);
     }
   });
 });

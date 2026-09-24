@@ -36,7 +36,27 @@ export const issueApiKeySchema = z
       .refine((value) => Date.parse(value) > Date.now(), 'expiry must be in the future')
       .optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((value, context) => {
+    const required =
+      value.role === 'admin' || value.role === 'risk_manager'
+        ? 'admin:*'
+        : value.role === 'auditor' || value.role === 'support'
+          ? 'admin:read'
+          : null;
+    if (required && !value.scopes.includes(required))
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['scopes'],
+        message: 'role requires matching administrative scope',
+      });
+    if (value.role === 'trader' && value.scopes.some((scope) => scope.startsWith('admin:')))
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['scopes'],
+        message: 'trader cannot receive administrative scopes',
+      });
+  });
 
 /**
  * Единая strict схема rotate/revoke. `commandId` участвует в idempotency

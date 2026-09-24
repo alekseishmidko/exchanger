@@ -4,6 +4,7 @@ import { ConfigService } from '@nestjs/config';
 import { GatewayCommonModule } from '../gateway/gateway-common.module';
 import { MarketDataGateway } from './gateways/market-data.gateway';
 import { MetricsService } from '../observability';
+import { MarketDataAbuseControl } from './policies/market-data-abuse-control';
 
 /**
  * Составляет market-data boundary: domain producers работают с `MarketDataHub`,
@@ -28,6 +29,7 @@ import { MetricsService } from '../observability';
           metrics,
         ),
     },
+    MarketDataAbuseControl,
     MarketDataGateway,
   ],
   exports: [MarketDataHub],

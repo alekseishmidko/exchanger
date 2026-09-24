@@ -15,4 +15,17 @@ describe('identity migration', () => {
     expect(sql).not.toMatch(/session_token|api_key_secret|plaintext_password/i);
     expect(sql).not.toContain('CREATE TABLE identity_sessions');
   });
+
+  it('adds challenge security version and trading read scope without plaintext migration data', () => {
+    const sql = readFileSync(
+      resolve(
+        __dirname,
+        '../../../infrastructure/postgres/migrations/005_security_hardening_up.sql',
+      ),
+      'utf8',
+    );
+    expect(sql).toContain('security_version INTEGER');
+    expect(sql).toContain("'trading:read'");
+    expect(sql).not.toMatch(/password\s*=|token\s*=|api.?key\s*=/i);
+  });
 });

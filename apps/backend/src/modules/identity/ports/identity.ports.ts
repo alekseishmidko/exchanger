@@ -20,6 +20,7 @@ export interface UserStore {
   findById(userId: string): Promise<UserRecord | null>;
   updateName(userId: string, name: string): Promise<UserRecord>;
   updatePassword(userId: string, passwordHash: string, requireReset?: boolean): Promise<UserRecord>;
+  rehashPassword(userId: string, previousHash: string, passwordHash: string): Promise<void>;
   issueChallenge(
     input: Readonly<{
       userId: string;
@@ -28,10 +29,13 @@ export interface UserStore {
       expiresAt: string;
     }>,
   ): Promise<void>;
+  invalidateChallenge(kind: 'EMAIL_VERIFY' | 'PASSWORD_RESET', digest: string): Promise<void>;
   consumeChallenge(
     kind: 'EMAIL_VERIFY' | 'PASSWORD_RESET',
     digest: string,
   ): Promise<UserRecord | null>;
+  completePasswordReset(digest: string, passwordHash: string): Promise<UserRecord | null>;
+  cleanupExpiredChallenges(limit: number): Promise<number>;
   markEmailVerified(userId: string): Promise<UserRecord>;
 }
 
@@ -42,7 +46,7 @@ export interface UserStore {
 export interface SessionStore {
   create(tokenDigest: string, session: SessionRecord, ttlSeconds: number): Promise<void>;
   findByTokenDigest(tokenDigest: string): Promise<SessionRecord | null>;
-  touch(tokenDigest: string, session: SessionRecord, ttlSeconds: number): Promise<void>;
+  touch(tokenDigest: string, session: SessionRecord, ttlSeconds: number): Promise<boolean>;
   listByUser(userId: string): Promise<readonly SessionRecord[]>;
   revoke(userId: string, sessionId: string, revokedAt: string): Promise<boolean>;
   revokeAll(userId: string, revokedAt: string, exceptSessionId?: string): Promise<number>;

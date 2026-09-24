@@ -1,4 +1,4 @@
-import { BadRequestException, Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
+import { BadRequestException, Controller, Get, Param, Query, Req, UseGuards } from '@nestjs/common';
 import {
   ApiBadRequestResponse,
   ApiNotFoundResponse,
@@ -10,7 +10,11 @@ import {
   ApiTags,
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
-import { ApiKeyGuard } from '../../gateway/auth/gateway.auth';
+import {
+  ApiKeyGuard,
+  ApiKeyPrincipal,
+  assertAuthorizedAction,
+} from '../../gateway/auth/gateway.auth';
 import { InstrumentCatalogService, InstrumentSnapshot } from './instrument-catalog.service';
 import { InstrumentPageResponseDto, InstrumentResponseDto } from './instruments.dto';
 
@@ -41,9 +45,11 @@ export class InstrumentsController {
   @ApiOkResponse({ type: InstrumentPageResponseDto })
   @ApiBadRequestResponse({ description: 'Некорректные параметры pagination.' })
   list(
+    @Req() request: { principal: ApiKeyPrincipal },
     @Query('limit') rawLimit?: string,
     @Query('cursor') cursor?: string,
   ): InstrumentPageResponseDto {
+    assertAuthorizedAction(request.principal, 'trading.read');
     const limit = Number(rawLimit ?? 50);
     if (!Number.isInteger(limit) || limit < 1 || limit > 100 || (cursor && !/^\d+$/.test(cursor))) {
       throw new BadRequestException({
@@ -66,7 +72,11 @@ export class InstrumentsController {
   @ApiParam({ name: 'instrumentId', example: 'BTC-USD' })
   @ApiOkResponse({ type: InstrumentResponseDto })
   @ApiNotFoundResponse({ description: 'Инструмент не найден.' })
-  get(@Param('instrumentId') instrumentId: string): InstrumentResponseDto {
+  get(
+    @Req() request: { principal: ApiKeyPrincipal },
+    @Param('instrumentId') instrumentId: string,
+  ): InstrumentResponseDto {
+    assertAuthorizedAction(request.principal, 'trading.read');
     return this.toResponse(this.catalog.get(instrumentId));
   }
 

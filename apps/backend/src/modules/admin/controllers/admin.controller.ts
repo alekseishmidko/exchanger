@@ -31,6 +31,7 @@ import { AuditActor } from '../../audit';
 import {
   ApiKeyGuard,
   ApiKeyPrincipal,
+  assertAuthorizedAction,
   assertAdministrativeAccess,
   IDEMPOTENCY_STORE_PORT,
   IdempotencyStorePort,
@@ -294,6 +295,7 @@ export class AdminController {
   @ApiOkResponse({ type: ReconciliationResponseDto })
   async getReconciliation(@Req() request: AdminRequest): Promise<ReconciliationResponseDto> {
     assertAdministrativeAccess(request.principal);
+    assertAuthorizedAction(request.principal, 'admin.read');
     return this.admin.getDashboard(this.actor(request.principal));
   }
 
@@ -314,6 +316,8 @@ export class AdminController {
     @Query('limit') rawLimit?: string,
     @Query('cursor') rawCursor?: string,
   ): Promise<AuditRecordPageResponseDto> {
+    assertAdministrativeAccess(request.principal);
+    assertAuthorizedAction(request.principal, 'admin.read');
     const limit = rawLimit === undefined ? 50 : Number(rawLimit);
     const cursor = rawCursor === undefined ? 0 : Number(rawCursor);
     if (
@@ -363,6 +367,7 @@ export class AdminController {
     operation: () => T | Promise<T>,
   ): Promise<T> {
     assertAdministrativeAccess(principal);
+    assertAuthorizedAction(principal, 'admin.write');
     this.rateLimit.check(principal.keyId);
     const idempotencyKey = this.requireIdempotencyKey(key);
     return this.idempotency.execute(

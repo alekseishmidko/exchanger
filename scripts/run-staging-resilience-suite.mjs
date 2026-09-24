@@ -1,4 +1,4 @@
-import { spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 
@@ -13,6 +13,27 @@ const scenarios = [
 ];
 const results = [];
 
+/** Запускает сценарий с потоковым выводом, не накапливая chaos logs в памяти. */
+function runScenario(scenario) {
+  return new Promise((resolveRun) => {
+    const child = spawn(process.execPath, ['scripts/run-staging-resilience.mjs', scenario], {
+      cwd: resolve('.'),
+      env: process.env,
+      stdio: ['ignore', 'inherit', 'inherit'],
+    });
+    let completed = false;
+    const complete = (exitCode, error) => {
+      if (completed) return;
+      completed = true;
+      resolveRun({ exitCode, error });
+    };
+    child.once('error', (error) => complete(1, error.message));
+    child.once('close', (code, signal) =>
+      complete(code ?? 1, signal ? `process signal: ${signal}` : undefined),
+    );
+  });
+}
+
 /**
  * Последовательно запускает изолированные сценарии, чтобы каждый получил чистые
  * volumes, lease state и timeline. Ненулевой код одного сценария не мешает
@@ -20,15 +41,14 @@ const results = [];
  * ошибкой.
  */
 for (const scenario of scenarios) {
-  const result = spawnSync(process.execPath, ['scripts/run-staging-resilience.mjs', scenario], {
-    cwd: resolve('.'),
-    env: process.env,
-    encoding: 'utf8',
-    stdio: ['ignore', 'pipe', 'pipe'],
+  const startedAt = Date.now();
+  const result = await runScenario(scenario);
+  results.push({
+    scenario,
+    exitCode: result.exitCode,
+    durationSeconds: Number(((Date.now() - startedAt) / 1000).toFixed(2)),
+    ...(result.error ? { error: result.error } : {}),
   });
-  if (result.stdout) process.stdout.write(result.stdout);
-  if (result.stderr) process.stderr.write(result.stderr);
-  results.push({ scenario, exitCode: result.status ?? 1 });
 }
 
 const output = resolve('artifacts/resilience');

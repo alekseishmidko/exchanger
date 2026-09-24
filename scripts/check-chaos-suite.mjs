@@ -33,6 +33,8 @@ for (const file of requiredFiles) {
 if (failures.length === 0) {
   const runner = readFileSync('scripts/run-chaos-test.mjs', 'utf8');
   const stagingRunner = readFileSync('scripts/run-staging-resilience.mjs', 'utf8');
+  const stagingSuite = readFileSync('scripts/run-staging-resilience-suite.mjs', 'utf8');
+  const packageJson = JSON.parse(readFileSync('package.json', 'utf8'));
   for (const guard of ['CHAOS_ENVIRONMENT', 'CHAOS_ACK', 'isolated-test-only']) {
     if (!runner.includes(guard)) failures.push(`Chaos runner не содержит safety guard ${guard}`);
   }
@@ -54,6 +56,12 @@ if (failures.length === 0) {
     if (scenario.status === 'blocked' && !scenario.blockedBy) {
       failures.push(`Blocked-сценарий ${scenario.id} не объясняет блокировку`);
     }
+  }
+  if (packageJson.scripts?.['resilience:all'] !== 'node scripts/run-staging-resilience-suite.mjs') {
+    failures.push('package.json не публикует команду resilience:all');
+  }
+  if (!stagingSuite.includes("stdio: ['ignore', 'inherit', 'inherit']")) {
+    failures.push('Resilience all suite буферизует длинный вывод дочерних сценариев');
   }
 }
 

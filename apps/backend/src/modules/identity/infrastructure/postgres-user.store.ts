@@ -65,6 +65,13 @@ export class PostgresUserStore implements UserStore {
       [id, hash, requireReset],
     );
   }
+  async rehashPassword(id: string, previousHash: string, hash: string): Promise<void> {
+    await this.pool.query(
+      `UPDATE identity_users SET password_hash=$3, updated_at=clock_timestamp()
+        WHERE id=$1 AND password_hash=$2`,
+      [id, previousHash, hash],
+    );
+  }
   async markEmailVerified(id: string): Promise<UserRecord> {
     return this.update(
       'UPDATE identity_users SET email_verified_at=COALESCE(email_verified_at,clock_timestamp()), updated_at=clock_timestamp() WHERE id=$1 RETURNING *',
@@ -80,9 +87,36 @@ export class PostgresUserStore implements UserStore {
       expiresAt: string;
     }>,
   ): Promise<void> {
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query(
+        `UPDATE identity_challenges SET consumed_at=clock_timestamp()
+          WHERE user_id=$1 AND kind=$2 AND consumed_at IS NULL`,
+        [input.userId, input.kind],
+      );
+      await client.query(
+        `INSERT INTO identity_challenges (user_id, kind, token_digest, expires_at, security_version)
+         SELECT id,$2,$3,$4,security_version FROM identity_users WHERE id=$1`,
+        [input.userId, input.kind, input.digest, input.expiresAt],
+      );
+      await client.query('COMMIT');
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async invalidateChallenge(
+    kind: 'EMAIL_VERIFY' | 'PASSWORD_RESET',
+    digest: string,
+  ): Promise<void> {
     await this.pool.query(
-      `INSERT INTO identity_challenges (user_id, kind, token_digest, expires_at) VALUES ($1,$2,$3,$4)`,
-      [input.userId, input.kind, input.digest, input.expiresAt],
+      `UPDATE identity_challenges SET consumed_at=clock_timestamp()
+        WHERE kind=$1 AND token_digest=$2 AND consumed_at IS NULL`,
+      [kind, digest],
     );
   }
 
@@ -94,7 +128,12 @@ export class PostgresUserStore implements UserStore {
     try {
       await client.query('BEGIN');
       const challenge = await client.query<{ user_id: string }>(
-        `UPDATE identity_challenges SET consumed_at=clock_timestamp() WHERE kind=$1 AND token_digest=$2 AND consumed_at IS NULL AND expires_at>clock_timestamp() RETURNING user_id`,
+        `UPDATE identity_challenges c SET consumed_at=clock_timestamp()
+          FROM identity_users u
+         WHERE c.user_id=u.id AND c.kind=$1 AND c.token_digest=$2
+           AND c.consumed_at IS NULL AND c.expires_at>clock_timestamp()
+           AND c.security_version=u.security_version
+         RETURNING c.user_id`,
         [kind, digest],
       );
       const user = challenge.rows[0]
@@ -110,6 +149,58 @@ export class PostgresUserStore implements UserStore {
     } finally {
       client.release();
     }
+  }
+
+  async completePasswordReset(digest: string, passwordHash: string): Promise<UserRecord | null> {
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      const challenge = await client.query<{ user_id: string }>(
+        `UPDATE identity_challenges c SET consumed_at=clock_timestamp()
+          FROM identity_users u
+         WHERE c.user_id=u.id AND c.kind='PASSWORD_RESET' AND c.token_digest=$1
+           AND c.consumed_at IS NULL AND c.expires_at>clock_timestamp()
+           AND c.security_version=u.security_version
+         RETURNING c.user_id`,
+        [digest],
+      );
+      const userId = challenge.rows[0]?.user_id;
+      if (!userId) {
+        await client.query('ROLLBACK');
+        return null;
+      }
+      await client.query(
+        `UPDATE identity_challenges SET consumed_at=clock_timestamp()
+          WHERE user_id=$1 AND kind='PASSWORD_RESET' AND consumed_at IS NULL`,
+        [userId],
+      );
+      const updated = await client.query<UserRow>(
+        `UPDATE identity_users SET password_hash=$2, password_reset_required=FALSE,
+           security_version=security_version+1, updated_at=clock_timestamp()
+         WHERE id=$1 RETURNING *`,
+        [userId, passwordHash],
+      );
+      await client.query('COMMIT');
+      return updated.rows[0] ? this.map(updated.rows[0]) : null;
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async cleanupExpiredChallenges(limit: number): Promise<number> {
+    const result = await this.pool.query(
+      `DELETE FROM identity_challenges
+        WHERE id IN (
+          SELECT id FROM identity_challenges
+           WHERE expires_at<clock_timestamp() OR consumed_at IS NOT NULL
+           ORDER BY id LIMIT $1
+        )`,
+      [limit],
+    );
+    return result.rowCount ?? 0;
   }
 
   private async update(sql: string, values: readonly unknown[]): Promise<UserRecord> {

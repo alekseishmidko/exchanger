@@ -32,17 +32,16 @@ import { PostgresApiKeyRegistry } from './infrastructure/postgres-api-key.regist
   providers: [
     {
       provide: ApiKeyRegistry,
-      inject: [ConfigService, POSTGRES_POOL],
-      useFactory: (config: ConfigService, pool: Pool): ApiKeyRegistry => {
+      inject: [ConfigService, POSTGRES_POOL, POSTGRES_TRANSACTION],
+      useFactory: (
+        config: ConfigService,
+        pool: Pool,
+        transactions: PostgresTransactionManager,
+      ): ApiKeyRegistry => {
         if (config.getOrThrow('AUTH_API_KEY_STORE_ADAPTER') === 'postgres') {
-          return new PostgresApiKeyRegistry(pool);
+          return new PostgresApiKeyRegistry(pool, transactions);
         }
-        const environment = config.getOrThrow<string>('NODE_ENV');
-        const developmentKeys = 'dev-key:trader:dev-user,dev-admin-key:admin:dev-admin-user';
-        const raw = config.get<string>(
-          'GATEWAY_API_KEYS',
-          environment === 'production' ? '' : developmentKeys,
-        );
+        const raw = config.get<string>('GATEWAY_API_KEYS', '');
         const entries = raw
           .split(',')
           .filter(Boolean)

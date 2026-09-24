@@ -161,10 +161,8 @@ const defaultCreateAccount = {
  */
 export function App() {
   const [baseUrl, setBaseUrl] = useState(localStorage.getItem('exchange.baseUrl') ?? '');
-  const [apiKey, setApiKey] = useState(localStorage.getItem('exchange.apiKey') ?? 'dev-key');
-  const [adminApiKey, setAdminApiKey] = useState(
-    localStorage.getItem('exchange.adminApiKey') ?? 'dev-admin-key',
-  );
+  const [apiKey, setApiKey] = useState('');
+  const [adminApiKey, setAdminApiKey] = useState('');
   const [idempotencyKey, setIdempotencyKey] = useState(makeIdempotencyKey('manual'));
   const [placeBody, setPlaceBody] = useState(prettyJson(defaultPlaceOrder));
   const [cancelOrderId, setCancelOrderId] = useState('manual-order-1');
@@ -256,11 +254,9 @@ export function App() {
     return entry;
   }
 
-  /** Сохраняет настройки клиента в localStorage, чтобы не вводить ключ заново. */
+  /** Сохраняет только несекретный URL; reusable credentials остаются только в памяти tab. */
   function persistSettings() {
     localStorage.setItem('exchange.baseUrl', baseUrl);
-    localStorage.setItem('exchange.apiKey', apiKey);
-    localStorage.setItem('exchange.adminApiKey', adminApiKey);
   }
 
   async function placeOrder() {

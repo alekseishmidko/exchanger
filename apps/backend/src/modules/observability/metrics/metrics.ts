@@ -47,6 +47,9 @@ export class MetricsService implements OperationalMetrics, OnModuleDestroy {
   private readonly stageDuration = this.histogram('exchange_stage_duration_seconds');
   private readonly exporterFailures = this.counter('exchange_telemetry_export_failures_total');
   private readonly dropped = this.counter('exchange_telemetry_dropped_total');
+  private readonly credentialRevalidation = this.counter(
+    'exchange_auth_credential_revalidation_total',
+  );
   private readonly projectionLag = this.gauge('exchange_projection_lag_events');
   private readonly consumerLag = this.gauge('exchange_consumer_lag_events');
   private readonly resourceUtilization = this.gauge('exchange_resource_utilization_ratio');
@@ -251,6 +254,11 @@ export class MetricsService implements OperationalMetrics, OnModuleDestroy {
       labels: { signal, reason: this.labelPolicy.boundedReason(reason) },
       exemplarLabels: this.exemplar(),
     });
+  }
+
+  /** Считает live WebSocket credential rechecks без key/user labels. */
+  observeCredentialRevalidation(outcome: 'active' | 'revoked' | 'unavailable'): void {
+    this.credentialRevalidation.inc({ labels: { outcome }, exemplarLabels: this.exemplar() });
   }
 
   /**

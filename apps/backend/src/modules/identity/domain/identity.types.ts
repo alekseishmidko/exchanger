@@ -44,7 +44,11 @@ export type SessionRecord = Readonly<{
   absoluteExpiresAt: string;
   revokedAt: string | null;
   device: Readonly<{ label: string; userAgentDigest: string; ipPrefixDigest: string }>;
-  correlation: Readonly<{ createdByCorrelationId: string }>;
+  correlation: Readonly<{
+    createdByCorrelationId: string;
+    tokenDigest?: string;
+    revokeGeneration?: string;
+  }>;
   securityVersion: number;
 }>;
 

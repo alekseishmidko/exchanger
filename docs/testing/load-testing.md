@@ -51,7 +51,14 @@ pnpm load:stress
 pnpm load:spike
 pnpm load:soak
 pnpm load:breakpoint
+pnpm load:all
 ```
+
+`load:all` последовательно запускает все шесть профилей, не прекращает suite при
+первом нарушении threshold и сохраняет общий `suite-report.json` и
+`suite-summary.md` в `artifacts/load/suite-<runId>/`. Полный запуск включает
+двухчасовой soak; `LOAD_DURATION` можно использовать только для локальной или CI
+проверки orchestrator, но не для release qualification.
 
 По умолчанию wrapper поднимает backend, Collector, Tempo, Prometheus,
 Alertmanager и Grafana, запускает k6 в отдельном контейнере и удаляет окружение.
@@ -70,7 +77,8 @@ pnpm load:stress
 ```
 
 Runner не принимает произвольное имя профиля. `LOAD_DURATION=15s` разрешён для
-короткого CI-прогона, но не должен применяться к release baseline. Для него
+короткого CI-прогона, включая пропорциональное сжатие stages у ramping-профилей,
+но не должен применяться к release baseline. Для него
 используется отдельный throughput guard: k6 вычисляет `Counter.rate` по всему wall
 time, а readiness setup и пятисекундный offset WebSocket непропорционально велики
 для теста длительностью 10–15 секунд. Полные профили сохраняют целевые thresholds.
@@ -137,7 +145,14 @@ production baseline. Настоящий baseline принимается толь
 
 Prometheus endpoint после нагрузки проверяется на CPU, memory и event-loop
 метрики. Raw OpenMetrics snapshot, k6 points, aggregate JSON, Markdown summary,
-run metadata и SVG latency trend сохраняются как CI artifacts. После подключения
+run metadata, полный `k6-output.log` и SVG latency trend сохраняются как CI
+artifacts. WebSocket workload использует bounded blocking lifecycle `k6/ws` и
+закрывает socket по transport error/timeout: global event-loop
+`k6/websockets` способен удерживать VU после перегруженного close-handshake и не
+дать k6 вызвать `handleSummary`. Runner
+использует именованный one-off container и удаляет его при любом исходе, поэтому
+авария Docker CLI не оставляет генератор, продолжающий дописывать raw output.
+После подключения
 PostgreSQL exporter обязательны pool usage, active connections, locks, deadlocks,
 I/O и network throughput; отсутствие этих сигналов пока оставляет соответствующий
 пункт чеклиста открытым.

@@ -57,14 +57,29 @@ export class HttpsRecoveryDelivery implements RecoveryDelivery {
     )
       .update(body)
       .digest('base64url');
-    const response = await fetch(this.config.getOrThrow<string>('AUTH_RECOVERY_DELIVERY_URL'), {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-auth-signature': signature },
-      body,
-      signal: AbortSignal.timeout(
-        Number(this.config.get('AUTH_RECOVERY_DELIVERY_TIMEOUT_MS', '2000')),
-      ),
-    });
-    if (!response.ok) throw new Error('AUTH_RECOVERY_DELIVERY_FAILED');
+    const attempts = Number(this.config.get('AUTH_RECOVERY_DELIVERY_MAX_ATTEMPTS', '3'));
+    const timeout = Number(this.config.get('AUTH_RECOVERY_DELIVERY_TIMEOUT_MS', '2000'));
+    const backoff = Number(this.config.get('AUTH_RECOVERY_DELIVERY_BACKOFF_MS', '100'));
+    for (let attempt = 1; attempt <= attempts; attempt += 1) {
+      try {
+        const response = await fetch(this.config.getOrThrow<string>('AUTH_RECOVERY_DELIVERY_URL'), {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', 'x-auth-signature': signature },
+          body,
+          signal: AbortSignal.timeout(timeout),
+        });
+        if (response.ok) return;
+        if (response.status < 500) throw new Error('AUTH_RECOVERY_DELIVERY_PERMANENT_FAILURE');
+        if (attempt === attempts) throw new Error('AUTH_RECOVERY_DELIVERY_FAILED');
+      } catch (error) {
+        if (
+          attempt === attempts ||
+          (error instanceof Error && error.message === 'AUTH_RECOVERY_DELIVERY_PERMANENT_FAILURE')
+        )
+          throw error;
+      }
+      await new Promise((resolve) => setTimeout(resolve, backoff * attempt));
+    }
+    throw new Error('AUTH_RECOVERY_DELIVERY_FAILED');
   }
 }

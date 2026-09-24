@@ -65,5 +65,8 @@ export class ResetPasswordRequestDto {
 }
 /** Обязательное обоснование привилегированной операции. */
 export class AdminSessionActionRequestDto {
-  @ApiProperty({ minLength: 3, maxLength: 240 }) reason!: string;
+  @ApiProperty({
+    enum: ['security_incident', 'user_request', 'credential_compromise', 'policy_enforcement'],
+  })
+  reason!: string;
 }

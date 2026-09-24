@@ -32,4 +32,13 @@ export const verifyEmailSchema = z.object({ token: z.string().min(32).max(256) }
 export const resetPasswordSchema = z
   .object({ token: z.string().min(32).max(256), newPassword: password })
   .strict();
-export const adminActionSchema = z.object({ reason: z.string().trim().min(3).max(240) }).strict();
+export const adminActionSchema = z
+  .object({
+    reason: z.enum([
+      'security_incident',
+      'user_request',
+      'credential_compromise',
+      'policy_enforcement',
+    ]),
+  })
+  .strict();

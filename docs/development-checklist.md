@@ -1595,3 +1595,94 @@ projections, responses или artifacts.
 в изолированном тестовом профиле. Production-like окружение не содержит auth
 bypass, не хранит plaintext credentials и блокирует запуск без Redis-backed
 session store и проверенных security controls.
+
+### Этап 23. Корректирующий security hardening и согласованность credentials
+
+**Причина этапа:** security review от 24.09.2026 показал, что часть отмеченных
+как выполненные инвариантов этапа 22 подтверждена только однопроцессными или
+последовательными тестами. Текущая реализация допускает stale machine credential
+на другой реплике, гонку `session touch` с revoke, отключение CSRF при смешанном
+cookie/bearer transport и обход process-local abuse controls. До закрытия этого
+этапа gate этапа 22 не считается production-доказанным.
+
+#### P0. Линеаризуемый lifecycle credentials и sessions
+
+- [x] PostgreSQL является проверяемым source of truth для API key authentication, а локальный cache имеет bounded TTL/version и межрепличную invalidation;
+- [x] issue API key начинает работать на всех репликах, а revoke/rotate прекращает действие старого secret на всех HTTP и WebSocket replicas в заданный и измеряемый срок;
+- [x] активные private WebSocket connections повторно проверяют credential version либо принудительно отключаются после revoke/rotate/expiry;
+- [x] Redis `touch` выполняется через CAS/Lua/transaction и не может перезаписать `revokedAt`, устаревший `securityVersion` или продлить уже истёкшую сессию;
+- [x] `revoke-all`, создание сессии и `max sessions per user` имеют определённую атомарную семантику при конкурентных login/revoke на разных репликах;
+- [x] каждый Redis command имеет bounded deadline, общий retry/reconnect budget и fail-closed результат без накопления offline queue;
+- [x] integration tests воспроизводят revoke-vs-touch, login-vs-revoke-all, concurrent max-session trimming, API key rotate/revoke на двух репликах и restart;
+- [x] временные гарантии распространения revoke задокументированы как SLO и наблюдаются safe metric без credential/user labels.
+
+#### P0. Auth transport, CSRF и единая authorization matrix
+
+- [x] startup принимает только явно поддержанный `AUTH_TOKEN_TRANSPORT`; production использует один transport, а guard не извлекает token из отключённого transport;
+- [x] cookie transport всегда требует CSRF для unsafe HTTP methods независимо от fallback headers; bearer transport реализован отдельно и не получает cookie side effects;
+- [x] установка, ротация и удаление session/CSRF cookies используют одинаковые `Secure`, `HttpOnly`, `SameSite`, `Path` и domain attributes, включая правила `__Host-`;
+- [x] создан единый deny-by-default policy mapping `route/action -> principal kind -> role -> scope -> object/session state`;
+- [x] ledger, projections, instruments, admin endpoints и private WebSocket channels проверяют необходимые scopes, а не только наличие API key или administrative role;
+- [x] human roles/scopes не понижаются неявно до `trader/admin`; неизвестная или неподдержанная роль даёт стабильный 403;
+- [x] contract tests перечисляют каждый protected endpoint и доказывают 401 без identity, 403 без role/scope/object access и успех только для разрешённой комбинации;
+- [x] CORS/WebSocket origin configuration в production принимает только точные HTTPS origins и отклоняет `*`, `null`, userinfo, path и небезопасную схему;
+- [x] trusted proxy задаётся списком доверенных IP/CIDR, origin нельзя обойти прямым обращением к backend, а client IP имеет один проверенный источник.
+
+#### P0. Distributed abuse protection и recovery lifecycle
+
+- [x] login/register/recovery используют shared Redis/edge rate limit по bounded IP/account buckets с TTL, глобальным ceiling и защитой от cardinality memory DoS;
+- [x] credential stuffing policy работает одинаково при нескольких репликах и содержит backoff/lockout policy без account enumeration;
+- [x] WebSocket admission ограничивает connections и message rate по IP/principal, число subscriptions на socket и глобальную долю одного клиента;
+- [x] failed login, rate-limit, recovery request/consume failure и credential revoke создают отдельные safe security events без email, token, IP или User-Agent в открытом виде;
+- [x] recovery request атомарно инвалидирует предыдущие challenges того же назначения либо связывает их с актуальным `securityVersion`;
+- [x] успешный password reset инвалидирует все остальные reset tokens до commit смены password и revoke sessions;
+- [x] существующий и несуществующий email имеют эквивалентный публичный status/body и практически выровненный bounded execution path, проверенный статистическим timing test;
+- [x] registration conflict не используется как email oracle либо явно принят risk model с compensating controls;
+- [x] recovery delivery имеет timeout/retry budget, replay protection и не оставляет действующий token при необратимой ошибке доставки.
+
+#### P0. Network и container hardening
+
+- [x] production backend не публикуется напрямую на `0.0.0.0:5000`: внешний трафик проходит только через TLS ingress с закрытым origin path;
+- [x] `/internal/metrics`, health details и другие operational endpoints вынесены на отдельный listener/network либо защищены взаимной authentication/network policy, подтверждённой deploy test;
+- [x] production image запускается non-root user, имеет минимальный runtime filesystem и не содержит build tools, source maps, test fixtures или package-manager cache;
+- [x] container profile включает `read_only`, `cap_drop: ALL`, `no-new-privileges`, bounded pids/memory/CPU и writable tmpfs только там, где это необходимо;
+- [x] runtime images закреплены digest-ами, генерируется SBOM, а provenance/signature и vulnerability policy проверяются перед deploy;
+- [x] production/staging deployment contract явно предоставляет Redis TLS/ACL, PostgreSQL least privilege, recovery delivery и secret rotation без зависимости от ручной конфигурации;
+- [x] security headers и TLS policy включают HSTS, CSP для web UI, clickjacking/MIME protections и документированный cache policy для auth responses.
+
+#### P1. Cryptography, privacy и browser diagnostics
+
+- [x] `AUTH_SCRYPT_COST` и параметры encoded hash проходят startup/verify allow-list с минимальным/максимальным cost, bounded digest/salt sizes и безопасной rehash policy;
+- [x] pepper/token-key rotation имеет versioned migration без одновременного хранения plaintext credentials и без массового logout, если это не требуется risk policy;
+- [x] operational redaction покрывает email, name, owner/subject identifiers, device label, IP/User-Agent, reason и все credential-shaped поля независимо от вложенности;
+- [x] admin reason использует bounded reason code и отдельное redacted note policy; произвольный секрет нельзя навсегда записать в audit/idempotency payload;
+- [x] retention/cleanup jobs удаляют истёкшие challenges и session metadata по утверждённой политике и имеют observable bounded batch semantics;
+- [x] test console не хранит reusable trader/admin API keys в `localStorage`/`sessionStorage`; используется short-lived human session или isolated test identity;
+- [x] diagnostics frontend физически отсутствует или недоступен в production profile, а CSP/XSS tests подтверждают невозможность чтения credentials script-кодом;
+- [x] issue/rotate API key и sensitive idempotency marker имеют согласованную crash/retry семантику: retry не выпускает неизвестный оператору второй secret.
+
+#### P0. Supply chain и security CI
+
+- [x] Fastify обновлён минимум до `5.12.1`, lockfile проверен против `GHSA-w2qp-rph6-63g4` и `GHSA-3m5p-2c4r-xxw2`;
+- [x] dev dependency graph больше не содержит уязвимый `qs < 6.16.0`, а обновление `supertest/superagent` не меняет contract tests;
+- [x] CI запускает production dependency audit с зафиксированной severity/allowlist policy и отдельный полный audit dev/tooling graph;
+- [x] CI включает secret scanning, SAST, IaC/container scan и запрещает suppressions без owner, причины и срока истечения;
+- [x] security gate проверяет собранный production artifact на test bypass, credentials, source maps и запрещённые routes, а не только tracked source files;
+- [x] автоматический route inventory сравнивает Nest/OpenAPI endpoints с authorization policy и блокирует новый protected endpoint без negative tests;
+- [x] canary secret suite проверяет responses, logs, traces, metrics, audit, idempotency rows, Redis values, build layers и CI artifacts.
+
+#### Документация и доказательства закрытия
+
+- [x] обновлён `docs/security/authentication.md` с consistency model API keys/sessions, transport invariant и точной revoke latency;
+- [x] threat model содержит межрепличный stale cache, revoke/touch race, recovery timing oracle, proxy spoofing, public metrics и browser credential theft;
+- [x] runbooks описывают emergency revoke при недоступности PostgreSQL/Redis, pepper/key rotation и очистку скомпрометированных WebSocket sessions;
+- [x] приложен reproducible security test report для двух backend replicas, Redis/PostgreSQL restart и прямой попытки обхода ingress;
+- [x] все findings этапа имеют owner, severity, срок исправления и ссылку на regression test; accepted risks подписаны отдельно и имеют дату пересмотра.
+
+**Gate:** ни API key, ни human session нельзя использовать после подтверждённого
+revoke/rotate/password change на любой реплике или уже открытом private WebSocket.
+Cookie authentication нельзя запустить без CSRF и TLS ingress, authorization
+полностью deny-by-default по role/scope/object/session state, а distributed abuse
+controls не обходятся сменой реплики или cardinality атакой. Production image и
+dependency graph проходят security policy без известных уязвимостей выше
+принятого порога и без reusable credentials в browser storage/artifacts.

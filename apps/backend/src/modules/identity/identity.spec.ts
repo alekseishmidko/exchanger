@@ -143,16 +143,21 @@ describe('User identity HTTP contract', () => {
   });
 
   it('returns the same recovery response for known and unknown email', async () => {
+    const knownStarted = Date.now();
     const known = await request(app.getHttpServer())
       .post('/api/v1/auth/password-reset/request')
       .send({ email: 'alice@example.test' })
       .expect(202);
+    const knownDuration = Date.now() - knownStarted;
+    const unknownStarted = Date.now();
     const unknown = await request(app.getHttpServer())
       .post('/api/v1/auth/password-reset/request')
       .send({ email: 'nobody@example.test' })
       .expect(202);
+    const unknownDuration = Date.now() - unknownStarted;
     expect(unknown.body).toEqual(known.body);
     expect(JSON.stringify(known.body)).not.toMatch(/token|alice/i);
+    expect(Math.abs(knownDuration - unknownDuration)).toBeLessThan(150);
   });
 
   it('consumes verification/reset tokens once and invalidates stale sessions', async () => {
@@ -180,8 +185,17 @@ describe('User identity HTTP contract', () => {
       .post('/api/v1/auth/password-reset/request')
       .send({ email: 'alice@example.test' })
       .expect(202);
+    const superseded = delivery.takeLast();
+    await request(app.getHttpServer())
+      .post('/api/v1/auth/password-reset/request')
+      .send({ email: 'alice@example.test' })
+      .expect(202);
     const reset = delivery.takeLast();
     expect(reset?.kind).toBe('PASSWORD_RESET');
+    await request(app.getHttpServer())
+      .post('/api/v1/auth/password-reset/confirm')
+      .send({ token: superseded?.token, newPassword: 'superseded-correct-horse-2026' })
+      .expect(400);
     await request(app.getHttpServer())
       .post('/api/v1/auth/password-reset/confirm')
       .send({ token: reset?.token, newPassword: 'reset-correct-horse-2026' })
@@ -255,13 +269,13 @@ describe('User identity HTTP contract', () => {
       .post(`/api/v1/admin/users/${aliceId}/sessions/revoke-all`)
       .set('x-test-auth-token', token)
       .set('idempotency-key', 'admin-revoke-all-1')
-      .send({ reason: 'security incident' })
+      .send({ reason: 'security_incident' })
       .expect(201);
     const retry = await request(app.getHttpServer())
       .post(`/api/v1/admin/users/${aliceId}/sessions/revoke-all`)
       .set('x-test-auth-token', token)
       .set('idempotency-key', 'admin-revoke-all-1')
-      .send({ reason: 'security incident' })
+      .send({ reason: 'security_incident' })
       .expect(201);
     expect(retry.body).toEqual(first.body);
   });

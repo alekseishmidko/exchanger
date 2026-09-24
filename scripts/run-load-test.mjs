@@ -1,5 +1,5 @@
-import { spawnSync } from 'node:child_process';
-import { createReadStream } from 'node:fs';
+import { spawn, spawnSync } from 'node:child_process';
+import { createReadStream, createWriteStream } from 'node:fs';
 import { chmod, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { cpus, totalmem, platform, arch } from 'node:os';
 import { resolve } from 'node:path';
@@ -41,6 +41,43 @@ function run(command, args, environment = {}) {
   return result.status ?? 1;
 }
 
+/**
+ * Запускает долгий subprocess без bounded `spawnSync` buffer и одновременно
+ * сохраняет stdout/stderr в artifact. Это оставляет первичную причину падения
+ * k6 доступной после очистки Compose и не обрывает Docker CLI на большом выводе.
+ */
+function runStreaming(command, args, environment, logPath) {
+  return new Promise((resolveRun, rejectRun) => {
+    const child = spawn(command, args, {
+      cwd: resolve('.'),
+      env: { ...process.env, ...environment },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    const log = createWriteStream(logPath, { flags: 'w', mode: 0o600 });
+    const forward = (destination) => (chunk) => {
+      destination.write(chunk);
+      log.write(chunk);
+    };
+    child.stdout.on('data', forward(process.stdout));
+    child.stderr.on('data', forward(process.stderr));
+    child.once('error', (error) => {
+      log.end(() => rejectRun(error));
+    });
+    child.once('close', (code, signal) => {
+      log.end(() => resolveRun({ code: code ?? 1, signal: signal ?? null }));
+    });
+  });
+}
+
+/** Удаляет только one-off k6 container текущего run, если Docker CLI оборвался. */
+function removeRunContainer(containerName) {
+  spawnSync('docker', ['rm', '--force', containerName], {
+    cwd: resolve('.'),
+    env: process.env,
+    stdio: 'ignore',
+  });
+}
+
 /** Возвращает текущий commit без ошибки в source archive вне Git. */
 function buildSha() {
   const result = spawnSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' });
@@ -64,7 +101,7 @@ async function getJson(url, apiKey) {
 
 /** Ожидает host readiness до старта k6, чтобы setup не создавал network warnings. */
 async function waitForLoadReadiness(baseUrl) {
-  const attempts = Number(process.env['LOAD_STARTUP_ATTEMPTS'] ?? 60);
+  const attempts = Number(process.env['LOAD_STARTUP_ATTEMPTS'] ?? 180);
   let lastObservation = 'not-started';
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     try {
@@ -240,6 +277,7 @@ const environment = {
 let loadExit = 1;
 let postFailures = [];
 let executionStage = 'environment-start';
+const k6ContainerName = `exchange-k6-${runId}`;
 const hostBaseUrl = (process.env['LOAD_HOST_BASE_URL'] ?? 'http://localhost:5001').replace(
   /\/+$/,
   '',
@@ -268,7 +306,13 @@ try {
   executionStage = 'sut-readiness';
   await waitForLoadReadiness(hostBaseUrl);
   executionStage = 'k6-run';
-  loadExit = run('docker', ['compose', ...composeFiles, 'run', '--rm', 'k6'], environment);
+  const k6Execution = await runStreaming(
+    'docker',
+    ['compose', ...composeFiles, 'run', '--rm', '--name', k6ContainerName, 'k6'],
+    environment,
+    resolve(resultDirectory, 'k6-output.log'),
+  );
+  loadExit = k6Execution.code;
 
   executionStage = 'k6-artifacts';
   let summaryText;
@@ -276,7 +320,7 @@ try {
     summaryText = await readFile(resolve(resultDirectory, 'k6-summary.json'), 'utf8');
   } catch {
     throw new Error(
-      `k6 не создал k6-summary.json (exit code ${loadExit}); проверьте вывод контейнера выше`,
+      `k6 не создал k6-summary.json (exit code ${loadExit}, signal ${k6Execution.signal ?? 'none'}); см. k6-output.log`,
     );
   }
   const summary = JSON.parse(summaryText);
@@ -349,8 +393,13 @@ try {
   await writeFile(resolve(resultDirectory, 'summary.md'), failureSummary);
   process.stderr.write(`${failureSummary}\n`);
 } finally {
+  removeRunContainer(k6ContainerName);
   if (process.env['LOAD_KEEP_ENV'] !== 'true' && process.env['LOAD_MANAGE_SUT'] !== 'false') {
-    run('docker', ['compose', ...composeFiles, 'down', '--volumes'], environment);
+    run(
+      'docker',
+      ['compose', ...composeFiles, 'down', '--volumes', '--remove-orphans'],
+      environment,
+    );
   }
 }
 

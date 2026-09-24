@@ -12,7 +12,6 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { ApiBody, ApiOkResponse, ApiOperation, ApiSecurity, ApiTags } from '@nestjs/swagger';
-import { ConfigService } from '@nestjs/config';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { ZodValidationPipe } from '../../gateway/validation/gateway.validation';
@@ -26,10 +25,11 @@ import {
 } from '../dto/identity.dto';
 import { CsrfGuard } from '../security/csrf.guard';
 import { HumanAuthenticatedRequest, HumanSessionGuard } from '../security/human-session.guard';
+import { CookieResponse, SessionCookieService } from '../security/session-cookie.service';
 import { changePasswordSchema, updateProfileSchema } from '../validation/identity.validation';
 
 type Request = HumanAuthenticatedRequest & { ip?: string };
-type Response = { header(name: string, value: string | readonly string[]): void };
+type Response = CookieResponse;
 
 /**
  * Self-service boundary: пользователь изменяет только name/password и управляет
@@ -43,8 +43,7 @@ type Response = { header(name: string, value: string | readonly string[]): void 
 export class UsersSelfServiceController {
   constructor(
     private readonly identity: IdentityService,
-    private readonly config: ConfigService,
-    private readonly csrf: CsrfGuard,
+    private readonly cookies: SessionCookieService,
   ) {}
 
   /** Изменяет display name с аудитом и безопасным response. */
@@ -73,12 +72,7 @@ export class UsersSelfServiceController {
       body,
       this.context(request),
     );
-    const secure = this.config.get('AUTH_COOKIE_SECURE', 'false') === 'true';
-    const maxAge = this.config.get<string>('AUTH_SESSION_IDLE_TTL_SECONDS', '1800');
-    response.header('Set-Cookie', [
-      `${this.config.get('AUTH_COOKIE_NAME', 'exchange_session')}=${result.token}; Path=/; Max-Age=${maxAge}; HttpOnly; SameSite=Strict${secure ? '; Secure' : ''}`,
-      `${this.config.get('AUTH_CSRF_COOKIE_NAME', 'exchange_csrf')}=${this.csrf.token(result.session.sessionId)}; Path=/; Max-Age=${maxAge}; SameSite=Strict${secure ? '; Secure' : ''}`,
-    ]);
+    this.cookies.set(response, result);
     return { user: result.user, session: result.session };
   }
 

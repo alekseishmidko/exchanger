@@ -7,6 +7,12 @@
     "node": ">=20.11.0",
     "pnpm": ">=9"
   },
+  "pnpm": {
+    "overrides": {
+      "fastify": ">=5.12.1 <6",
+      "qs": ">=6.16.0 <7"
+    }
+  },
   "scripts": {
     "build": "corepack pnpm -r build",
     "dev": "corepack pnpm --filter @exchange/backend start:dev",
@@ -19,12 +25,18 @@
     "test": "corepack pnpm -r test",
     "backend:check": "node scripts/run-backend-checks.mjs",
     "backend:check:full": "node scripts/run-backend-checks.mjs full",
+    "redis:check": "node scripts/run-redis-check.mjs",
+    "ci:check": "node scripts/check-ci-workflows.mjs",
+    "container:check": "node scripts/run-container-check.mjs",
     "test:cov": "corepack pnpm -r test:cov",
     "lint": "corepack pnpm -r lint",
     "typecheck": "corepack pnpm -r typecheck",
     "format": "corepack pnpm -r format",
     "format:check": "corepack pnpm --filter @exchange/backend format:check",
     "security:check": "node scripts/check-repository.mjs",
+    "security:artifact": "node scripts/check-security-artifact.mjs",
+    "security:audit:prod": "corepack pnpm audit --prod --audit-level=moderate",
+    "security:audit:all": "corepack pnpm audit --audit-level=moderate",
     "contracts:check": "corepack pnpm --filter @exchange/backend contracts:check",
     "observability:check": "corepack pnpm --filter @exchange/backend test -- src/modules/observability/metrics.spec.ts src/modules/observability/tracing.spec.ts src/modules/observability/observability-config.spec.ts --runInBand",
     "docker:observability": "docker compose -f docker-compose.development.yml -f docker-compose.observability.yml up --build",
@@ -43,6 +55,7 @@
     "load:spike": "node scripts/run-load-test.mjs spike",
     "load:soak": "node scripts/run-load-test.mjs soak",
     "load:breakpoint": "node scripts/run-load-test.mjs breakpoint",
+    "load:all": "node scripts/run-load-suite.mjs",
     "chaos:check": "node scripts/check-chaos-suite.mjs",
     "adversarial:check": "corepack pnpm --filter @exchange/contracts test -- contracts.spec.ts --runInBand && corepack pnpm --filter @exchange/backend adversarial:check",
     "readiness:check": "node scripts/check-production-readiness.mjs",
@@ -60,6 +73,7 @@
     "resilience:resource-pressure": "node scripts/run-staging-resilience.mjs resource-pressure",
     "resilience:rolling": "node scripts/run-staging-resilience.mjs rolling-ownership",
     "resilience:controls": "node scripts/run-staging-resilience.mjs controls-under-load",
-    "resilience:staging": "node scripts/run-staging-resilience-suite.mjs"
+    "resilience:staging": "node scripts/run-staging-resilience-suite.mjs",
+    "resilience:all": "node scripts/run-staging-resilience-suite.mjs"
   }
 }

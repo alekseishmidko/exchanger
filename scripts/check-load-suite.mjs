@@ -8,6 +8,7 @@ const requiredFiles = [
   'tests/load/lib/http.js',
   'tests/load/baselines/ci-budget.json',
   'docker-compose.load.yml',
+  'scripts/run-load-suite.mjs',
   'docs/testing/load-testing.md',
 ];
 
@@ -46,12 +47,26 @@ if (failures.length === 0) {
     if (!main.includes(threshold)) failures.push(`Отсутствует threshold ${threshold}`);
   }
   const runner = readFileSync('scripts/run-load-test.mjs', 'utf8');
+  const suite = readFileSync('scripts/run-load-suite.mjs', 'utf8');
+  const packageJson = JSON.parse(readFileSync('package.json', 'utf8'));
   const compose = readFileSync('docker-compose.load.yml', 'utf8');
   if (!runner.includes('chmod(resultDirectory, 0o777)')) {
     failures.push('Load runner не подготавливает bind-mount каталог для UID контейнера k6');
   }
   if (!runner.includes('k6 не создал k6-summary.json')) {
     failures.push('Load runner маскирует отсутствие k6 summary вторичной ENOENT-ошибкой');
+  }
+  if (!runner.includes("resolve(resultDirectory, 'k6-output.log')")) {
+    failures.push('Load runner не сохраняет первичный stdout/stderr k6 в artifact');
+  }
+  if (!runner.includes("'--name', k6ContainerName")) {
+    failures.push('Load runner не именует one-off k6 container для гарантированной очистки');
+  }
+  if (!main.includes("import ws from 'k6/ws'") || !main.includes('socket.setTimeout')) {
+    failures.push('WebSocket workload не использует bounded blocking socket lifecycle');
+  }
+  if (!main.includes('applyDurationOverride(restScenario, durationOverride)')) {
+    failures.push('LOAD_DURATION не применяется единообразно к ramping-профилям');
   }
   if (
     !runner.includes('LOAD_GENERATOR_UID: generatorUid') ||
@@ -67,6 +82,15 @@ if (failures.length === 0) {
   }
   if (!runner.includes("executionStage = 'sut-readiness'")) {
     failures.push('Load runner запускает k6 до host-side readiness barrier');
+  }
+  for (const name of ['smoke', 'average', 'stress', 'spike', 'soak', 'breakpoint']) {
+    if (!suite.includes(`'${name}'`)) failures.push(`Load all suite не запускает профиль ${name}`);
+  }
+  if (!suite.includes('LOAD_RESULT_DIR: profileResultDirectory')) {
+    failures.push('Load all suite не изолирует artifacts отдельных профилей');
+  }
+  if (packageJson.scripts?.['load:all'] !== 'node scripts/run-load-suite.mjs') {
+    failures.push('package.json не публикует команду load:all');
   }
 }
 

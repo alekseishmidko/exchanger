@@ -20,6 +20,10 @@ import { LOG_EVENTS, StructuredLogger } from './modules/observability';
  * startup log и ссылку Swagger указывать доступный пользователю порт `5001`.
  */
 async function bootstrap(): Promise<void> {
+  const trustedProxy = (process.env['TRUSTED_PROXY_CIDRS'] ?? '')
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean);
   const app = await NestFactory.create<NestFastifyApplication>(
     AppModule,
     new FastifyAdapter({
@@ -28,6 +32,7 @@ async function bootstrap(): Promise<void> {
       requestTimeout: 15_000,
       keepAliveTimeout: 5_000,
       maxRequestsPerSocket: 1_000,
+      trustProxy: trustedProxy.length > 0 ? trustedProxy : false,
     }),
     { bufferLogs: true },
   );
@@ -60,6 +65,19 @@ async function bootstrap(): Promise<void> {
     ],
     maxAge: 600,
   });
+  app
+    .getHttpAdapter()
+    .getInstance()
+    .addHook('onSend', (_request, reply, _payload, done) => {
+      reply.header('x-content-type-options', 'nosniff');
+      reply.header('x-frame-options', 'DENY');
+      reply.header('referrer-policy', 'no-referrer');
+      reply.header('permissions-policy', 'camera=(), microphone=(), geolocation=()');
+      reply.header('cache-control', 'no-store');
+      if (environment === 'production')
+        reply.header('strict-transport-security', 'max-age=31536000; includeSubDomains');
+      done();
+    });
 
   const swagger = configureSwagger(app, config);
 

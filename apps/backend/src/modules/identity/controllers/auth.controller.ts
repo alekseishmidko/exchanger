@@ -8,7 +8,6 @@ import {
   ApiTags,
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
-import { ConfigService } from '@nestjs/config';
 import { createHash, randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { ZodValidationPipe } from '../../gateway/validation/gateway.validation';
@@ -24,6 +23,7 @@ import {
   RegisterRequestDto,
 } from '../dto/identity.dto';
 import { CsrfGuard } from '../security/csrf.guard';
+import { CookieResponse, SessionCookieService } from '../security/session-cookie.service';
 import { HumanAuthenticatedRequest, HumanSessionGuard } from '../security/human-session.guard';
 import { AuthRateLimit } from '../security/auth-rate-limit';
 import {
@@ -38,7 +38,7 @@ type HttpRequest = HumanAuthenticatedRequest & {
   headers: Record<string, string | string[] | undefined>;
   ip?: string;
 };
-type HttpResponse = { header(name: string, value: string | readonly string[]): void };
+type HttpResponse = CookieResponse;
 
 /**
  * Password/session authentication boundary для человека.
@@ -52,9 +52,8 @@ type HttpResponse = { header(name: string, value: string | readonly string[]): v
 export class UserAuthenticationController {
   constructor(
     private readonly identity: IdentityService,
-    private readonly config: ConfigService,
     private readonly limiter: AuthRateLimit,
-    private readonly csrf: CsrfGuard,
+    private readonly cookies: SessionCookieService,
   ) {}
 
   /** Создаёт user с normalized email и новую server session. */
@@ -67,7 +66,7 @@ export class UserAuthenticationController {
     @Res({ passthrough: true }) response: HttpResponse,
     @Body(new ZodValidationPipe(registerSchema)) body: z.infer<typeof registerSchema>,
   ): Promise<AuthenticationResponseDto> {
-    this.rateLimit(request, body.email);
+    await this.rateLimit(request, body.email);
     return this.respondWithSession(
       response,
       await this.identity.register(body, this.context(request, 'new device')),
@@ -88,7 +87,7 @@ export class UserAuthenticationController {
     @Res({ passthrough: true }) response: HttpResponse,
     @Body(new ZodValidationPipe(loginSchema)) body: z.infer<typeof loginSchema>,
   ): Promise<AuthenticationResponseDto> {
-    this.rateLimit(request, body.email);
+    await this.rateLimit(request, body.email);
     return this.respondWithSession(
       response,
       await this.identity.login(body, this.context(request, body.deviceLabel ?? 'unknown device')),
@@ -116,7 +115,7 @@ export class UserAuthenticationController {
     @Res({ passthrough: true }) response: HttpResponse,
   ): Promise<void> {
     await this.identity.logout(request.principal, this.correlation(request));
-    this.clearCookies(response);
+    this.cookies.clear(response);
   }
 
   /** Завершает все сессии пользователя на всех backend replicas. */
@@ -132,7 +131,7 @@ export class UserAuthenticationController {
       request.principal,
       this.correlation(request),
     );
-    this.clearCookies(response);
+    this.cookies.clear(response);
     return { revokedCount };
   }
 
@@ -143,14 +142,16 @@ export class UserAuthenticationController {
     @Req() request: HttpRequest,
     @Body(new ZodValidationPipe(challengeSchema)) body: z.infer<typeof challengeSchema>,
   ): Promise<{ accepted: true }> {
-    this.rateLimit(request, body.email);
+    await this.rateLimit(request, body.email);
     await this.identity.requestChallenge('EMAIL_VERIFY', body.email);
     return { accepted: true };
   }
   /** Однократно поглощает verification token. */
   @Post('email-verification/confirm') @HttpCode(204) async verify(
+    @Req() request: HttpRequest,
     @Body(new ZodValidationPipe(verifyEmailSchema)) body: z.infer<typeof verifyEmailSchema>,
   ): Promise<void> {
+    await this.rateLimit(request, 'email-verification-confirm');
     await this.identity.confirmEmail(body.token);
   }
   /** Всегда принимает reset request, независимо от существования email. */
@@ -158,7 +159,7 @@ export class UserAuthenticationController {
     @Req() request: HttpRequest,
     @Body(new ZodValidationPipe(challengeSchema)) body: z.infer<typeof challengeSchema>,
   ): Promise<{ accepted: true }> {
-    this.rateLimit(request, body.email);
+    await this.rateLimit(request, body.email);
     await this.identity.requestChallenge('PASSWORD_RESET', body.email);
     return { accepted: true };
   }
@@ -167,6 +168,7 @@ export class UserAuthenticationController {
     @Req() request: HttpRequest,
     @Body(new ZodValidationPipe(resetPasswordSchema)) body: z.infer<typeof resetPasswordSchema>,
   ): Promise<void> {
+    await this.rateLimit(request, 'password-reset-confirm');
     await this.identity.resetPassword(body.token, body.newPassword, this.correlation(request));
   }
 
@@ -174,32 +176,17 @@ export class UserAuthenticationController {
     response: HttpResponse,
     result: SessionIssueResult,
   ): AuthenticationResponseDto {
-    this.setCookies(response, result);
+    this.cookies.set(response, result);
     return { user: result.user, session: result.session };
   }
-  private setCookies(response: HttpResponse, result: SessionIssueResult): void {
-    const secure = this.config.get('AUTH_COOKIE_SECURE', 'false') === 'true';
-    const sameSite = this.config.get<string>('AUTH_COOKIE_SAME_SITE', 'Strict');
-    const maxAge = Number(this.config.get('AUTH_SESSION_IDLE_TTL_SECONDS', '1800'));
-    const suffix = `Path=/; Max-Age=${maxAge}; HttpOnly; SameSite=${sameSite}${secure ? '; Secure' : ''}`;
-    const csrfSuffix = `Path=/; Max-Age=${maxAge}; SameSite=${sameSite}${secure ? '; Secure' : ''}`;
-    response.header('Set-Cookie', [
-      `${this.config.get('AUTH_COOKIE_NAME', 'exchange_session')}=${result.token}; ${suffix}`,
-      `${this.config.get('AUTH_CSRF_COOKIE_NAME', 'exchange_csrf')}=${this.csrf.token(result.session.sessionId)}; ${csrfSuffix}`,
+  private rateLimit(request: HttpRequest, subject: string): Promise<void> {
+    const digest = (kind: string, value: string): string =>
+      createHash('sha256').update(`${kind}\u0000${value}`).digest('hex');
+    return this.limiter.check([
+      `ip:${digest('ip', request.ip ?? 'unknown')}`,
+      `account:${digest('account', subject.trim().toLowerCase())}`,
+      'global',
     ]);
-  }
-  private clearCookies(response: HttpResponse): void {
-    response.header('Set-Cookie', [
-      `${this.config.get('AUTH_COOKIE_NAME', 'exchange_session')}=; Path=/; Max-Age=0; HttpOnly; SameSite=Strict`,
-      `${this.config.get('AUTH_CSRF_COOKIE_NAME', 'exchange_csrf')}=; Path=/; Max-Age=0; SameSite=Strict`,
-    ]);
-  }
-  private rateLimit(request: HttpRequest, subject: string): void {
-    this.limiter.check(
-      createHash('sha256')
-        .update(`${request.ip ?? 'unknown'}:${subject.trim().toLowerCase()}`)
-        .digest('hex'),
-    );
   }
   private correlation(request: HttpRequest): string {
     const value = request.headers['x-correlation-id'];

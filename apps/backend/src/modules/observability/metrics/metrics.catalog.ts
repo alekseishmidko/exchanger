@@ -38,6 +38,7 @@ export const METRIC_LABEL_POLICY = {
   exchange_stage_duration_seconds: ['stage', 'outcome'],
   exchange_telemetry_export_failures_total: ['signal', 'reason'],
   exchange_telemetry_dropped_total: ['signal', 'reason'],
+  exchange_auth_credential_revalidation_total: ['outcome'],
 } as const;
 
 /** Имя метрики, разрешённое публичным observability contract. */

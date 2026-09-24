@@ -47,6 +47,12 @@ export const LOG_EVENTS = {
   INSTRUMENT_CHANGED: 'instrument.changed',
   INSTRUMENT_REJECTED: 'instrument.rejected',
   AUTH_TEST_BYPASS_USED: 'auth.test-bypass.used',
+  AUTH_RATE_LIMITED: 'auth.rate-limit.rejected',
+  AUTHENTICATION_REJECTED: 'auth.authentication.rejected',
+  AUTH_RECOVERY_REQUESTED: 'auth.recovery.requested',
+  AUTH_RECOVERY_REJECTED: 'auth.recovery.rejected',
+  AUTH_CREDENTIAL_REVOKED: 'auth.credential.revoked',
+  AUTH_RETENTION_CLEANUP: 'auth.retention.cleanup',
 } as const;
 
 /** Union всех допустимых production event names. */
@@ -63,6 +69,12 @@ export const UNSAMPLED_LOG_EVENTS: ReadonlySet<LogEventName> = new Set([
   LOG_EVENTS.AUDIT_RECORD_APPENDED,
   LOG_EVENTS.AUDIT_INTEGRITY_FAILED,
   LOG_EVENTS.AUTH_TEST_BYPASS_USED,
+  LOG_EVENTS.AUTH_RATE_LIMITED,
+  LOG_EVENTS.AUTHENTICATION_REJECTED,
+  LOG_EVENTS.AUTH_RECOVERY_REQUESTED,
+  LOG_EVENTS.AUTH_RECOVERY_REJECTED,
+  LOG_EVENTS.AUTH_CREDENTIAL_REVOKED,
+  LOG_EVENTS.AUTH_RETENTION_CLEANUP,
 ]);
 
 /**

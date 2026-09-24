@@ -1,5 +1,9 @@
 name: CI
 
+permissions:
+  contents: read
+  id-token: write
+
 on:
   push:
   pull_request:
@@ -26,6 +30,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -43,6 +49,31 @@ jobs:
 
       - name: Repository security checks
         run: pnpm security:check
+
+      - name: CI workflow contract checks
+        run: pnpm ci:check
+
+      - name: Production dependency audit
+        run: pnpm security:audit:prod
+
+      - name: Full dependency audit
+        run: pnpm security:audit:all
+
+      - name: Secret scanning
+        uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: TypeScript SAST
+        run: pipx run semgrep scan --config p/typescript --error apps/backend/src apps/frontend/src
+
+      - name: IaC and filesystem vulnerability scan
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          severity: HIGH,CRITICAL
+          exit-code: '1'
 
       - name: Maintainability baseline guard
         env:
@@ -77,13 +108,60 @@ jobs:
         run: pnpm readiness:check
 
       - name: PostgreSQL repositories, migrations and crash-point transactions
-        run: pnpm --filter @exchange/backend test -- src/modules/ledger/infrastructure/postgres.int-spec.ts --runInBand
+        run: pnpm --filter @exchange/backend test -- src/modules/ledger/infrastructure/postgres.int-spec.ts src/modules/gateway/infrastructure/postgres-api-key.registry.int-spec.ts --runInBand
+
+      - name: Install Redis integration test binary
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends redis-server
+
+      - name: Redis session and distributed abuse integration
+        run: pnpm redis:check
 
       - name: Tests
         run: pnpm test
 
       - name: Build
         run: pnpm build
+
+      - name: Inspect production artifact
+        run: pnpm security:artifact
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build production image for vulnerability scan
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: production
+          load: true
+          tags: exchange-backend:ci
+          provenance: false
+          sbom: false
+
+      - name: Scan production image
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
+        with:
+          image-ref: exchange-backend:ci
+          severity: HIGH,CRITICAL
+          exit-code: '1'
+
+      - name: Generate SBOM
+        uses: anchore/sbom-action@v0.17.2
+        with:
+          path: .
+          artifact-name: exchange-sbom.spdx.json
+          output-file: exchange-sbom.spdx.json
+
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@v3.9.2
+
+      - name: Sign SBOM with CI workload identity
+        run: cosign sign-blob --yes --bundle exchange-sbom.sigstore.json exchange-sbom.spdx.json
+
+      - name: Verify SBOM signature policy
+        run: cosign verify-blob --bundle exchange-sbom.sigstore.json --certificate-identity-regexp='^https://github.com/.+/.github/workflows/ci.yml@refs/(heads|pull)/' --certificate-oidc-issuer=https://token.actions.githubusercontent.com exchange-sbom.spdx.json
 
   api-flows:
     name: Development API flows

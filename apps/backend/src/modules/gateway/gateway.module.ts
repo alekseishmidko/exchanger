@@ -26,7 +26,7 @@ import { TradingRuntimeModule, TradingRuntimeProcessor } from '../trading/runtim
  * guard выполняет authentication, а token `TRADING_COMMAND_PORT` позволяет
  * заменить in-memory core на sequencer без изменения controller. Значение
  * `GATEWAY_API_KEYS` имеет формат `key:role:userId,key2:admin:operator`.
- * Development fallback добавляет `dev-key` и `dev-admin-key`; production не
+ * Development compose явно передаёт тестовые ключи; production не
  * получает default credentials.
  */
 @Module({

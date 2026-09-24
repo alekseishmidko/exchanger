@@ -1,9 +1,9 @@
 import {
   BadRequestException,
-  ConflictException,
   ForbiddenException,
   Inject,
   Injectable,
+  Optional,
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -25,6 +25,7 @@ import {
   UserStore,
 } from '../ports/identity.ports';
 import { PasswordHasher } from '../security/password-hasher';
+import { LOG_EVENTS, StructuredLogger } from '../../observability';
 import {
   IDEMPOTENCY_STORE_PORT,
   IdempotencyStorePort,
@@ -38,7 +39,7 @@ export type SessionContext = Readonly<{
   ip: string;
 }>;
 
-/** Результат login/register: raw token живёт только до установки Set-Cookie и не входит в public DTO. */
+/** Результат login/register: raw token живёт только до transport header/cookie и не входит в public DTO. */
 export type SessionIssueResult = Readonly<{
   token: string;
   user: PublicUser;
@@ -63,6 +64,7 @@ export class IdentityService {
     @Inject(AUDIT_LOG_PORT) private readonly audit: AuditLogPort,
     @Inject(RECOVERY_DELIVERY) private readonly recoveryDelivery: RecoveryDelivery,
     @Inject(IDEMPOTENCY_STORE_PORT) private readonly idempotency: IdempotencyStorePort,
+    @Optional() private readonly logger?: StructuredLogger,
   ) {}
 
   /** Регистрирует пользователя и сразу создаёт server-side session. */
@@ -71,17 +73,11 @@ export class IdentityService {
     context: SessionContext,
   ): Promise<SessionIssueResult> {
     const passwordHash = await this.passwords.hash(input.password);
-    let user: UserRecord;
-    try {
-      user = await this.users.create({
-        emailNormalized: this.normalizeEmail(input.email),
-        name: input.name.trim(),
-        passwordHash,
-      });
-    } catch (error) {
-      if (error instanceof ConflictException) throw error;
-      throw error;
-    }
+    const user = await this.users.create({
+      emailNormalized: this.normalizeEmail(input.email),
+      name: input.name.trim(),
+      passwordHash,
+    });
     await this.securityEvent(user.id, 'USER_REGISTERED', context.correlationId);
     return this.issueSession(user, context);
   }
@@ -95,10 +91,22 @@ export class IdentityService {
     const fallback = this.config.getOrThrow<string>('AUTH_DUMMY_PASSWORD_HASH');
     const valid = await this.passwords.verify(input.password, user?.passwordHash ?? fallback);
     if (!user || !valid || user.passwordResetRequired) {
+      this.logger?.warn('identity', LOG_EVENTS.AUTHENTICATION_REJECTED, {
+        outcome: 'rejected',
+        correlationId: context.correlationId,
+        metadata: { mechanism: 'password' },
+      });
       throw new UnauthorizedException({
         code: 'AUTH_INVALID_CREDENTIALS',
         message: 'Authentication failed',
       });
+    }
+    if (this.passwords.needsRehash(user.passwordHash)) {
+      await this.users.rehashPassword(
+        user.id,
+        user.passwordHash,
+        await this.passwords.hash(input.password),
+      );
     }
     await this.securityEvent(user.id, 'USER_LOGIN', context.correlationId);
     return this.issueSession(user, context);
@@ -129,11 +137,12 @@ export class IdentityService {
       lastSeenAt: now.toISOString(),
       expiresAt: expiresAt.toISOString(),
     };
-    await this.sessions.touch(
+    const touched = await this.sessions.touch(
       digest,
       refreshed,
       Math.max(1, Math.ceil((expiresAt.getTime() - now.getTime()) / 1000)),
     );
+    if (!touched) throw this.unauthorized();
     return {
       kind: 'HUMAN_SESSION',
       sessionId: session.sessionId,
@@ -220,40 +229,85 @@ export class IdentityService {
 
   /** Enumeration-resistant request: неизвестный email выполняет dummy KDF и получает тот же результат. */
   async requestChallenge(kind: 'EMAIL_VERIFY' | 'PASSWORD_RESET', email: string): Promise<void> {
+    const startedAt = Date.now();
+    this.logger?.info('identity', LOG_EVENTS.AUTH_RECOVERY_REQUESTED, {
+      metadata: { kind },
+    });
     const user = await this.users.findByEmail(this.normalizeEmail(email));
     if (!user) {
       await this.passwords.verify(
         randomBytes(18).toString('base64url'),
         this.config.getOrThrow('AUTH_DUMMY_PASSWORD_HASH'),
       );
+      const ttl = Number(this.config.get('AUTH_RECOVERY_TTL_SECONDS', '900'));
+      await this.recoveryDelivery
+        .deliver({
+          kind,
+          email: this.config.get('AUTH_RECOVERY_DECOY_EMAIL', 'noreply@example.invalid'),
+          token: randomBytes(32).toString('base64url'),
+          expiresAt: new Date(Date.now() + ttl * 1000).toISOString(),
+        })
+        .catch(() => undefined);
+      await this.padRecovery(startedAt);
       return;
     }
     const token = randomBytes(32).toString('base64url');
     const ttl = Number(this.config.get('AUTH_RECOVERY_TTL_SECONDS', '900'));
     const expiresAt = new Date(Date.now() + ttl * 1000).toISOString();
+    const digest = this.digest(token, 'recovery');
     await this.users.issueChallenge({
       userId: user.id,
       kind,
-      digest: this.digest(token, 'recovery'),
+      digest,
       expiresAt,
     });
-    await this.recoveryDelivery.deliver({ kind, email: user.emailNormalized, token, expiresAt });
+    try {
+      await this.recoveryDelivery.deliver({ kind, email: user.emailNormalized, token, expiresAt });
+    } catch {
+      await this.users.invalidateChallenge(kind, digest);
+      this.logger?.failure('identity', LOG_EVENTS.AUTH_RECOVERY_REQUESTED, {
+        outcome: 'failure',
+        metadata: { kind, dependency: 'delivery' },
+      });
+    } finally {
+      await this.padRecovery(startedAt);
+    }
   }
 
   async confirmEmail(token: string): Promise<void> {
     const user = await this.users.consumeChallenge('EMAIL_VERIFY', this.digest(token, 'recovery'));
-    if (!user) throw this.invalidChallenge();
+    if (!user) {
+      this.recoveryRejected('EMAIL_VERIFY');
+      throw this.invalidChallenge();
+    }
     await this.users.markEmailVerified(user.id);
   }
   async resetPassword(token: string, password: string, correlationId: string): Promise<void> {
-    const user = await this.users.consumeChallenge(
-      'PASSWORD_RESET',
+    const user = await this.users.completePasswordReset(
       this.digest(token, 'recovery'),
+      await this.passwords.hash(password),
     );
-    if (!user) throw this.invalidChallenge();
-    await this.users.updatePassword(user.id, await this.passwords.hash(password));
+    if (!user) {
+      this.recoveryRejected('PASSWORD_RESET');
+      throw this.invalidChallenge();
+    }
     await this.sessions.revokeAll(user.id, new Date().toISOString());
     await this.securityEvent(user.id, 'PASSWORD_RESET', correlationId);
+  }
+
+  /** Пишет отдельный low-cardinality security event без token/email/IP. */
+  private recoveryRejected(kind: 'EMAIL_VERIFY' | 'PASSWORD_RESET'): void {
+    this.logger?.warn('identity', LOG_EVENTS.AUTH_RECOVERY_REJECTED, {
+      outcome: 'rejected',
+      metadata: { kind },
+    });
+  }
+
+  /** Выравнивает быстрый unknown-email path с bounded recovery admission budget. */
+  private async padRecovery(startedAt: number): Promise<void> {
+    const minimum = Number(this.config.get('AUTH_RECOVERY_MIN_RESPONSE_MS', '250'));
+    const remaining = minimum - (Date.now() - startedAt);
+    if (remaining > 0) await new Promise((resolve) => setTimeout(resolve, remaining));
   }
 
   /** Admin safe session listing. */
@@ -412,7 +466,7 @@ export class IdentityService {
     return user;
   }
   private requireAdmin(principal: HumanPrincipal): void {
-    if (!principal.roles.includes('ADMIN'))
+    if (!principal.roles.includes('ADMIN') || !principal.scopes.includes('admin:*'))
       throw new ForbiddenException({
         code: 'AUTH_ADMIN_REQUIRED',
         message: 'Administrative access is required',

@@ -64,7 +64,7 @@ export const NOOP_OPERATIONAL_LOGGER: OperationalLogger = {
 
 /** Ключи, значение которых всегда заменяется независимо от регистра. */
 const sensitiveKeys =
-  /^(authorization|cookie|set-cookie|api[-_]?key|password|secret|token|userId|accountId|amount|price|quantity)$/i;
+  /^(authorization|cookie|set-cookie|api[-_]?key|password|secret|token|email|name|userId|accountId|ownerId|subjectId|deviceLabel|ip|userAgent|reason|amount|price|quantity)$/i;
 /** Canary patterns защищают от секрета, ошибочно помещённого в обычное поле. */
 const sensitiveValues =
   /(bearer\s+[a-z0-9._~+/-]+=*|\bex_[a-z0-9_-]{16,}|postgres(?:ql)?:\/\/[^\s]+|api[-_]?key\s*[:=]\s*\S+)/i;

@@ -376,6 +376,7 @@ async function main() {
       group: 'queries',
       name: 'projection metrics',
       path: '/api/v1/projections/metrics',
+      key: adminApiKey,
       validate: (body) => assert(Number.isInteger(body?.lag), 'projection lag отсутствует'),
     });
 
