@@ -13,11 +13,15 @@ services:
         required: false
     environment:
       # В startup-логах показываем адрес хоста, а не внутренний container port.
-      APPLICATION_PUBLIC_URL: "http://localhost:${BACKEND_HOST_PORT:-5001}"
+      APPLICATION_PUBLIC_URL: 'http://localhost:${BACKEND_HOST_PORT:-5001}'
+      # Изолированные E2E могут передать per-run machine credentials, которые
+      # должны восстановиться после restart. Для обычного dev сохраняются
+      # прежние локальные ключи; production-like compose этот fallback не использует.
+      GATEWAY_API_KEYS: '${GATEWAY_API_KEYS:-dev-key:trader:dev-user,dev-admin-key:admin:dev-admin-user}'
     ports:
       # В контейнере backend слушает PORT=5000, а host-порт можно переопределить:
       # BACKEND_HOST_PORT=5010 pnpm docker:development
-      - "${BACKEND_HOST_PORT:-5001}:5000"
+      - '${BACKEND_HOST_PORT:-5001}:5000'
     # Именованные node_modules volumes ускоряют повторные запуски, но переживают
     # пересборку image. Install синхронизирует их с актуальным pnpm-lock.yaml до
     # старта watcher, поэтому новые зависимости сразу видны TypeScript и NestJS.
@@ -39,14 +43,14 @@ services:
     depends_on:
       - backend
     environment:
-      VITE_BACKEND_URL: "http://backend:5000"
+      VITE_BACKEND_URL: 'http://backend:5000'
       # Docker Desktop не всегда корректно доставляет filesystem events из bind
       # mount в Linux VM. Polling делает HMR предсказуемым и убирает зависания
       # на этапе ожидания обновлений/переоптимизации зависимостей.
-      CHOKIDAR_USEPOLLING: "true"
-      FRONTEND_HOST_PORT: "${FRONTEND_HOST_PORT:-5173}"
+      CHOKIDAR_USEPOLLING: 'true'
+      FRONTEND_HOST_PORT: '${FRONTEND_HOST_PORT:-5173}'
     ports:
-      - "${FRONTEND_HOST_PORT:-5173}:5173"
+      - '${FRONTEND_HOST_PORT:-5173}:5173'
     command:
       - sh
       - -c

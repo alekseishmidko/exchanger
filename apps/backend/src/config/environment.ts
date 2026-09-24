@@ -189,6 +189,10 @@ export function validateEnvironment(config: EnvironmentConfig): EnvironmentConfi
   ) {
     throw new Error('WEBSOCKET_ALLOWED_ORIGINS must be a non-empty comma-separated list');
   }
+  const httpOrigins = config['HTTP_ALLOWED_ORIGINS'];
+  if (httpOrigins !== undefined && (typeof httpOrigins !== 'string' || !httpOrigins.trim())) {
+    throw new Error('HTTP_ALLOWED_ORIGINS must be a non-empty comma-separated list');
+  }
 
   const workersEnabled = config['WORKERS_ENABLED'];
   if (
@@ -259,5 +263,123 @@ export function validateEnvironment(config: EnvironmentConfig): EnvironmentConfi
     }
   }
 
-  return { ...config, ...runtimeAdapters, INSTANCE_ID: instanceId };
+  const componentIdentity = runtimeAdapters.RUNTIME_PROFILE === 'component';
+  const userStore = config['AUTH_USER_STORE_ADAPTER'] ?? (componentIdentity ? 'memory' : undefined);
+  const sessionStore =
+    config['AUTH_SESSION_STORE_ADAPTER'] ?? (componentIdentity ? 'memory' : undefined);
+  const apiKeyStore =
+    config['AUTH_API_KEY_STORE_ADAPTER'] ?? (componentIdentity ? 'memory' : undefined);
+  if (userStore !== (componentIdentity ? 'memory' : 'postgres')) {
+    throw new Error(
+      `AUTH_USER_STORE_ADAPTER must be ${componentIdentity ? 'memory' : 'postgres'} for ${runtimeAdapters.RUNTIME_PROFILE}`,
+    );
+  }
+  if (sessionStore !== (componentIdentity ? 'memory' : 'redis')) {
+    throw new Error(
+      `AUTH_SESSION_STORE_ADAPTER must be ${componentIdentity ? 'memory' : 'redis'} for ${runtimeAdapters.RUNTIME_PROFILE}`,
+    );
+  }
+  if (apiKeyStore !== (componentIdentity ? 'memory' : 'postgres')) {
+    throw new Error(
+      `AUTH_API_KEY_STORE_ADAPTER must be ${componentIdentity ? 'memory' : 'postgres'} for ${runtimeAdapters.RUNTIME_PROFILE}`,
+    );
+  }
+  if (!componentIdentity && config['GATEWAY_API_KEYS']) {
+    throw new Error(
+      'GATEWAY_API_KEYS plaintext configuration is forbidden in production-like runtime',
+    );
+  }
+
+  for (const key of ['AUTH_PASSWORD_PEPPER', 'AUTH_TOKEN_HASH_SECRET'] as const) {
+    const value = config[key];
+    if (typeof value !== 'string' || value.length < 32)
+      throw new Error(
+        `${key} must be supplied by secret storage and contain at least 32 characters`,
+      );
+  }
+  if (config['AUTH_PASSWORD_PEPPER'] === config['AUTH_TOKEN_HASH_SECRET']) {
+    throw new Error('AUTH_PASSWORD_PEPPER and AUTH_TOKEN_HASH_SECRET must be independent secrets');
+  }
+  const dummyHash = config['AUTH_DUMMY_PASSWORD_HASH'];
+  if (
+    typeof dummyHash !== 'string' ||
+    !/^scrypt\$\d+\$\d+\$\d+\$[A-Za-z0-9_-]+\$[A-Za-z0-9_-]+$/.test(dummyHash)
+  ) {
+    throw new Error('AUTH_DUMMY_PASSWORD_HASH must be a precomputed scrypt hash');
+  }
+
+  for (const key of [
+    'AUTH_SESSION_IDLE_TTL_SECONDS',
+    'AUTH_SESSION_ABSOLUTE_TTL_SECONDS',
+    'AUTH_MAX_SESSIONS_PER_USER',
+    'AUTH_RECOVERY_TTL_SECONDS',
+    'AUTH_REDIS_CONNECT_TIMEOUT_MS',
+  ] as const) {
+    const value = config[key];
+    const normalized =
+      typeof value === 'string' || typeof value === 'number' ? `${value}` : undefined;
+    if (value !== undefined && (!normalized || !/^\d+$/.test(normalized) || Number(normalized) < 1))
+      throw new Error(`${key} must be a positive integer`);
+  }
+  const idleTtl = Number(config['AUTH_SESSION_IDLE_TTL_SECONDS'] ?? 1800);
+  const absoluteTtl = Number(config['AUTH_SESSION_ABSOLUTE_TTL_SECONDS'] ?? 604800);
+  if (idleTtl > absoluteTtl)
+    throw new Error('AUTH_SESSION_IDLE_TTL_SECONDS cannot exceed absolute TTL');
+
+  if (!componentIdentity) {
+    const redisUrl = config['AUTH_REDIS_URL'];
+    if (typeof redisUrl !== 'string')
+      throw new Error('AUTH_REDIS_URL is required for production-like runtime');
+    try {
+      const parsed = new URL(redisUrl);
+      if (parsed.protocol !== 'rediss:' || !parsed.hostname || !parsed.password)
+        throw new Error('Redis TLS/AUTH required');
+    } catch {
+      throw new Error(
+        'AUTH_REDIS_URL must use rediss:// with authentication in production-like runtime',
+      );
+    }
+    const cookieName = config['AUTH_COOKIE_NAME'];
+    if (
+      config['AUTH_COOKIE_SECURE'] !== 'true' ||
+      typeof cookieName !== 'string' ||
+      !cookieName.startsWith('__Host-')
+    ) {
+      throw new Error('production-like cookie auth requires Secure and __Host- cookie name');
+    }
+    const deliveryUrl = config['AUTH_RECOVERY_DELIVERY_URL'];
+    if (typeof deliveryUrl !== 'string')
+      throw new Error('AUTH_RECOVERY_DELIVERY_URL must be an HTTPS URL in production-like runtime');
+    try {
+      const parsed = new URL(deliveryUrl);
+      if (parsed.protocol !== 'https:') throw new Error('HTTPS required');
+    } catch {
+      throw new Error('AUTH_RECOVERY_DELIVERY_URL must be an HTTPS URL in production-like runtime');
+    }
+    const deliverySecret = config['AUTH_RECOVERY_DELIVERY_SECRET'];
+    if (typeof deliverySecret !== 'string' || deliverySecret.length < 32) {
+      throw new Error('AUTH_RECOVERY_DELIVERY_SECRET must contain at least 32 characters');
+    }
+  }
+
+  const bypassEnabled = config['AUTH_TEST_BYPASS_ENABLED'] === 'true';
+  if (bypassEnabled && (nodeEnv !== 'test' || !componentIdentity)) {
+    throw new Error('AUTH test bypass is allowed only in NODE_ENV=test isolated component profile');
+  }
+  if (
+    bypassEnabled &&
+    (typeof config['AUTH_TEST_BYPASS_TOKEN'] !== 'string' ||
+      String(config['AUTH_TEST_BYPASS_TOKEN']).length < 32)
+  ) {
+    throw new Error('AUTH_TEST_BYPASS_TOKEN must be supplied as a strong test secret');
+  }
+
+  return {
+    ...config,
+    ...runtimeAdapters,
+    INSTANCE_ID: instanceId,
+    AUTH_USER_STORE_ADAPTER: userStore,
+    AUTH_SESSION_STORE_ADAPTER: sessionStore,
+    AUTH_API_KEY_STORE_ADAPTER: apiKeyStore,
+  };
 }

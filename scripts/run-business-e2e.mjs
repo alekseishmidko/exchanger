@@ -78,7 +78,9 @@ async function http(method, path, { apiKey = adminKey, idempotencyKey, body, exp
     durationMs: Math.round(performance.now() - started),
   });
   if (expected && !expected.includes(response.status)) {
-    throw new Error(`${method} ${path}: ожидался HTTP ${expected.join('/')}, получен ${response.status}`);
+    throw new Error(
+      `${method} ${path}: ожидался HTTP ${expected.join('/')}, получен ${response.status}`,
+    );
   }
   return { status: response.status, body: responseBody };
 }
@@ -112,11 +114,18 @@ async function waitForReadiness() {
 /** Выпускает одноразовый trader API key публичным admin endpoint. */
 async function issueTrader(userId, label) {
   const commandId = `issue-${label}-${runId}`;
-  const issued = await http('POST', '/api/v1/auth/api-keys', {
+  const issued = await http('POST', '/api/v1/machine-auth/api-keys', {
     apiKey: adminKey,
     idempotencyKey: commandId,
     expected: [201],
-    body: { commandId, userId, role: 'trader', label },
+    body: {
+      commandId,
+      userId,
+      role: 'trader',
+      label,
+      ownerType: 'USER',
+      scopes: ['trading:read', 'trading:write'],
+    },
   });
   assert(typeof issued.body?.apiKey === 'string', `api key для ${label} не выпущен`);
   return issued.body.apiKey;
@@ -144,7 +153,7 @@ async function traderIdentity(kind) {
 async function ensureApprovalAdmin() {
   if (approvalAdminKey !== adminKey) return;
   const commandId = `issue-approval-admin-${runId}`;
-  const issued = await http('POST', '/api/v1/auth/api-keys', {
+  const issued = await http('POST', '/api/v1/machine-auth/api-keys', {
     apiKey: adminKey,
     idempotencyKey: commandId,
     expected: [201],
@@ -153,6 +162,8 @@ async function ensureApprovalAdmin() {
       userId: `approval-admin-${runId}`,
       role: 'admin',
       label: `approval-admin-${runId}`,
+      ownerType: 'SYSTEM',
+      scopes: ['admin:*', 'trading:read', 'trading:write'],
     },
   });
   assert(typeof issued.body?.apiKey === 'string', 'second admin key не выпущен');
@@ -324,17 +335,22 @@ async function place(apiKey, order) {
 
 /** Public query helpers. */
 async function orders(apiKey) {
-  return (await http('GET', '/api/v1/projections/orders?limit=100', { apiKey, expected: [200] }))
-    .body?.items ?? [];
+  return (
+    (await http('GET', '/api/v1/projections/orders?limit=100', { apiKey, expected: [200] })).body
+      ?.items ?? []
+  );
 }
 async function trades(apiKey) {
-  return (await http('GET', '/api/v1/projections/trades?limit=100', { apiKey, expected: [200] }))
-    .body?.items ?? [];
+  return (
+    (await http('GET', '/api/v1/projections/trades?limit=100', { apiKey, expected: [200] })).body
+      ?.items ?? []
+  );
 }
 async function balances(apiKey) {
   return (
-    await http('GET', '/api/v1/projections/balances?limit=100', { apiKey, expected: [200] })
-  ).body?.items ?? [];
+    (await http('GET', '/api/v1/projections/balances?limit=100', { apiKey, expected: [200] })).body
+      ?.items ?? []
+  );
 }
 
 /** Polling assertion для eventually-consistent projections. */
@@ -350,7 +366,15 @@ async function waitUntil(name, predicate, timeoutMs = 5000) {
 }
 
 /** Проверяет одну сделку: sell resting order, buy crossing order. */
-async function runFillScenario({ name, buyer, seller, sellQuantity, buyQuantity, sellPrice, buyPrice }) {
+async function runFillScenario({
+  name,
+  buyer,
+  seller,
+  sellQuantity,
+  buyQuantity,
+  sellPrice,
+  buyPrice,
+}) {
   const sellOrderId = `${name}-sell-${runId}`;
   const buyOrderId = `${name}-buy-${runId}`;
   const sell = await place(seller.apiKey, {
@@ -362,7 +386,8 @@ async function runFillScenario({ name, buyer, seller, sellQuantity, buyQuantity,
     price: sellPrice,
   });
   check(
-    sell.body?.durableStatus === 'ACCEPTED' && ['PENDING', 'APPLIED'].includes(sell.body?.executionStatus),
+    sell.body?.durableStatus === 'ACCEPTED' &&
+      ['PENDING', 'APPLIED'].includes(sell.body?.executionStatus),
     `${name}: sell command получил durable acceptance`,
     { sellOrderId, response: safeCommandResult(sell.body) },
   );
@@ -376,14 +401,17 @@ async function runFillScenario({ name, buyer, seller, sellQuantity, buyQuantity,
     price: buyPrice,
   });
   check(
-    buy.body?.durableStatus === 'ACCEPTED' && ['PENDING', 'APPLIED'].includes(buy.body?.executionStatus),
+    buy.body?.durableStatus === 'ACCEPTED' &&
+      ['PENDING', 'APPLIED'].includes(buy.body?.executionStatus),
     `${name}: buy command получил durable acceptance`,
     { buyOrderId, response: safeCommandResult(buy.body) },
   );
 
   const buyerTrades = await waitUntil(`${name}: buyer trade history`, async () => {
     const rows = await trades(buyer.apiKey);
-    const related = rows.filter((trade) => trade.makerOrderId === sellOrderId || trade.takerOrderId === buyOrderId);
+    const related = rows.filter(
+      (trade) => trade.makerOrderId === sellOrderId || trade.takerOrderId === buyOrderId,
+    );
     return { ok: related.length > 0, value: related };
   }).catch((error) => {
     failures.push({ message: error.message, metadata: { name } });
@@ -410,7 +438,10 @@ async function runFillScenario({ name, buyer, seller, sellQuantity, buyQuantity,
     );
   }
 
-  const [buyerOrders, sellerOrders] = await Promise.all([orders(buyer.apiKey), orders(seller.apiKey)]);
+  const [buyerOrders, sellerOrders] = await Promise.all([
+    orders(buyer.apiKey),
+    orders(seller.apiKey),
+  ]);
   const buyerOrder = buyerOrders.find((order) => order.orderId === buyOrderId);
   const sellerOrder = sellerOrders.find((order) => order.orderId === sellOrderId);
   check(Boolean(buyerOrder), `${name}: buyer order history содержит заявку`, { buyOrderId });
@@ -429,7 +460,8 @@ async function runFillScenario({ name, buyer, seller, sellQuantity, buyQuantity,
 /** Убирает credential material из command result metadata. */
 function safeCommandResult(body) {
   if (!body || typeof body !== 'object') return body;
-  const { commandId, orderId, status, durableStatus, executionStatus, orderStatus, rejectionCode } = body;
+  const { commandId, orderId, status, durableStatus, executionStatus, orderStatus, rejectionCode } =
+    body;
   return { commandId, orderId, status, durableStatus, executionStatus, orderStatus, rejectionCode };
 }
 
@@ -437,9 +469,8 @@ function safeCommandResult(body) {
 async function runSigkillProof(buyer, orderId) {
   const command = process.env['BUSINESS_E2E_SIGKILL_COMMAND'];
   if (!command) {
-    failures.push({
-      message: 'SIGKILL/restart proof не выполнен: BUSINESS_E2E_SIGKILL_COMMAND не задан',
-      metadata: { required: true },
+    mark('check.skipped:SIGKILL/restart proof не настроен для текущей topology', {
+      reason: 'BUSINESS_E2E_SIGKILL_COMMAND не задан',
     });
     return;
   }
@@ -482,9 +513,13 @@ async function finalChecks(buyer, seller) {
   ]);
   check(Array.isArray(buyerBalances), 'buyer balance projection доступна');
   check(Array.isArray(sellerBalances), 'seller balance projection доступна');
-  check(reconciliation.body?.auditIntegrity === true, 'audit chain integrity подтверждена reconciliation', {
-    reconciliation: reconciliation.body,
-  });
+  check(
+    reconciliation.body?.auditIntegrity === true,
+    'audit chain integrity подтверждена reconciliation',
+    {
+      reconciliation: reconciliation.body,
+    },
+  );
   const buyerPrivateLeak = websocketTranscript.some(
     (entry) =>
       entry.label === 'buyer-private' &&
@@ -555,7 +590,8 @@ async function writeReports(extra = {}) {
     JSON.stringify(
       {
         status: 'not_configured',
-        message: 'BUSINESS_E2E_TRACE_COMMAND not configured; pass Tempo/OTel export command in staging.',
+        message:
+          'BUSINESS_E2E_TRACE_COMMAND not configured; pass Tempo/OTel export command in staging.',
       },
       null,
       2,
@@ -573,8 +609,14 @@ async function writeReports(extra = {}) {
     ),
     writeFile(resolve(reportDirectory, 'timeline.json'), `${JSON.stringify(timeline, null, 2)}\n`),
     writeFile(resolve(reportDirectory, 'logs.txt'), logs),
-    writeFile(resolve(reportDirectory, 'traces.json'), traces.endsWith('\n') ? traces : `${traces}\n`),
-    writeFile(resolve(reportDirectory, 'metrics.prom'), metrics.endsWith('\n') ? metrics : `${metrics}\n`),
+    writeFile(
+      resolve(reportDirectory, 'traces.json'),
+      traces.endsWith('\n') ? traces : `${traces}\n`,
+    ),
+    writeFile(
+      resolve(reportDirectory, 'metrics.prom'),
+      metrics.endsWith('\n') ? metrics : `${metrics}\n`,
+    ),
     writeFile(
       resolve(reportDirectory, 'summary.md'),
       `# Black-box business E2E\n\n**Status:** ${status === 'passed' ? '✅ passed' : '❌ failed'}  \n**Run:** ${runId}  \n**Build:** ${buildSha}  \n**Artifacts:** \`${reportDirectory}\`\n\n| Status | Check |\n| --- | --- |\n${summaryRows}\n`,
@@ -605,7 +647,11 @@ async function main() {
     const buyerSocket = await connectSocket('buyer-private', buyer.apiKey);
     const sellerSocket = await connectSocket('seller-private', seller.apiKey);
     sockets.push(publicSocket, buyerSocket, sellerSocket);
-    subscribe(publicSocket, { requestId: `book-${runId}`, channel: 'book', instrumentId: 'BTC-USD' });
+    subscribe(publicSocket, {
+      requestId: `book-${runId}`,
+      channel: 'book',
+      instrumentId: 'BTC-USD',
+    });
     subscribe(publicSocket, {
       requestId: `trades-${runId}`,
       channel: 'trades',

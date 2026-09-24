@@ -24,6 +24,17 @@ export const issueApiKeySchema = z
     userId: identifier,
     role: z.enum(['trader', 'admin', 'risk_manager', 'auditor', 'support']),
     label: z.string().trim().min(1).max(128),
+    ownerType: z.enum(['USER', 'SERVICE', 'SYSTEM']).default('USER'),
+    scopes: z
+      .array(z.enum(['trading:read', 'trading:write', 'admin:read', 'admin:*']))
+      .min(1)
+      .max(16)
+      .default(['trading:read']),
+    expiresAt: z
+      .string()
+      .datetime()
+      .refine((value) => Date.parse(value) > Date.now(), 'expiry must be in the future')
+      .optional(),
   })
   .strict();
 

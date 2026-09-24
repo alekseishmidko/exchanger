@@ -22,12 +22,100 @@ paths:
         '503': { description: Critical dependency is unavailable }
   /api/v1/auth/me:
     get:
-      operationId: getCurrentPrincipal
-      security: [{ ApiKeyAuth: [] }]
+      operationId: getCurrentUser
+      security: [{ SessionCookie: [] }]
       responses:
-        '200': { description: Authenticated API-key principal }
-        '401': { description: Invalid or missing API key }
-  /api/v1/auth/api-keys:
+        '200': { description: Safe user profile and capabilities }
+        '401': { description: 'Invalid, expired or revoked session' }
+  /api/v1/auth/register:
+    post:
+      operationId: registerUser
+      responses: { '201': { description: User and server session created } }
+  /api/v1/auth/login:
+    post:
+      operationId: loginUser
+      responses: { '200': { description: Server session created } }
+  /api/v1/auth/logout:
+    post:
+      operationId: logoutUser
+      security: [{ SessionCookie: [] }]
+      responses: { '204': { description: Current session revoked } }
+  /api/v1/auth/logout-all:
+    post:
+      operationId: logoutAllUserSessions
+      security: [{ SessionCookie: [] }]
+      responses: { '200': { description: All sessions revoked } }
+  /api/v1/users/me:
+    patch:
+      operationId: updateOwnProfile
+      security: [{ SessionCookie: [] }]
+      responses: { '200': { description: Safe updated profile } }
+  /api/v1/users/me/password:
+    post:
+      operationId: changeOwnPassword
+      security: [{ SessionCookie: [] }]
+      responses: { '201': { description: Password changed and session rotated } }
+  /api/v1/users/me/sessions:
+    get:
+      operationId: listOwnSessions
+      security: [{ SessionCookie: [] }]
+      responses: { '200': { description: Session metadata without credentials } }
+  /api/v1/users/me/sessions/{sessionId}:
+    delete:
+      operationId: revokeOwnSession
+      security: [{ SessionCookie: [] }]
+      responses: { '204': { description: Session revoked } }
+  /api/v1/auth/email-verification/request:
+    post:
+      operationId: requestEmailVerification
+      responses: { '202': { description: Request accepted without email disclosure } }
+  /api/v1/auth/email-verification/confirm:
+    post:
+      operationId: confirmEmailVerification
+      responses: { '204': { description: Email verified } }
+  /api/v1/auth/password-reset/request:
+    post:
+      operationId: requestPasswordReset
+      responses: { '202': { description: Request accepted without email disclosure } }
+  /api/v1/auth/password-reset/confirm:
+    post:
+      operationId: confirmPasswordReset
+      responses: { '204': { description: Password reset and sessions revoked } }
+  /api/v1/admin/users/{userId}/sessions:
+    parameters:
+      - { name: userId, in: path, required: true, schema: { type: string } }
+    get:
+      operationId: adminListUserSessions
+      security: [{ SessionCookie: [] }]
+      responses: { '200': { description: Safe session metadata } }
+  /api/v1/admin/users/{userId}/sessions/{sessionId}:
+    parameters:
+      - { name: userId, in: path, required: true, schema: { type: string } }
+      - { name: sessionId, in: path, required: true, schema: { type: string } }
+    delete:
+      operationId: adminRevokeUserSession
+      security: [{ SessionCookie: [] }]
+      responses: { '204': { description: Session revoked } }
+  /api/v1/admin/users/{userId}/sessions/revoke-all:
+    parameters:
+      - { name: userId, in: path, required: true, schema: { type: string } }
+    post:
+      operationId: adminRevokeAllUserSessions
+      security: [{ SessionCookie: [] }]
+      responses: { '201': { description: Sessions revoked } }
+  /api/v1/admin/users/{userId}/require-password-reset:
+    parameters:
+      - { name: userId, in: path, required: true, schema: { type: string } }
+    post:
+      operationId: adminRequirePasswordReset
+      security: [{ SessionCookie: [] }]
+      responses: { '204': { description: Password reset required } }
+  /api/v1/machine-auth/me:
+    get:
+      operationId: getCurrentMachinePrincipal
+      security: [{ ApiKeyAuth: [] }]
+      responses: { '200': { description: Authenticated machine principal } }
+  /api/v1/machine-auth/api-keys:
     get:
       operationId: listApiKeys
       security: [{ ApiKeyAuth: [] }]
@@ -38,7 +126,7 @@ paths:
       security: [{ ApiKeyAuth: [] }]
       responses:
         '201': { description: API key issued; secret returned once }
-  /api/v1/auth/api-keys/{keyId}/rotate:
+  /api/v1/machine-auth/api-keys/{keyId}/rotate:
     parameters:
       - $ref: '#/components/parameters/KeyId'
     post:
@@ -46,7 +134,7 @@ paths:
       security: [{ ApiKeyAuth: [] }]
       responses:
         '201': { description: API key rotated; new secret returned once }
-  /api/v1/auth/api-keys/{keyId}/revoke:
+  /api/v1/machine-auth/api-keys/{keyId}/revoke:
     parameters:
       - $ref: '#/components/parameters/KeyId'
     post:
@@ -208,6 +296,7 @@ paths:
 components:
   securitySchemes:
     ApiKeyAuth: { type: apiKey, in: header, name: x-api-key }
+    SessionCookie: { type: apiKey, in: cookie, name: __Host-exchange_session }
   parameters:
     OrderId:
       name: orderId

@@ -41,10 +41,15 @@ services:
           psql -v ON_ERROR_STOP=1 -1 -f /migrations/003_durable_control_plane_up.sql
           psql -v ON_ERROR_STOP=1 -c "INSERT INTO schema_migrations(version) VALUES ('003_durable_control_plane')"
         fi
+        if ! psql -tAc "SELECT 1 FROM schema_migrations WHERE version='004_identity'" | grep -q 1; then
+          psql -v ON_ERROR_STOP=1 -1 -f /migrations/004_identity_up.sql
+          psql -v ON_ERROR_STOP=1 -c "INSERT INTO schema_migrations(version) VALUES ('004_identity')"
+        fi
     volumes:
       - ./apps/backend/src/modules/ledger/infrastructure/migrations/001_ledger_up.sql:/migrations/001_ledger_up.sql:ro
       - ./apps/backend/src/infrastructure/postgres/migrations/002_durable_runtime_up.sql:/migrations/002_durable_runtime_up.sql:ro
       - ./apps/backend/src/infrastructure/postgres/migrations/003_durable_control_plane_up.sql:/migrations/003_durable_control_plane_up.sql:ro
+      - ./apps/backend/src/infrastructure/postgres/migrations/004_identity_up.sql:/migrations/004_identity_up.sql:ro
 
   backend:
     build:

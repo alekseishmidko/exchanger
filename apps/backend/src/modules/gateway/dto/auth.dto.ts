@@ -60,6 +60,15 @@ export class IssueApiKeyRequestDto {
 
   @ApiProperty({ example: 'market-maker-primary', maxLength: 128 })
   label!: string;
+
+  @ApiProperty({ enum: ['USER', 'SERVICE', 'SYSTEM'], default: 'USER' })
+  ownerType!: 'USER' | 'SERVICE' | 'SYSTEM';
+
+  @ApiProperty({ type: [String], example: ['trading:read', 'trading:write'] })
+  scopes!: readonly string[];
+
+  @ApiProperty({ format: 'date-time' })
+  expiresAt!: string;
 }
 
 /** Команда rotate/revoke, обеспечивающая audit correlation и idempotency. */
@@ -78,6 +87,9 @@ export class ApiKeyMetadataResponseDto {
   @ApiProperty({ enum: ['trader', 'admin', 'risk_manager', 'auditor', 'support'] })
   role!: ApiKeyRole;
   @ApiProperty({ example: 'market-maker-primary' }) label!: string;
+  @ApiProperty({ enum: ['USER', 'SERVICE', 'SYSTEM'] }) ownerType!: 'USER' | 'SERVICE' | 'SYSTEM';
+  @ApiProperty({ type: [String] }) scopes!: readonly string[];
+  @ApiProperty({ format: 'date-time' }) expiresAt!: string;
   @ApiProperty({ enum: ['ACTIVE', 'REVOKED'] }) status!: 'ACTIVE' | 'REVOKED';
   @ApiProperty({ format: 'date-time' }) createdAt!: string;
   @ApiProperty({ format: 'date-time', nullable: true }) rotatedAt!: string | null;
@@ -88,7 +100,7 @@ export class ApiKeyMetadataResponseDto {
 /** Страница полного reference registry без credential material. */
 export class ApiKeyMetadataPageResponseDto {
   @ApiProperty({ type: [ApiKeyMetadataResponseDto] })
-  items!: ApiKeyMetadataResponseDto[];
+  items!: readonly ApiKeyMetadataResponseDto[];
 }
 
 /**

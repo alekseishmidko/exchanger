@@ -4,7 +4,7 @@ import { LOG_EVENTS, StructuredLogger } from '../../observability';
 import type { AuditLogPort } from '../ports/audit.port';
 
 /** Роли сотрудников, имеющих доступ к административному контуру. */
-export type AdministrativeRole = 'ADMIN' | 'RISK_MANAGER' | 'AUDITOR' | 'SUPPORT';
+export type AdministrativeRole = 'ADMIN' | 'RISK_MANAGER' | 'AUDITOR' | 'SUPPORT' | 'USER';
 
 /**
  * Идентифицированный actor административного действия.
@@ -22,7 +22,8 @@ export type AuditEventType =
   | 'ACTION_APPLIED'
   | 'ACTION_REJECTED'
   | 'COMPENSATION_APPLIED'
-  | 'RECONCILIATION_EXECUTED';
+  | 'RECONCILIATION_EXECUTED'
+  | 'SECURITY_EVENT';
 
 /**
  * Неизменяемая запись аудита с криптографической связью с предыдущей записью.

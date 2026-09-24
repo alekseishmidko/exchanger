@@ -17,6 +17,7 @@ import { SettlementModule } from './modules/trading/settlement';
 import { SequencerModule } from './modules/trading/sequencer';
 import { AdmissionControlModule } from './modules/admin/admission-control';
 import { TradingWorkersModule } from './modules/trading/workers';
+import { IdentityModule } from './modules/identity';
 
 /** Корневой composition root приложения и глобальной конфигурации. */
 @Module({
@@ -29,6 +30,7 @@ import { TradingWorkersModule } from './modules/trading/workers';
     PostgresModule,
     EventLogModule,
     AuditModule,
+    IdentityModule,
     SequencerModule,
     AdmissionControlModule,
     ObservabilityModule,

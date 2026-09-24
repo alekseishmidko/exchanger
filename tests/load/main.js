@@ -156,28 +156,38 @@ function prepareLoadState(runIdForSetup) {
 }
 
 /** Выполняет HTTP-запрос setup-фазы без сохранения credentials в custom metrics. */
-function requestJson(path, { method = 'GET', apiKey: key = apiKey, idempotencyKey, body, expected }) {
+function requestJson(
+  path,
+  { method = 'GET', apiKey: key = apiKey, idempotencyKey, body, expected },
+) {
   const hasBody = body !== undefined;
-  const response = http.request(method, `${baseUrl}${path}`, hasBody ? JSON.stringify(body) : undefined, {
-    headers: {
-      accept: 'application/json',
-      'x-api-key': key,
-      ...(hasBody ? { 'content-type': 'application/json' } : {}),
-      ...(idempotencyKey ? { 'idempotency-key': idempotencyKey } : {}),
+  const response = http.request(
+    method,
+    `${baseUrl}${path}`,
+    hasBody ? JSON.stringify(body) : undefined,
+    {
+      headers: {
+        accept: 'application/json',
+        'x-api-key': key,
+        ...(hasBody ? { 'content-type': 'application/json' } : {}),
+        ...(idempotencyKey ? { 'idempotency-key': idempotencyKey } : {}),
+      },
+      tags: { name: `setup ${method} ${path.replace(/\/[^/]+$/, '/:id')}` },
+      timeout: __ENV.LOAD_REQUEST_TIMEOUT || '5s',
     },
-    tags: { name: `setup ${method} ${path.replace(/\/[^/]+$/, '/:id')}` },
-    timeout: __ENV.LOAD_REQUEST_TIMEOUT || '5s',
-  });
+  );
   const expectedStatuses = Array.isArray(expected) ? expected : [expected];
   if (!expectedStatuses.includes(response.status)) {
-    throw new Error(`setup ${method} ${path}: ожидался HTTP ${expectedStatuses.join('/')} получен HTTP ${response.status}`);
+    throw new Error(
+      `setup ${method} ${path}: ожидался HTTP ${expectedStatuses.join('/')} получен HTTP ${response.status}`,
+    );
   }
   return response;
 }
 
 /** Выпускает второго admin для dual-control instrument lifecycle операций. */
 function issueApprovalAdminKey(runIdForSetup) {
-  const response = requestJson('/api/v1/auth/api-keys', {
+  const response = requestJson('/api/v1/machine-auth/api-keys', {
     method: 'POST',
     apiKey: adminApiKey,
     idempotencyKey: `load-approval-admin-${runIdForSetup}`,
@@ -187,6 +197,8 @@ function issueApprovalAdminKey(runIdForSetup) {
       userId: `load-approval-admin-${runIdForSetup}`,
       role: 'admin',
       label: `load-approval-${runIdForSetup}`,
+      ownerType: 'SYSTEM',
+      scopes: ['admin:*', 'trading:read', 'trading:write'],
     },
   });
   const payload = response.json();
@@ -357,13 +369,10 @@ export async function websocketWorkload(data) {
   let namespaceConnected = false;
   let acknowledged = false;
   await new Promise((resolve) => {
-    const deadline = setTimeout(
-      () => {
-        socket.close();
-        resolve();
-      },
-      websocketSessionMs(),
-    );
+    const deadline = setTimeout(() => {
+      socket.close();
+      resolve();
+    }, websocketSessionMs());
     socket.addEventListener('message', (event) => {
       const frame = String(event.data);
       if (frame.startsWith('0')) {

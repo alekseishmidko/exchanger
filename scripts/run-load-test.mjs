@@ -62,6 +62,29 @@ async function getJson(url, apiKey) {
   return { status: response.status, body: await response.json().catch(() => null) };
 }
 
+/** Ожидает host readiness до старта k6, чтобы setup не создавал network warnings. */
+async function waitForLoadReadiness(baseUrl) {
+  const attempts = Number(process.env['LOAD_STARTUP_ATTEMPTS'] ?? 60);
+  let lastObservation = 'not-started';
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      const response = await fetch(`${baseUrl}/health/ready`, {
+        signal: AbortSignal.timeout(5000),
+      });
+      lastObservation = `HTTP ${response.status}`;
+      if (response.status === 200) return;
+    } catch (error) {
+      const cause = error instanceof Error && 'cause' in error ? error.cause : undefined;
+      lastObservation =
+        cause && typeof cause === 'object' && 'code' in cause
+          ? String(cause.code)
+          : 'NETWORK_ERROR';
+    }
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 1000));
+  }
+  throw new Error(`SUT readiness не достигнута: ${lastObservation}`);
+}
+
 /** Извлекает HTTP latency points из streaming JSON output без загрузки soak-файла в память. */
 async function latencySeries(path) {
   const points = [];
@@ -217,6 +240,10 @@ const environment = {
 let loadExit = 1;
 let postFailures = [];
 let executionStage = 'environment-start';
+const hostBaseUrl = (process.env['LOAD_HOST_BASE_URL'] ?? 'http://localhost:5001').replace(
+  /\/+$/,
+  '',
+);
 try {
   if (process.env['LOAD_MANAGE_SUT'] !== 'false') {
     const startExit = run(
@@ -238,6 +265,8 @@ try {
     );
     if (startExit !== 0) throw new Error('Не удалось запустить load environment');
   }
+  executionStage = 'sut-readiness';
+  await waitForLoadReadiness(hostBaseUrl);
   executionStage = 'k6-run';
   loadExit = run('docker', ['compose', ...composeFiles, 'run', '--rm', 'k6'], environment);
 
@@ -261,10 +290,6 @@ try {
   await writeFile(resolve(resultDirectory, 'latency-trend.svg'), trendSvg(points));
 
   executionStage = 'post-load-verification';
-  const hostBaseUrl = (process.env['LOAD_HOST_BASE_URL'] ?? 'http://localhost:5001').replace(
-    /\/+$/,
-    '',
-  );
   const [reconciliation, projection, metricsResponse] = await Promise.all([
     getJson(
       `${hostBaseUrl}/api/v1/admin/reconciliation`,

@@ -16,6 +16,8 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
+import { HumanSessionGuard } from '../../identity/security/human-session.guard';
+import { CsrfGuard } from '../../identity/security/csrf.guard';
 
 /**
  * Principal, полученный из API key после аутентификации.
@@ -27,7 +29,12 @@ import { createHash, randomBytes, randomUUID } from 'node:crypto';
 export type ApiKeyRole = 'trader' | 'admin' | 'risk_manager' | 'auditor' | 'support';
 
 /** Principal не хранит секрет API key и фиксирует роль на момент запроса. */
-export type ApiKeyPrincipal = Readonly<{ keyId: string; role: ApiKeyRole; userId: string }>;
+export type ApiKeyPrincipal = Readonly<{
+  keyId: string;
+  role: ApiKeyRole;
+  userId: string;
+  scopes?: readonly string[];
+}>;
 
 /** Безопасные metadata API key, доступные административному transport API. */
 export type ApiKeyMetadata = Readonly<{
@@ -35,6 +42,9 @@ export type ApiKeyMetadata = Readonly<{
   userId: string;
   role: ApiKeyRole;
   label: string;
+  ownerType: 'USER' | 'SERVICE' | 'SYSTEM';
+  scopes: readonly string[];
+  expiresAt: string;
   status: 'ACTIVE' | 'REVOKED';
   createdAt: string;
   rotatedAt: string | null;
@@ -46,7 +56,7 @@ export type ApiKeyMetadata = Readonly<{
 export type IssuedApiKey = Readonly<{ apiKey: string; metadata: ApiKeyMetadata }>;
 
 /** Внутренняя credential запись; digest никогда не попадает в публичный DTO. */
-type ApiKeyCredential = Readonly<{ digest: string; metadata: ApiKeyMetadata }>;
+export type ApiKeyCredential = Readonly<{ digest: string; metadata: ApiKeyMetadata }>;
 
 /**
  * Registry API keys для development/reference deployment.
@@ -59,9 +69,9 @@ type ApiKeyCredential = Readonly<{ digest: string; metadata: ApiKeyMetadata }>;
 @Injectable()
 export class ApiKeyRegistry {
   /** Индекс SHA-256 digest → public key ID; plaintext credentials не хранятся. */
-  private readonly keyIdByDigest = new Map<string, string>();
+  protected readonly keyIdByDigest = new Map<string, string>();
   /** Registry metadata и текущего digest по стабильному public key ID. */
-  private readonly credentials = new Map<string, ApiKeyCredential>();
+  protected readonly credentials = new Map<string, ApiKeyCredential>();
 
   /** Создаёт registry и регистрирует доступные principals. */
   constructor(entries: readonly ApiKeyPrincipal[] = [], now: Date = new Date()) {
@@ -73,6 +83,9 @@ export class ApiKeyRegistry {
         userId: entry.userId,
         role: entry.role,
         label: `configured-${index + 1}`,
+        ownerType: 'SYSTEM',
+        scopes: entry.scopes ?? this.defaultScopes(entry.role),
+        expiresAt: new Date(now.getTime() + 90 * 24 * 60 * 60 * 1000).toISOString(),
         status: 'ACTIVE',
         createdAt: now.toISOString(),
         rotatedAt: null,
@@ -93,7 +106,11 @@ export class ApiKeyRegistry {
     const digest = value ? this.digest(value) : undefined;
     const keyId = digest ? this.keyIdByDigest.get(digest) : undefined;
     const credential = keyId ? this.credentials.get(keyId) : undefined;
-    if (!credential || credential.metadata.status !== 'ACTIVE')
+    if (
+      !credential ||
+      credential.metadata.status !== 'ACTIVE' ||
+      Date.parse(credential.metadata.expiresAt) <= Date.now()
+    )
       throw new UnauthorizedException({
         code: 'AUTH_INVALID_API_KEY',
         message: 'Authentication failed',
@@ -106,6 +123,7 @@ export class ApiKeyRegistry {
       keyId: credential.metadata.keyId,
       role: credential.metadata.role,
       userId: credential.metadata.userId,
+      scopes: credential.metadata.scopes,
     };
   }
 
@@ -114,15 +132,28 @@ export class ApiKeyRegistry {
    * Например, последующий `list()` покажет metadata, но не поле `apiKey`.
    */
   issue(
-    input: Readonly<{ userId: string; role: ApiKeyRole; label: string }>,
+    input: Readonly<{
+      userId: string;
+      role: ApiKeyRole;
+      label: string;
+      ownerType?: 'USER' | 'SERVICE' | 'SYSTEM';
+      scopes?: readonly string[];
+      expiresAt?: string | undefined;
+    }>,
     now: Date = new Date(),
-  ): IssuedApiKey {
+  ): Promise<IssuedApiKey> {
     const keyId = `key-${randomUUID()}`;
     const apiKey = `ex_${randomBytes(32).toString('base64url')}`;
     const digest = this.digest(apiKey);
     const metadata: ApiKeyMetadata = {
       keyId,
-      ...input,
+      userId: input.userId,
+      role: input.role,
+      label: input.label,
+      ownerType: input.ownerType ?? 'USER',
+      scopes: input.scopes ?? this.defaultScopes(input.role),
+      expiresAt:
+        input.expiresAt ?? new Date(now.getTime() + 90 * 24 * 60 * 60 * 1000).toISOString(),
       status: 'ACTIVE',
       createdAt: now.toISOString(),
       rotatedAt: null,
@@ -131,14 +162,16 @@ export class ApiKeyRegistry {
     };
     this.credentials.set(keyId, { digest, metadata });
     this.keyIdByDigest.set(digest, keyId);
-    return { apiKey, metadata: { ...metadata } };
+    return Promise.resolve({ apiKey, metadata: { ...metadata } });
   }
 
   /** Возвращает metadata всех active/revoked keys без digest и secret. */
-  list(): readonly ApiKeyMetadata[] {
-    return [...this.credentials.values()]
-      .map(({ metadata }) => ({ ...metadata }))
-      .sort((left, right) => left.keyId.localeCompare(right.keyId));
+  list(): Promise<readonly ApiKeyMetadata[]> {
+    return Promise.resolve(
+      [...this.credentials.values()]
+        .map(({ metadata }) => ({ ...metadata }))
+        .sort((left, right) => left.keyId.localeCompare(right.keyId)),
+    );
   }
 
   /**
@@ -146,24 +179,30 @@ export class ApiKeyRegistry {
    * Старый digest удаляется до возврата результата и сразу перестаёт проходить
    * authentication.
    */
-  rotate(keyId: string, now: Date = new Date()): IssuedApiKey {
+  rotate(keyId: string, now: Date = new Date()): Promise<IssuedApiKey> {
     const credential = this.requireCredential(keyId);
     if (credential.metadata.status === 'REVOKED') {
       throw new ConflictException({ code: 'API_KEY_REVOKED', message: 'API key is revoked' });
     }
     const apiKey = `ex_${randomBytes(32).toString('base64url')}`;
     const digest = this.digest(apiKey);
-    const metadata = { ...credential.metadata, rotatedAt: now.toISOString(), lastUsedAt: null };
+    const metadata = {
+      ...credential.metadata,
+      rotatedAt: now.toISOString(),
+      expiresAt: new Date(now.getTime() + 90 * 24 * 60 * 60 * 1000).toISOString(),
+      lastUsedAt: null,
+    };
     this.keyIdByDigest.delete(credential.digest);
     this.keyIdByDigest.set(digest, keyId);
     this.credentials.set(keyId, { digest, metadata });
-    return { apiKey, metadata: { ...metadata } };
+    return Promise.resolve({ apiKey, metadata: { ...metadata } });
   }
 
   /** Отзывает key без удаления metadata, сохраняя административный audit trail. */
-  revoke(keyId: string, now: Date = new Date()): ApiKeyMetadata {
+  revoke(keyId: string, now: Date = new Date()): Promise<ApiKeyMetadata> {
     const credential = this.requireCredential(keyId);
-    if (credential.metadata.status === 'REVOKED') return { ...credential.metadata };
+    if (credential.metadata.status === 'REVOKED')
+      return Promise.resolve({ ...credential.metadata });
     const metadata: ApiKeyMetadata = {
       ...credential.metadata,
       status: 'REVOKED',
@@ -171,16 +210,23 @@ export class ApiKeyRegistry {
     };
     this.keyIdByDigest.delete(credential.digest);
     this.credentials.set(keyId, { ...credential, metadata });
-    return { ...metadata };
+    return Promise.resolve({ ...metadata });
   }
 
   /** Вычисляет необратимый lookup digest для credential. */
-  private digest(value: string): string {
+  protected digest(value: string): string {
     return createHash('sha256').update(value).digest('hex');
   }
 
+  /** Назначает минимальный baseline scopes по типу machine identity. */
+  private defaultScopes(role: ApiKeyRole): readonly string[] {
+    if (role === 'admin') return ['admin:*', 'trading:*'];
+    if (role === 'trader') return ['trading:read', 'trading:write'];
+    return ['admin:read'];
+  }
+
   /** Возвращает внутреннюю запись либо безопасный 404 без перечисления secret. */
-  private requireCredential(keyId: string): ApiKeyCredential {
+  protected requireCredential(keyId: string): ApiKeyCredential {
     const credential = this.credentials.get(keyId);
     if (!credential)
       throw new NotFoundException({ code: 'API_KEY_NOT_FOUND', message: 'API key was not found' });
@@ -198,14 +244,32 @@ export class ApiKeyRegistry {
  */
 @Injectable()
 export class ApiKeyGuard implements CanActivate {
-  constructor(private readonly registry: ApiKeyRegistry) {}
+  constructor(
+    private readonly registry: ApiKeyRegistry,
+    private readonly humanSessions: HumanSessionGuard,
+    private readonly csrf: CsrfGuard,
+  ) {}
 
   /** Читает заголовок API key и прикрепляет проверенный principal к request. */
-  canActivate(context: ExecutionContext): boolean {
+  async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context
       .switchToHttp()
       .getRequest<{ headers: Record<string, string | undefined>; principal?: ApiKeyPrincipal }>();
-    request.principal = this.registry.authenticate(request.headers['x-api-key']);
+    if (request.headers['x-api-key']) {
+      request.principal = this.registry.authenticate(request.headers['x-api-key']);
+      return true;
+    }
+    await this.humanSessions.canActivate(context);
+    const human = context
+      .switchToHttp()
+      .getRequest<{ principal: import('../../identity').HumanPrincipal }>().principal;
+    if (human.kind === 'HUMAN_SESSION') this.csrf.canActivate(context);
+    request.principal = {
+      keyId: `${human.kind.toLowerCase()}:${human.sessionId}`,
+      userId: human.userId,
+      role: human.roles.includes('ADMIN') ? 'admin' : 'trader',
+      scopes: human.scopes,
+    };
     return true;
   }
 }
@@ -222,6 +286,21 @@ export function assertObjectAccess(principal: ApiKeyPrincipal, resourceUserId: s
     throw new ForbiddenException({
       code: 'AUTH_OBJECT_FORBIDDEN',
       message: 'Resource access denied',
+    });
+  }
+}
+
+/** Проверяет exact/wildcard scope до object authorization protected endpoint. */
+export function assertApiKeyScope(principal: ApiKeyPrincipal, required: string): void {
+  const [group] = required.split(':');
+  if (
+    !principal.scopes?.includes(required) &&
+    !principal.scopes?.includes(`${group}:*`) &&
+    !principal.scopes?.includes('admin:*')
+  ) {
+    throw new ForbiddenException({
+      code: 'AUTH_SCOPE_REQUIRED',
+      message: 'Required scope is missing',
     });
   }
 }

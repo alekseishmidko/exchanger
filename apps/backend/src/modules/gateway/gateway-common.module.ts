@@ -11,21 +11,32 @@
  */
 import { Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { POSTGRES_TRANSACTION, PostgresTransactionManager } from '../../infrastructure/postgres';
+import {
+  POSTGRES_POOL,
+  POSTGRES_TRANSACTION,
+  PostgresTransactionManager,
+} from '../../infrastructure/postgres';
+import type { Pool } from 'pg';
 import { IdempotencyStore } from './application/gateway.idempotency';
 import { RateLimitService } from './application/gateway.rate-limit';
 import { ApiKeyGuard, ApiKeyRegistry, ApiKeyRole } from './auth/gateway.auth';
 import { PostgresIdempotencyStore } from './infrastructure/postgres-idempotency.store';
 import { IDEMPOTENCY_STORE_PORT } from './ports/gateway.idempotency.port';
 import type { IdempotencyStorePort } from './ports/gateway.idempotency.port';
+import { IdentityModule } from '../identity';
+import { PostgresApiKeyRegistry } from './infrastructure/postgres-api-key.registry';
 
 /** Shared providers Gateway security boundary. */
 @Module({
+  imports: [IdentityModule],
   providers: [
     {
       provide: ApiKeyRegistry,
-      inject: [ConfigService],
-      useFactory: (config: ConfigService): ApiKeyRegistry => {
+      inject: [ConfigService, POSTGRES_POOL],
+      useFactory: (config: ConfigService, pool: Pool): ApiKeyRegistry => {
+        if (config.getOrThrow('AUTH_API_KEY_STORE_ADAPTER') === 'postgres') {
+          return new PostgresApiKeyRegistry(pool);
+        }
         const environment = config.getOrThrow<string>('NODE_ENV');
         const developmentKeys = 'dev-key:trader:dev-user,dev-admin-key:admin:dev-admin-user';
         const raw = config.get<string>(
@@ -69,6 +80,7 @@ import type { IdempotencyStorePort } from './ports/gateway.idempotency.port';
     RateLimitService,
   ],
   exports: [
+    IdentityModule,
     ApiKeyRegistry,
     ApiKeyGuard,
     IdempotencyStore,

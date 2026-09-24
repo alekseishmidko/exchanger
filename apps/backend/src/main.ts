@@ -22,7 +22,13 @@ import { LOG_EVENTS, StructuredLogger } from './modules/observability';
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create<NestFastifyApplication>(
     AppModule,
-    new FastifyAdapter({ bodyLimit: 16 * 1024 }),
+    new FastifyAdapter({
+      bodyLimit: 16 * 1024,
+      connectionTimeout: 10_000,
+      requestTimeout: 15_000,
+      keepAliveTimeout: 5_000,
+      maxRequestsPerSocket: 1_000,
+    }),
     { bufferLogs: true },
   );
   const config = app.get(ConfigService);
@@ -33,6 +39,27 @@ async function bootstrap(): Promise<void> {
   const environment = config.getOrThrow<string>('NODE_ENV');
   const port = config.get<number>('PORT', 5000);
   const host = config.get<string>('HOST', '0.0.0.0');
+
+  const fallbackOrigins = config.get<string>('WEBSOCKET_ALLOWED_ORIGINS', '');
+  const corsOrigins = config
+    .get<string>('HTTP_ALLOWED_ORIGINS', fallbackOrigins)
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean);
+  app.enableCors({
+    origin: corsOrigins,
+    credentials: true,
+    methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: [
+      'content-type',
+      'authorization',
+      'x-api-key',
+      'x-csrf-token',
+      'x-correlation-id',
+      'idempotency-key',
+    ],
+    maxAge: 600,
+  });
 
   const swagger = configureSwagger(app, config);
 

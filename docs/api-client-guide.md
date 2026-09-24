@@ -10,7 +10,8 @@ runtime Swagger — `/docs` в development.
 | Группа            | Endpoints                                     | Доступ и ownership                                        |
 | ----------------- | --------------------------------------------- | --------------------------------------------------------- |
 | Health            | `/health`, `/health/live`, `/health/ready`    | public, без business data                                 |
-| Authentication    | `/api/v1/auth/me`, `/api/v1/auth/api-keys/**` | проверка identity; admin-only issue/list/rotate/revoke    |
+| Human auth        | `/api/v1/auth/**`, `/api/v1/users/me/**`       | password, Redis session, profile и session self-service  |
+| Machine auth      | `/api/v1/machine-auth/**`                      | scoped API keys; admin-only issue/list/rotate/revoke     |
 | Orders            | `/api/v1/orders`, cancel                      | authenticated trader, только свой account; admin elevated |
 | Instruments       | `/api/v1/instruments`                         | authenticated read-only catalog                           |
 | Accounts          | `/api/v1/accounts/**`                         | владелец account; balance commands только admin           |
@@ -27,7 +28,7 @@ REST key передаётся только в `x-api-key`. Write requests доп
 другой body с прежним ключом получает `409`. Ключ scoped по API-key principal.
 
 В Swagger необходимо нажать `Authorize`, выбрать `ApiKeyAuth` и ввести значение
-ключа без префикса `Bearer`. После этого `GET /api/v1/auth/me` подтверждает
+ключа без префикса `Bearer`. После этого `GET /api/v1/machine-auth/me` подтверждает
 identity:
 
 ```json
@@ -41,10 +42,10 @@ identity:
 
 API-key lifecycle не создаёт login session:
 
-- `POST /api/v1/auth/api-keys` выпускает secret и возвращает его один раз;
-- `GET /api/v1/auth/api-keys` возвращает только metadata;
-- `POST /api/v1/auth/api-keys/{keyId}/rotate` немедленно инвалидирует старый secret;
-- `POST /api/v1/auth/api-keys/{keyId}/revoke` отзывает credential, сохраняя metadata/audit.
+- `POST /api/v1/machine-auth/api-keys` выпускает secret и возвращает его один раз;
+- `GET /api/v1/machine-auth/api-keys` возвращает только metadata;
+- `POST /api/v1/machine-auth/api-keys/{keyId}/rotate` инвалидирует старый secret;
+- `POST /api/v1/machine-auth/api-keys/{keyId}/revoke` отзывает credential.
 
 Все lifecycle-команды доступны только роли `admin`, требуют `Idempotency-Key` и
 создают audit event. Текущий credential не может rotate/revoke сам себя: для

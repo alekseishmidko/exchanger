@@ -53,11 +53,11 @@ digest, а не plaintext credential. Trader может обращаться т�
 
 Swagger содержит полный API-key lifecycle:
 
-- `GET /api/v1/auth/me` — проверить текущие subject/role;
-- `POST /api/v1/auth/api-keys` — выпустить ключ;
-- `GET /api/v1/auth/api-keys` — получить metadata без secrets;
-- `POST /api/v1/auth/api-keys/{keyId}/rotate` — заменить secret;
-- `POST /api/v1/auth/api-keys/{keyId}/revoke` — отозвать ключ.
+- `GET /api/v1/machine-auth/me` — проверить текущие subject/role;
+- `POST /api/v1/machine-auth/api-keys` — выпустить ключ;
+- `GET /api/v1/machine-auth/api-keys` — получить metadata без secrets;
+- `POST /api/v1/machine-auth/api-keys/{keyId}/rotate` — заменить secret;
+- `POST /api/v1/machine-auth/api-keys/{keyId}/revoke` — отозвать ключ.
 
 Issue/rotate возвращают secret только в command response. Lifecycle mutation
 требует admin role, `Idempotency-Key` и создаёт tamper-evident audit event. В

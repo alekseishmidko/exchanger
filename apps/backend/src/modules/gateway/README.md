@@ -37,8 +37,8 @@ Gateway не отвечает за:
 
 Размещение заявки проходит одинаковую последовательность:
 
-1. `ApiKeyGuard` читает `x-api-key`, ищет credential в `ApiKeyRegistry` и кладёт
-   `principal` в request.
+1. Combined guard проверяет scoped `x-api-key` либо live human Redis session и
+   кладёт единый authorization principal в request.
 2. Controller проверяет `Idempotency-Key`; ключ scope-ится через `principal.keyId`.
 3. `RateLimitService` ограничивает нагрузку на authenticated boundary.
 4. `ZodValidationPipe` валидирует body по allow-list schema.
@@ -55,15 +55,14 @@ Cancel flow такой же, но source DTO содержит `orderId`, а trad
 
 ## Auth/API-key flow
 
-Текущая authentication-модель — API-key based. `AuthenticationController`
-публикует endpoints для Swagger/manual testing: `me`, issue, list, rotate и
-revoke API keys. Это не password/session auth. Human sessions и Redis session
-store описаны как отдельный этап development checklist.
+Machine authentication изолирована под `/api/v1/machine-auth`: `me`, issue,
+list, rotate и revoke API keys. Human password/Redis session endpoints находятся
+в модуле `identity` под `/api/v1/auth` и не переиспользуют machine credential.
 
 При issue/rotate secret возвращается только один раз. Registry хранит digest,
 а публичные list/revoke responses содержат только metadata. Write endpoints
-используют idempotency и audit port, чтобы повтор команды не выпускал второй key
-и чтобы административное действие было расследуемым.
+используют idempotency marker и audit port. Повтор не выпускает второй key и не
+возвращает прежний secret из `public_result`.
 
 ## Взаимодействие с другими модулями
 

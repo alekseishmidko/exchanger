@@ -53,10 +53,10 @@ describe('Transport API completeness', () => {
     const document = response.body as TransportOpenApiDocument;
     expect(document.paths['/api/v1/instruments']?.['get']).toBeDefined();
     expect(document.paths['/api/v1/auth/me']?.['get']).toBeDefined();
-    expect(document.paths['/api/v1/auth/api-keys']?.['get']).toBeDefined();
-    expect(document.paths['/api/v1/auth/api-keys']?.['post']).toBeDefined();
-    expect(document.paths['/api/v1/auth/api-keys/{keyId}/rotate']?.['post']).toBeDefined();
-    expect(document.paths['/api/v1/auth/api-keys/{keyId}/revoke']?.['post']).toBeDefined();
+    expect(document.paths['/api/v1/machine-auth/api-keys']?.['get']).toBeDefined();
+    expect(document.paths['/api/v1/machine-auth/api-keys']?.['post']).toBeDefined();
+    expect(document.paths['/api/v1/machine-auth/api-keys/{keyId}/rotate']?.['post']).toBeDefined();
+    expect(document.paths['/api/v1/machine-auth/api-keys/{keyId}/revoke']?.['post']).toBeDefined();
     expect(document.paths['/api/v1/accounts']?.['post']).toBeDefined();
     expect(document.paths['/api/v1/projections/orders']?.['get']).toBeDefined();
     expect(document.paths['/api/v1/admin/instruments']?.['post']).toBeDefined();
@@ -121,15 +121,27 @@ describe('Transport API completeness', () => {
   });
 
   it('changes a balance only through an idempotent admin application command', async () => {
+    const accountId = 'account-balance-command-test';
+    await request(app.getHttpServer())
+      .post('/api/v1/accounts')
+      .set('x-api-key', 'trader-1-key')
+      .set('idempotency-key', 'balance-account-idem-1')
+      .send(
+        createAccountBody({
+          commandId: 'create-balance-account-1',
+          accountId,
+        }),
+      )
+      .expect(201);
     const command = { commandId: 'credit-1', action: 'CREDIT', amount: '100.25' };
     const first = await request(app.getHttpServer())
-      .post('/api/v1/accounts/account-1/balances/USD/commands')
+      .post(`/api/v1/accounts/${accountId}/balances/USD/commands`)
       .set('x-api-key', 'admin-1-key')
       .set('idempotency-key', 'credit-idem-1')
       .send(command)
       .expect(201);
     const retry = await request(app.getHttpServer())
-      .post('/api/v1/accounts/account-1/balances/USD/commands')
+      .post(`/api/v1/accounts/${accountId}/balances/USD/commands`)
       .set('x-api-key', 'admin-1-key')
       .set('idempotency-key', 'credit-idem-1')
       .send(command)
@@ -137,13 +149,13 @@ describe('Transport API completeness', () => {
 
     expect(retry.body).toEqual(first.body);
     await request(app.getHttpServer())
-      .get('/api/v1/accounts/account-1/balances/USD')
+      .get(`/api/v1/accounts/${accountId}/balances/USD`)
       .set('x-api-key', 'trader-1-key')
       .expect(200)
-      .expect({ accountId: 'account-1', assetId: 'USD', available: '100.25', reserved: '0' });
+      .expect({ accountId, assetId: 'USD', available: '100.25', reserved: '0' });
 
     await request(app.getHttpServer())
-      .post('/api/v1/accounts/account-1/balances/USD/commands')
+      .post(`/api/v1/accounts/${accountId}/balances/USD/commands`)
       .set('x-api-key', 'trader-1-key')
       .set('idempotency-key', 'forbidden-credit')
       .send({ commandId: 'credit-2', action: 'CREDIT', amount: '1' })
@@ -400,7 +412,7 @@ describe('Transport API completeness', () => {
   it('rejects unauthenticated access to every protected REST operation', async () => {
     const getPaths = [
       '/api/v1/auth/me',
-      '/api/v1/auth/api-keys',
+      '/api/v1/machine-auth/api-keys',
       '/api/v1/orders',
       '/api/v1/instruments',
       '/api/v1/instruments/BTC-USD',
@@ -419,9 +431,9 @@ describe('Transport API completeness', () => {
     }
 
     const postPaths = [
-      '/api/v1/auth/api-keys',
-      '/api/v1/auth/api-keys/key-1/rotate',
-      '/api/v1/auth/api-keys/key-1/revoke',
+      '/api/v1/machine-auth/api-keys',
+      '/api/v1/machine-auth/api-keys/key-1/rotate',
+      '/api/v1/machine-auth/api-keys/key-1/revoke',
       '/api/v1/orders',
       '/api/v1/orders/order-1/cancel',
       '/api/v1/accounts',

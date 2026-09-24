@@ -26,6 +26,15 @@ if (failures.length === 0) {
     if (!new RegExp(`\\b${name}:`).test(profiles)) failures.push(`Отсутствует профиль ${name}`);
   }
   const main = readFileSync('tests/load/main.js', 'utf8');
+  if (!main.includes("'/api/v1/machine-auth/api-keys'")) {
+    failures.push('Load setup не использует изолированный machine-auth API key endpoint');
+  }
+  if (main.includes("'/api/v1/auth/api-keys'")) {
+    failures.push('Load setup содержит устаревший human-auth URL для API keys');
+  }
+  if (!main.includes("scopes: ['admin:*', 'trading:read', 'trading:write']")) {
+    failures.push('Load approval identity выпускается без явных минимальных scopes');
+  }
   for (const threshold of [
     'http_req_failed{scenario:rest}',
     'http_req_duration{scenario:rest}',
@@ -55,6 +64,9 @@ if (failures.length === 0) {
   }
   if (!runner.includes('failedK6Thresholds')) {
     failures.push('Load report не перечисляет проваленные k6 thresholds');
+  }
+  if (!runner.includes("executionStage = 'sut-readiness'")) {
+    failures.push('Load runner запускает k6 до host-side readiness barrier');
   }
 }
 

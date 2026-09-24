@@ -1,6 +1,12 @@
 import { environmentFilePaths, validateEnvironment } from './environment';
 
 describe('environment validation', () => {
+  const authSecrets = {
+    AUTH_PASSWORD_PEPPER: 'password-pepper-that-is-long-enough-2026',
+    AUTH_TOKEN_HASH_SECRET: 'token-secret-that-is-independent-2026',
+    AUTH_DUMMY_PASSWORD_HASH:
+      'scrypt$16384$8$1$ABEiM0RVZneImaq7zN3u_w$DZ1tZcbkavfuen6HDCxkh17VbrwawMLn9jfU1awYfAQ',
+  } as const;
   /** Гарантирует, что clean-checkout tests получают безопасный test template. */
   it('uses an environment-specific example after the ignored runtime override', () => {
     expect(environmentFilePaths('/repo/apps/backend/src', 'test')).toEqual([
@@ -23,6 +29,43 @@ describe('environment validation', () => {
     expect(() => validateEnvironment({ NODE_ENV: 'development', PORT: '5000' })).toThrow(
       'SERVICE_NAME is required',
     );
+  });
+
+  it('rejects test bypass outside isolated test profile', () => {
+    expect(() =>
+      validateEnvironment({
+        NODE_ENV: 'development',
+        PORT: '5000',
+        SERVICE_NAME: 'exchange-backend',
+        ...authSecrets,
+        AUTH_TEST_BYPASS_ENABLED: 'true',
+        AUTH_TEST_BYPASS_TOKEN: 'isolated-test-token-that-is-long-enough',
+      }),
+    ).toThrow('AUTH test bypass is allowed only');
+  });
+
+  it('rejects production-like memory sessions before opening a port', () => {
+    expect(() =>
+      validateEnvironment({
+        NODE_ENV: 'production',
+        PORT: '5000',
+        SERVICE_NAME: 'exchange-backend',
+        RUNTIME_PROFILE: 'production',
+        COMMAND_STORE_ADAPTER: 'postgres',
+        LEDGER_STORE_ADAPTER: 'postgres',
+        EVENT_LOG_ADAPTER: 'postgres-outbox',
+        IDEMPOTENCY_STORE_ADAPTER: 'postgres',
+        AUDIT_STORE_ADAPTER: 'postgres',
+        SEQUENCER_STORE_ADAPTER: 'postgres',
+        PROJECTION_STORE_ADAPTER: 'postgres',
+        ADMISSION_CONTROL_ADAPTER: 'postgres',
+        INSTANCE_ID: 'backend-1',
+        POSTGRES_URL: 'postgres://user:pass@postgres/exchange',
+        AUTH_USER_STORE_ADAPTER: 'postgres',
+        AUTH_SESSION_STORE_ADAPTER: 'memory',
+        ...authSecrets,
+      }),
+    ).toThrow('AUTH_SESSION_STORE_ADAPTER must be redis');
   });
 
   /** Production-like runtime не запускает durable adapters без connection URL. */
