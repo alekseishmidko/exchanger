@@ -1,6 +1,7 @@
 import { ColumnDef } from '@tanstack/react-table';
 import { Suspense, lazy, useMemo, useState } from 'react';
 import { DataTable } from './components/DataTable';
+import { SimulationPanel } from './components/SimulationPanel';
 import {
   ApiClientConfig,
   RequestLogEntry,
@@ -51,7 +52,7 @@ const initialFlowSteps: FlowStep[] = [
     key: 'auth',
     title: '2. Идентификация клиента',
     description: 'API key превращается в principal: userId, role и ownership boundary.',
-    endpoint: 'GET /api/v1/auth/me',
+    endpoint: 'GET /api/v1/machine-auth/me',
     expected: 'trader principal',
     status: 'idle',
   },
@@ -74,7 +75,8 @@ const initialFlowSteps: FlowStep[] = [
   {
     key: 'credit-usd',
     title: '5. Funding USD',
-    description: 'Admin-only команда начисляет USD перед покупкой, не смешивая create-account и движение денег.',
+    description:
+      'Admin-only команда начисляет USD перед покупкой, не смешивая create-account и движение денег.',
     endpoint: 'POST /api/v1/accounts/:accountId/balances/USD/commands',
     expected: '201 credited',
     status: 'idle',
@@ -161,8 +163,8 @@ const defaultCreateAccount = {
  */
 export function App() {
   const [baseUrl, setBaseUrl] = useState(localStorage.getItem('exchange.baseUrl') ?? '');
-  const [apiKey, setApiKey] = useState('');
-  const [adminApiKey, setAdminApiKey] = useState('');
+  const [apiKey, setApiKey] = useState(import.meta.env.VITE_DEV_API_KEY ?? '');
+  const [adminApiKey, setAdminApiKey] = useState(import.meta.env.VITE_DEV_ADMIN_API_KEY ?? '');
   const [idempotencyKey, setIdempotencyKey] = useState(makeIdempotencyKey('manual'));
   const [placeBody, setPlaceBody] = useState(prettyJson(defaultPlaceOrder));
   const [cancelOrderId, setCancelOrderId] = useState('manual-order-1');
@@ -171,7 +173,12 @@ export function App() {
   const [assetId, setAssetId] = useState('USD');
   const [accountBody, setAccountBody] = useState(prettyJson(defaultCreateAccount));
   const [adminBody, setAdminBody] = useState(
-    prettyJson({ commandId: 'manual-freeze-1', targetType: 'ACCOUNT', targetId: 'dev-user', action: 'FREEZE' }),
+    prettyJson({
+      commandId: 'manual-freeze-1',
+      targetType: 'ACCOUNT',
+      targetId: 'dev-user',
+      action: 'FREEZE',
+    }),
   );
   const [lastResponse, setLastResponse] = useState<unknown>(null);
   const [orders, setOrders] = useState<GatewayOrder[]>([]);
@@ -192,7 +199,11 @@ export function App() {
 
   const requestColumns = useMemo<ColumnDef<RequestLogEntry>[]>(
     () => [
-      { header: 'Time', accessorKey: 'timestamp', cell: ({ getValue }) => String(getValue()).slice(11, 19) },
+      {
+        header: 'Time',
+        accessorKey: 'timestamp',
+        cell: ({ getValue }) => String(getValue()).slice(11, 19),
+      },
       { header: 'Method', accessorKey: 'method' },
       { header: 'Path', accessorKey: 'path' },
       { header: 'Status', accessorKey: 'status' },
@@ -203,9 +214,26 @@ export function App() {
 
   const genericColumns = useMemo<ColumnDef<Record<string, unknown>>[]>(
     () => [
-      { header: 'ID / Type', cell: ({ row }) => pickFirst(row.original, ['id', 'orderId', 'tradeId', 'accountId', 'eventType', 'commandId']) },
-      { header: 'Status', cell: ({ row }) => pickFirst(row.original, ['status', 'state', 'outcome']) },
-      { header: 'Details', cell: ({ row }) => <code>{prettyJson(row.original).slice(0, 180)}</code> },
+      {
+        header: 'ID / Type',
+        cell: ({ row }) =>
+          pickFirst(row.original, [
+            'id',
+            'orderId',
+            'tradeId',
+            'accountId',
+            'eventType',
+            'commandId',
+          ]),
+      },
+      {
+        header: 'Status',
+        cell: ({ row }) => pickFirst(row.original, ['status', 'state', 'outcome']),
+      },
+      {
+        header: 'Details',
+        cell: ({ row }) => <code>{prettyJson(row.original).slice(0, 180)}</code>,
+      },
     ],
     [],
   );
@@ -343,8 +371,10 @@ export function App() {
     setFlowSteps(resetFlowSteps());
     try {
       await executeFlowStep('health', () => run('GET', '/health/ready'));
-      await executeFlowStep('auth', () => run('GET', '/api/v1/auth/me'));
-      const catalog = await executeFlowStep('catalog', () => run('GET', '/api/v1/instruments?limit=20'));
+      await executeFlowStep('auth', () => run('GET', '/api/v1/machine-auth/me'));
+      const catalog = await executeFlowStep('catalog', () =>
+        run('GET', '/api/v1/instruments?limit=20'),
+      );
       const catalogPage = catalog.responseBody as Page<Record<string, unknown>>;
       if (Array.isArray(catalogPage.items)) setInstrumentRows(catalogPage.items);
 
@@ -492,26 +522,45 @@ export function App() {
           <p className="eyebrow">Exchange manual QA</p>
           <h1>Тестовая консоль биржи</h1>
           <p className="hero-text">
-            Ручной frontend для проверки Gateway, projections, instruments, ledger, admin,
-            health и observability endpoints без curl/Postman.
+            Ручной frontend для проверки Gateway, projections, instruments, ledger, admin, health и
+            observability endpoints без curl/Postman.
           </p>
         </div>
         <div className="status-actions">
+          <button
+            onClick={() =>
+              document.getElementById('simulation')?.scrollIntoView({ behavior: 'smooth' })
+            }
+          >
+            Симуляция рынка
+          </button>
           <button onClick={() => run('GET', '/health/live')}>Liveness</button>
           <button onClick={() => run('GET', '/health/ready')}>Readiness</button>
-          <button onClick={() => run('GET', '/api/v1/auth/me')}>Auth me</button>
-          <button onClick={() => runAdmin('GET', '/api/v1/admin/reconciliation')}>Reconciliation</button>
+          <button onClick={() => run('GET', '/api/v1/machine-auth/me')}>Auth me</button>
+          <button onClick={() => runAdmin('GET', '/api/v1/admin/reconciliation')}>
+            Reconciliation
+          </button>
         </div>
       </header>
+
+      <SimulationPanel />
 
       <section className="panel config-panel">
         <label>
           Backend base URL
-          <input value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} placeholder="empty = Vite proxy" />
+          <input
+            value={baseUrl}
+            onChange={(event) => setBaseUrl(event.target.value)}
+            placeholder="empty = Vite proxy"
+          />
         </label>
         <label>
           API key
-          <input value={apiKey} onChange={(event) => setApiKey(event.target.value)} placeholder="dev-key" />
+          <input
+            value={apiKey}
+            onChange={(event) => setApiKey(event.target.value)}
+            placeholder="dev-key"
+          />
         </label>
         <label>
           Admin API key
@@ -523,7 +572,10 @@ export function App() {
         </label>
         <label>
           Idempotency-Key
-          <input value={idempotencyKey} onChange={(event) => setIdempotencyKey(event.target.value)} />
+          <input
+            value={idempotencyKey}
+            onChange={(event) => setIdempotencyKey(event.target.value)}
+          />
         </label>
         <button onClick={() => setIdempotencyKey(makeIdempotencyKey('manual'))}>Новый key</button>
         <button onClick={persistSettings}>Сохранить</button>
@@ -589,32 +641,56 @@ export function App() {
             <button onClick={loadOrders}>List orders</button>
           </div>
           <div className="row">
-            <input value={lookupOrderId} onChange={(event) => setLookupOrderId(event.target.value)} placeholder="orderId" />
+            <input
+              value={lookupOrderId}
+              onChange={(event) => setLookupOrderId(event.target.value)}
+              placeholder="orderId"
+            />
             <button onClick={lookupOrder}>Lookup</button>
           </div>
           <div className="row">
-            <input value={cancelOrderId} onChange={(event) => setCancelOrderId(event.target.value)} placeholder="orderId" />
-            <button className="danger" onClick={cancelOrder}>Cancel</button>
+            <input
+              value={cancelOrderId}
+              onChange={(event) => setCancelOrderId(event.target.value)}
+              placeholder="orderId"
+            />
+            <button className="danger" onClick={cancelOrder}>
+              Cancel
+            </button>
           </div>
         </section>
 
         <section className="panel">
           <h2>Ledger / accounts</h2>
           <p className="muted">
-            Create account принимает только asset definitions: assetId/code/scale. Начальные available/reserved
-            меняются отдельными admin-only balance commands.
+            Create account принимает только asset definitions: assetId/code/scale. Начальные
+            available/reserved меняются отдельными admin-only balance commands.
           </p>
           <textarea value={accountBody} onChange={(event) => setAccountBody(event.target.value)} />
           <div className="row">
-            <button onClick={() => run('POST', '/api/v1/accounts', parseJsonBody(accountBody), true)}>Create account</button>
+            <button
+              onClick={() => run('POST', '/api/v1/accounts', parseJsonBody(accountBody), true)}
+            >
+              Create account
+            </button>
             <button onClick={loadBalances}>Load balances</button>
             <button onClick={() => creditBalance('USD', '100000')}>Credit USD</button>
             <button onClick={() => creditBalance('BTC', '10')}>Credit BTC</button>
           </div>
           <div className="row">
-            <input value={accountId} onChange={(event) => setAccountId(event.target.value)} placeholder="accountId" />
-            <input value={assetId} onChange={(event) => setAssetId(event.target.value)} placeholder="assetId" />
-            <button onClick={() => run('GET', `/api/v1/accounts/${accountId}/balances/${assetId}`)}>Balance</button>
+            <input
+              value={accountId}
+              onChange={(event) => setAccountId(event.target.value)}
+              placeholder="accountId"
+            />
+            <input
+              value={assetId}
+              onChange={(event) => setAssetId(event.target.value)}
+              placeholder="assetId"
+            />
+            <button onClick={() => run('GET', `/api/v1/accounts/${accountId}/balances/${assetId}`)}>
+              Balance
+            </button>
           </div>
         </section>
       </div>
@@ -627,22 +703,48 @@ export function App() {
             <button onClick={() => loadProjection('orders')}>Projection orders</button>
             <button onClick={() => loadProjection('trades')}>Projection trades</button>
             <button onClick={() => loadProjection('balances')}>Projection balances</button>
-            <button onClick={() => run('GET', '/api/v1/projections/metrics')}>Projection metrics</button>
+            <button onClick={() => run('GET', '/api/v1/projections/metrics')}>
+              Projection metrics
+            </button>
             <button onClick={() => run('GET', '/internal/metrics')}>OpenMetrics</button>
           </div>
         </section>
 
         <section className="panel">
           <h2>Admin quick command</h2>
-          <p className="muted">Используй dev-admin-key. По умолчанию freeze account; approval можно отправить отдельной кнопкой.</p>
+          <p className="muted">
+            Используй dev-admin-key. По умолчанию freeze account; approval можно отправить отдельной
+            кнопкой.
+          </p>
           <textarea value={adminBody} onChange={(event) => setAdminBody(event.target.value)} />
           <div className="row">
-            <button onClick={() => runAdmin('POST', '/api/v1/admin/freezes', parseJsonBody(adminBody), true)}>Freeze/unfreeze</button>
-            <button onClick={() => runAdmin('GET', '/api/v1/admin/audit-events?limit=50')}>Audit events</button>
+            <button
+              onClick={() =>
+                runAdmin('POST', '/api/v1/admin/freezes', parseJsonBody(adminBody), true)
+              }
+            >
+              Freeze/unfreeze
+            </button>
+            <button onClick={() => runAdmin('GET', '/api/v1/admin/audit-events?limit=50')}>
+              Audit events
+            </button>
           </div>
           <div className="row">
-            <input value={lookupOrderId} onChange={(event) => setLookupOrderId(event.target.value)} placeholder="commandId for approval" />
-            <button onClick={() => runAdmin('POST', `/api/v1/admin/approvals/${lookupOrderId}`, { commandId: `approve-${lookupOrderId}` }, true)}>
+            <input
+              value={lookupOrderId}
+              onChange={(event) => setLookupOrderId(event.target.value)}
+              placeholder="commandId for approval"
+            />
+            <button
+              onClick={() =>
+                runAdmin(
+                  'POST',
+                  `/api/v1/admin/approvals/${lookupOrderId}`,
+                  { commandId: `approve-${lookupOrderId}` },
+                  true,
+                )
+              }
+            >
               Approve
             </button>
           </div>

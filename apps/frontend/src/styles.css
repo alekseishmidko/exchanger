@@ -2,7 +2,13 @@
   color: #e2e8f0;
   background: #07111f;
   font-family:
-    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    Inter,
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    sans-serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
 }
@@ -65,7 +71,7 @@ textarea {
 textarea {
   min-height: 220px;
   resize: vertical;
-  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-family: 'JetBrains Mono', 'SFMono-Regular', Consolas, monospace;
   font-size: 0.86rem;
   line-height: 1.45;
 }
@@ -136,6 +142,104 @@ h2 {
   margin-bottom: 18px;
 }
 
+.simulation-panel {
+  margin-bottom: 18px;
+}
+
+.simulation-controls {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(130px, 1fr)) auto auto;
+  gap: 12px;
+  align-items: end;
+  margin-bottom: 16px;
+}
+
+.simulation-phase {
+  border: 1px solid #475569;
+  border-radius: 999px;
+  color: #cbd5e1;
+  padding: 0.45rem 0.8rem;
+  text-transform: uppercase;
+}
+
+.simulation-phase.trading {
+  border-color: #22c55e;
+  color: #86efac;
+}
+
+.simulation-phase.initializing,
+.simulation-phase.stopping {
+  border-color: #38bdf8;
+  color: #7dd3fc;
+}
+
+.simulation-phase.failed,
+.simulation-error {
+  color: #fca5a5;
+}
+
+.simulation-metrics {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(110px, 1fr));
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.metric-card,
+.price-card {
+  border: 1px solid #263244;
+  border-radius: 12px;
+  background: rgba(2, 6, 23, 0.72);
+  padding: 12px;
+}
+
+.metric-card {
+  display: grid;
+  gap: 6px;
+}
+
+.metric-card span {
+  color: #94a3b8;
+  font-size: 0.78rem;
+}
+
+.metric-card strong {
+  font-size: 1.25rem;
+}
+
+.simulation-details {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px;
+}
+
+.simulation-details h3 {
+  margin: 0 0 10px;
+}
+
+.price-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(120px, 1fr));
+  gap: 10px;
+}
+
+.price-card {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.price-card span {
+  color: #7dd3fc;
+  font-family: 'JetBrains Mono', 'SFMono-Regular', Consolas, monospace;
+}
+
+.simulation-errors {
+  color: #fecaca;
+  margin: 0;
+  padding-left: 20px;
+}
+
 .config-panel {
   display: grid;
   grid-template-columns: 1.2fr 1fr 1.3fr auto auto;
@@ -187,7 +291,7 @@ label {
 }
 
 .flow-card::after {
-  content: "";
+  content: '';
   position: absolute;
   top: 28px;
   right: -12px;
@@ -298,7 +402,7 @@ th {
 
 td code,
 pre {
-  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-family: 'JetBrains Mono', 'SFMono-Regular', Consolas, monospace;
 }
 
 td code {
@@ -336,6 +440,9 @@ pre {
 
   .hero,
   .config-panel,
+  .simulation-controls,
+  .simulation-details,
+  .simulation-metrics,
   .grid.two {
     grid-template-columns: 1fr;
   }

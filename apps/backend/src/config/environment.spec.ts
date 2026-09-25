@@ -100,6 +100,18 @@ describe('environment validation', () => {
     ).toThrow('SWAGGER_ENABLED must be true, false, 1, or 0');
   });
 
+  it('rejects development instrument seeding outside development', () => {
+    expect(() =>
+      validateEnvironment({
+        NODE_ENV: 'test',
+        PORT: '5000',
+        SERVICE_NAME: 'exchange-backend',
+        DEVELOPMENT_SEED_INSTRUMENTS: 'true',
+        ...authSecrets,
+      }),
+    ).toThrow('DEVELOPMENT_SEED_INSTRUMENTS is allowed only in development');
+  });
+
   it('rejects an unsafe Swagger path', () => {
     expect(() =>
       validateEnvironment({

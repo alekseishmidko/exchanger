@@ -216,6 +216,17 @@ export function validateEnvironment(config: EnvironmentConfig): EnvironmentConfi
     throw new Error('WORKERS_ENABLED must be true, false, 1, or 0');
   }
 
+  const seedInstruments = config['DEVELOPMENT_SEED_INSTRUMENTS'];
+  if (
+    seedInstruments !== undefined &&
+    (typeof seedInstruments !== 'string' || !['true', 'false', '1', '0'].includes(seedInstruments))
+  ) {
+    throw new Error('DEVELOPMENT_SEED_INSTRUMENTS must be true, false, 1, or 0');
+  }
+  if (nodeEnv !== 'development' && ['true', '1'].includes(String(seedInstruments))) {
+    throw new Error('DEVELOPMENT_SEED_INSTRUMENTS is allowed only in development');
+  }
+
   for (const key of [
     'WORKER_BATCH_SIZE',
     'WORKER_CONCURRENCY',
