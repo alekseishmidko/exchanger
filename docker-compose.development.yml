@@ -18,10 +18,22 @@ services:
       # должны восстановиться после restart. Для обычного dev сохраняются
       # прежние локальные ключи; production-like compose этот fallback не использует.
       GATEWAY_API_KEYS: '${GATEWAY_API_KEYS:-dev-key:trader:dev-user,dev-admin-key:admin:dev-admin-user}'
+      # Component runtime хранит каталог в памяти, поэтому чистый restart должен
+      # заново подготовить инструмент, используемый ручной консолью.
+      DEVELOPMENT_SEED_INSTRUMENTS: 'true'
+      # Массовый synthetic worker использует отдельные trader keys, но setup
+      # выполняет admin funding для всех пользователей через тот же boundary.
+      GATEWAY_RATE_LIMIT: '${GATEWAY_RATE_LIMIT:-100000}'
     ports:
       # В контейнере backend слушает PORT=5000, а host-порт можно переопределить:
       # BACKEND_HOST_PORT=5010 pnpm docker:development
       - '${BACKEND_HOST_PORT:-5001}:5000'
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -qO- http://127.0.0.1:5000/health/ready >/dev/null']
+      interval: 2s
+      timeout: 2s
+      retries: 30
+      start_period: 10s
     # Именованные node_modules volumes ускоряют повторные запуски, но переживают
     # пересборку image. Install синхронизирует их с актуальным pnpm-lock.yaml до
     # старта watcher, поэтому новые зависимости сразу видны TypeScript и NestJS.
@@ -36,14 +48,48 @@ services:
       - contracts-node-modules:/workspace/packages/contracts/node_modules
       - workspace-node-modules:/workspace/node_modules
 
+  simulator:
+    build:
+      context: .
+      target: development
+    depends_on:
+      backend:
+        condition: service_healthy
+    environment:
+      SIMULATION_BACKEND_URL: 'http://backend:5000'
+      SIMULATION_ADMIN_API_KEY: '${VITE_DEV_ADMIN_API_KEY:-dev-admin-key}'
+      SIMULATION_CONTROL_PORT: '5055'
+    ports:
+      # Control API не имеет смысла публиковать во внешнюю сеть: браузер
+      # обращается к нему через Vite proxy, а CLI — только с localhost.
+      - '127.0.0.1:${SIMULATION_CONTROL_HOST_PORT:-5055}:5055'
+    command: ['node', 'scripts/run-exchange-simulation.mjs', '--server']
+    volumes:
+      - ./scripts:/workspace/scripts:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -qO- http://127.0.0.1:5055/simulation/health >/dev/null']
+      interval: 2s
+      timeout: 2s
+      retries: 30
+      start_period: 5s
+
   frontend:
     build:
       context: .
       target: development
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
+      simulator:
+        condition: service_healthy
     environment:
       VITE_BACKEND_URL: 'http://backend:5000'
+      VITE_SIMULATION_URL: 'http://simulator:5055'
+      # Эти credentials существуют только в development compose и позволяют
+      # открыть ручную консоль уже в рабочем состоянии. При локальном override
+      # их можно синхронно заменить вместе с GATEWAY_API_KEYS.
+      VITE_DEV_API_KEY: '${VITE_DEV_API_KEY:-dev-key}'
+      VITE_DEV_ADMIN_API_KEY: '${VITE_DEV_ADMIN_API_KEY:-dev-admin-key}'
       # Docker Desktop не всегда корректно доставляет filesystem events из bind
       # mount в Linux VM. Polling делает HMR предсказуемым и убирает зависания
       # на этапе ожидания обновлений/переоптимизации зависимостей.
@@ -51,6 +97,12 @@ services:
       FRONTEND_HOST_PORT: '${FRONTEND_HOST_PORT:-5173}'
     ports:
       - '${FRONTEND_HOST_PORT:-5173}:5173'
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -qO- http://127.0.0.1:5173/ >/dev/null']
+      interval: 2s
+      timeout: 2s
+      retries: 30
+      start_period: 10s
     command:
       - sh
       - -c

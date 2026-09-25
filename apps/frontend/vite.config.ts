@@ -26,6 +26,12 @@ export default defineConfig({
       '/api': process.env['VITE_BACKEND_URL'] ?? 'http://localhost:5001',
       '/health': process.env['VITE_BACKEND_URL'] ?? 'http://localhost:5001',
       '/internal': process.env['VITE_BACKEND_URL'] ?? 'http://localhost:5001',
+      '/docs': process.env['VITE_BACKEND_URL'] ?? 'http://localhost:5001',
+      '/socket.io': {
+        target: process.env['VITE_BACKEND_URL'] ?? 'http://localhost:5001',
+        ws: true,
+      },
+      '/simulation': process.env['VITE_SIMULATION_URL'] ?? 'http://localhost:5055',
     },
   },
 });

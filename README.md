@@ -69,6 +69,27 @@ pnpm api:flows:development
 
 Описание сценариев и форматов отчёта: [API flow pipeline](docs/api-flow-pipeline.md).
 
+## Симуляция торгов
+
+`pnpm docker:development` также поднимает synthetic-trading worker. В консоли
+`http://localhost:5173` кнопка **Симуляция рынка** открывает управление прогоном:
+по умолчанию worker авторизует и финансирует 1000 отдельных пользователей, а
+затем генерирует воспроизводимые по seed встречные BUY/SELL заявки для BTC, ETH,
+SOL, XRP, ADA и DOGE к USD. Статистика принятых, исполненных и отклонённых заявок
+обновляется в интерфейсе раз в секунду.
+
+Тот же сценарий можно запустить без панели, если backend уже доступен на
+`http://localhost:5001`:
+
+```bash
+pnpm simulation:run
+```
+
+Параметры CLI задаются переменными `SIMULATION_USERS`, `SIMULATION_SEED`,
+`SIMULATION_ORDERS_PER_ROUND` и `SIMULATION_INTERVAL_MS`. Остановка — `Ctrl+C`;
+worker завершит текущий ограниченный batch. Unit-проверка генератора запускается
+командой `pnpm simulation:test`.
+
 Полный observability-контур (OpenTelemetry Collector, Tempo, Prometheus,
 Alertmanager и Grafana) запускается командой `pnpm docker:observability`. Grafana доступна на
 `http://localhost:3000`, Prometheus — на `http://localhost:9090`. Проверка
