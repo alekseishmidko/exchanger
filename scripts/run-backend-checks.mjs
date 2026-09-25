@@ -212,7 +212,10 @@ const sharedChecks = [
 ];
 
 const fullOnlyChecks = [
-  step('api:flows:check', 'corepack', ['pnpm', 'api:flows:check']),
+  step('ci:check', 'corepack', ['pnpm', 'ci:check']),
+  step('redis:check', 'corepack', ['pnpm', 'redis:check']),
+  step('container:check', 'corepack', ['pnpm', 'container:check']),
+  step('api:flows', 'corepack', ['pnpm', 'api:flows']),
   step('load:smoke', 'node', ['scripts/run-load-test.mjs', 'smoke'], {
     env: {
       LOAD_DURATION: process.env.LOAD_DURATION ?? '15s',

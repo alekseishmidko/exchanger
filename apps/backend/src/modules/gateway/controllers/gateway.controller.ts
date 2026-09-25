@@ -48,7 +48,7 @@ import {
 import {
   ApiKeyGuard,
   ApiKeyPrincipal,
-  assertApiKeyScope,
+  assertAuthorizedAction,
   assertObjectAccess,
 } from '../auth/gateway.auth';
 import { IDEMPOTENCY_STORE_PORT, IdempotencyStorePort } from '../ports/gateway.idempotency.port';
@@ -146,7 +146,7 @@ export class GatewayController {
   ): Promise<unknown> {
     const key = this.requireIdempotencyKey(idempotencyKey);
     this.rateLimit.check(request.principal.keyId);
-    assertApiKeyScope(request.principal, 'trading:write');
+    assertAuthorizedAction(request.principal, 'trading.write');
     assertObjectAccess(request.principal, body.accountId);
     const command: GatewayPlaceOrderCommand = {
       ...body,
@@ -210,7 +210,7 @@ export class GatewayController {
     }
     const key = this.requireIdempotencyKey(idempotencyKey);
     this.rateLimit.check(request.principal.keyId);
-    assertApiKeyScope(request.principal, 'trading:write');
+    assertAuthorizedAction(request.principal, 'trading.write');
     assertObjectAccess(request.principal, body.accountId);
     const command: GatewayCancelOrderCommand = {
       ...body,
@@ -272,7 +272,7 @@ export class GatewayController {
     @Param('orderId') orderId: string,
   ): Promise<GatewayCommandResponseDto> {
     this.rateLimit.check(request.principal.keyId);
-    assertApiKeyScope(request.principal, 'trading:read');
+    assertAuthorizedAction(request.principal, 'trading.read');
     if (!/^[A-Za-z0-9._:-]{1,128}$/.test(orderId)) {
       throw new BadRequestException({
         code: 'ORDER_ID_INVALID',
@@ -303,7 +303,7 @@ export class GatewayController {
     @Query('cursor') cursor?: string,
   ): Promise<Readonly<{ items: readonly unknown[]; nextCursor: string | null }>> {
     this.rateLimit.check(request.principal.keyId);
-    assertApiKeyScope(request.principal, 'trading:read');
+    assertAuthorizedAction(request.principal, 'trading.read');
     const limit = Number(limitValue ?? 50);
     if (!Number.isInteger(limit) || limit < 1 || limit > 100 || (cursor && !/^\d+$/.test(cursor))) {
       throw new BadRequestException({

@@ -56,6 +56,7 @@ Duplicate/idempotent retry не получает второй business-success: 
 | Admin       | `admin.action.applied`                                             | `admin.action.rejected`                        |
 | Audit       | `audit.record.appended`                                            | `audit.integrity.failed`                       |
 | Auth test   | `auth.test-bypass.used`                                            | —                                              |
+| Auth        | `auth.recovery.requested`, `auth.retention.cleanup`, `auth.credential.revoked` | `auth.authentication.rejected`, `auth.rate-limit.rejected`, `auth.recovery.rejected` |
 
 ## Redaction и stack traces
 

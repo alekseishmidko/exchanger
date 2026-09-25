@@ -19,8 +19,10 @@ import { CsrfGuard } from './security/csrf.guard';
 import { HumanSessionGuard } from './security/human-session.guard';
 import { PasswordHasher } from './security/password-hasher';
 import { AuthRateLimit } from './security/auth-rate-limit';
+import { SessionCookieService } from './security/session-cookie.service';
 import { HttpsRecoveryDelivery, MemoryRecoveryDelivery } from './infrastructure/recovery-delivery';
 import { RECOVERY_DELIVERY, RecoveryDelivery } from './ports/identity.ports';
+import { IdentityRetentionService } from './infrastructure/identity-retention.service';
 import {
   IDEMPOTENCY_STORE_PORT,
   IdempotencyStorePort,
@@ -43,8 +45,10 @@ import { PostgresIdempotencyStore } from '../gateway/infrastructure/postgres-ide
     PasswordHasher,
     AuthRateLimit,
     IdentityService,
+    IdentityRetentionService,
     HumanSessionGuard,
     CsrfGuard,
+    SessionCookieService,
     {
       provide: IDEMPOTENCY_STORE_PORT,
       inject: [ConfigService, POSTGRES_TRANSACTION],

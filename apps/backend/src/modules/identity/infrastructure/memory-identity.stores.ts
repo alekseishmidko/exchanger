@@ -27,7 +27,7 @@ export class MemoryUserStore implements UserStore {
       id: `usr_${randomUUID()}`,
       ...input,
       roles: ['USER'],
-      scopes: ['profile:read', 'profile:write', 'sessions:manage', 'trading:write'],
+      scopes: ['profile:read', 'profile:write', 'sessions:manage', 'trading:read', 'trading:write'],
       emailVerifiedAt: null,
       passwordResetRequired: false,
       securityVersion: 1,
@@ -66,6 +66,12 @@ export class MemoryUserStore implements UserStore {
     }));
   }
 
+  async rehashPassword(userId: string, previousHash: string, passwordHash: string): Promise<void> {
+    const user = this.users.get(userId);
+    if (user?.passwordHash === previousHash)
+      this.users.set(userId, { ...user, passwordHash, updatedAt: new Date().toISOString() });
+  }
+
   async issueChallenge(
     input: Readonly<{
       userId: string;
@@ -74,11 +80,22 @@ export class MemoryUserStore implements UserStore {
       expiresAt: string;
     }>,
   ): Promise<void> {
+    for (const [key, challenge] of this.challenges)
+      if (key.startsWith(`${input.kind}:`) && challenge.userId === input.userId)
+        challenge.consumed = true;
     this.challenges.set(`${input.kind}:${input.digest}`, {
       userId: input.userId,
       expiresAt: input.expiresAt,
       consumed: false,
     });
+  }
+
+  async invalidateChallenge(
+    kind: 'EMAIL_VERIFY' | 'PASSWORD_RESET',
+    digest: string,
+  ): Promise<void> {
+    const challenge = this.challenges.get(`${kind}:${digest}`);
+    if (challenge) challenge.consumed = true;
   }
 
   async consumeChallenge(
@@ -91,6 +108,27 @@ export class MemoryUserStore implements UserStore {
       return null;
     challenge.consumed = true;
     return this.users.get(challenge.userId) ?? null;
+  }
+
+  async completePasswordReset(digest: string, passwordHash: string): Promise<UserRecord | null> {
+    const user = await this.consumeChallenge('PASSWORD_RESET', digest);
+    if (!user) return null;
+    for (const [key, challenge] of this.challenges)
+      if (key.startsWith('PASSWORD_RESET:') && challenge.userId === user.id)
+        challenge.consumed = true;
+    return this.updatePassword(user.id, passwordHash);
+  }
+
+  async cleanupExpiredChallenges(limit: number): Promise<number> {
+    let removed = 0;
+    for (const [key, challenge] of this.challenges) {
+      if (removed >= limit) break;
+      if (challenge.consumed || Date.parse(challenge.expiresAt) <= Date.now()) {
+        this.challenges.delete(key);
+        removed += 1;
+      }
+    }
+    return removed;
   }
 
   async markEmailVerified(userId: string): Promise<UserRecord> {
@@ -126,8 +164,17 @@ export class MemorySessionStore implements SessionStore {
     return found;
   }
 
-  async touch(tokenDigest: string, session: SessionRecord): Promise<void> {
+  async touch(tokenDigest: string, session: SessionRecord): Promise<boolean> {
+    const current = this.sessions.get(session.sessionId);
+    if (
+      !current ||
+      current.digest !== tokenDigest ||
+      current.session.revokedAt ||
+      current.session.securityVersion !== session.securityVersion
+    )
+      return false;
     this.sessions.set(session.sessionId, { digest: tokenDigest, session });
+    return true;
   }
 
   async listByUser(userId: string): Promise<readonly SessionRecord[]> {

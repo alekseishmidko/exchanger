@@ -36,7 +36,10 @@ export class MarketDataConnectionPolicy {
   }
 
   /** Проверяет origin/API key и заполняет principal при успешной auth. */
-  authenticate(client: AuthenticatedSocket, apiKeys: ApiKeyRegistry): MarketDataConnectionDecision {
+  async authenticate(
+    client: AuthenticatedSocket,
+    apiKeys: ApiKeyRegistry,
+  ): Promise<MarketDataConnectionDecision> {
     const origin = client.handshake.headers.origin;
     if (origin && !this.allowedOrigins.has('*') && !this.allowedOrigins.has(origin)) {
       return {
@@ -52,7 +55,7 @@ export class MarketDataConnectionPolicy {
       typeof authKey === 'string' ? authKey : typeof headerKey === 'string' ? headerKey : undefined;
     if (!apiKey) return { ok: true };
     try {
-      client.data.principal = apiKeys.authenticate(apiKey);
+      client.data.principal = await apiKeys.authenticate(apiKey);
       return { ok: true };
     } catch {
       return { ok: false, code: 'AUTH_INVALID_API_KEY', message: 'Authentication failed' };

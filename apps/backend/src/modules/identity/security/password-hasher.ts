@@ -23,13 +23,28 @@ export class PasswordHasher {
       p: parallelization,
       maxmem: 64 * 1024 * 1024,
     });
-    return `scrypt$${cost}$${blockSize}$${parallelization}$${salt.toString('base64url')}$${derived.toString('base64url')}`;
+    return `scrypt$${this.pepperVersion()}$${cost}$${blockSize}$${parallelization}$${salt.toString('base64url')}$${derived.toString('base64url')}`;
   }
 
   /** Проверяет password, не сообщая вызывающему детали несовпадения. */
   async verify(password: string, encoded: string): Promise<boolean> {
-    const [algorithm, costValue, blockValue, parallelValue, saltValue, digestValue] =
-      encoded.split('$');
+    const parts = encoded.split('$');
+    const versioned = parts.length === 7;
+    const [
+      algorithm,
+      versionOrCost,
+      costOrBlock,
+      blockOrParallel,
+      parallelOrSalt,
+      saltOrDigest,
+      digestTail,
+    ] = parts;
+    const version = versioned ? versionOrCost : this.pepperVersion();
+    const costValue = versioned ? costOrBlock : versionOrCost;
+    const blockValue = versioned ? blockOrParallel : costOrBlock;
+    const parallelValue = versioned ? parallelOrSalt : blockOrParallel;
+    const saltValue = versioned ? saltOrDigest : parallelOrSalt;
+    const digestValue = versioned ? digestTail : saltOrDigest;
     if (
       algorithm !== 'scrypt' ||
       !costValue ||
@@ -41,14 +56,29 @@ export class PasswordHasher {
       return false;
     try {
       const expected = Buffer.from(digestValue, 'base64url');
+      const salt = Buffer.from(saltValue, 'base64url');
+      const cost = Number(costValue);
+      const blockSize = Number(blockValue);
+      const parallelization = Number(parallelValue);
+      if (
+        !Number.isInteger(cost) ||
+        cost < 16384 ||
+        cost > 32768 ||
+        (cost & (cost - 1)) !== 0 ||
+        blockSize !== 8 ||
+        parallelization !== 1 ||
+        salt.length !== 16 ||
+        expected.length !== 32
+      )
+        return false;
       const actual = await this.derive(
-        `${password}\u0000${this.pepper()}`,
-        Buffer.from(saltValue, 'base64url'),
+        `${password}\u0000${this.pepper(version)}`,
+        salt,
         expected.length,
         {
-          N: Number(costValue),
-          r: Number(blockValue),
-          p: Number(parallelValue),
+          N: cost,
+          r: blockSize,
+          p: parallelization,
           maxmem: 64 * 1024 * 1024,
         },
       );
@@ -58,8 +88,31 @@ export class PasswordHasher {
     }
   }
 
-  private pepper(): string {
+  /** Требует opportunistic CAS-rehash при старом pepper/cost/legacy формате. */
+  needsRehash(encoded: string): boolean {
+    const parts = encoded.split('$');
+    return (
+      parts.length !== 7 ||
+      parts[0] !== 'scrypt' ||
+      parts[1] !== this.pepperVersion() ||
+      Number(parts[2]) !== Number(this.config.get('AUTH_SCRYPT_COST', '16384'))
+    );
+  }
+
+  private pepper(version = this.pepperVersion()): string {
+    const configured = this.config.get<string>('AUTH_PASSWORD_PEPPER_SET');
+    if (configured) {
+      const peppers = JSON.parse(configured) as Record<string, string>;
+      const selected = peppers[version];
+      if (!selected) throw new Error('AUTH_PASSWORD_PEPPER_VERSION_UNKNOWN');
+      return selected;
+    }
     return this.config.getOrThrow<string>('AUTH_PASSWORD_PEPPER');
+  }
+
+  /** Возвращает active version, включаемую в новый encoded hash. */
+  private pepperVersion(): string {
+    return this.config.get('AUTH_PASSWORD_PEPPER_VERSION', 'v1');
   }
 
   private derive(

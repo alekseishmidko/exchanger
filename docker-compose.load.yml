@@ -5,6 +5,11 @@ services:
       # load overlay и не меняет production rate-limit policy.
       GATEWAY_RATE_LIMIT: ${LOAD_GATEWAY_RATE_LIMIT:-100000}
       GATEWAY_RATE_WINDOW_MS: ${LOAD_GATEWAY_RATE_WINDOW_MS:-60000}
+      # Один k6-контейнер представляет множество виртуальных клиентов с одним
+      # transport IP. Load overlay поднимает только synthetic admission ceiling;
+      # production/staging abuse-control defaults остаются без изменений.
+      WEBSOCKET_MAX_CONNECTIONS_PER_IP: ${LOAD_WEBSOCKET_MAX_CONNECTIONS_PER_IP:-2500}
+      WEBSOCKET_MAX_MESSAGES_PER_WINDOW: ${LOAD_WEBSOCKET_MAX_MESSAGES_PER_WINDOW:-100000}
 
   k6:
     image: grafana/k6:2.1.0
@@ -24,7 +29,7 @@ services:
       LOAD_DURATION: ${LOAD_DURATION:-}
       LOAD_REQUEST_TIMEOUT: ${LOAD_REQUEST_TIMEOUT:-5s}
       LOAD_WS_SESSION_MS: ${LOAD_WS_SESSION_MS:-1500}
-      LOAD_STARTUP_ATTEMPTS: ${LOAD_STARTUP_ATTEMPTS:-60}
+      LOAD_STARTUP_ATTEMPTS: ${LOAD_STARTUP_ATTEMPTS:-180}
     volumes:
       - ./tests/load:/scripts:ro
       - ${LOAD_RESULT_DIR:-./artifacts/load/current}:/results

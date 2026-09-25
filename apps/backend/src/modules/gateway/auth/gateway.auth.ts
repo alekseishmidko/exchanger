@@ -102,7 +102,7 @@ export class ApiKeyRegistry {
    * Последнее использование обновляется только в metadata; raw credential не
    * сохраняется ни при успешной, ни при ошибочной попытке.
    */
-  authenticate(value: string | undefined): ApiKeyPrincipal {
+  async authenticate(value: string | undefined): Promise<ApiKeyPrincipal> {
     const digest = value ? this.digest(value) : undefined;
     const keyId = digest ? this.keyIdByDigest.get(digest) : undefined;
     const credential = keyId ? this.credentials.get(keyId) : undefined;
@@ -119,12 +119,30 @@ export class ApiKeyRegistry {
       ...credential,
       metadata: { ...credential.metadata, lastUsedAt: new Date().toISOString() },
     });
-    return {
+    return Promise.resolve({
       keyId: credential.metadata.keyId,
       role: credential.metadata.role,
       userId: credential.metadata.userId,
       scopes: credential.metadata.scopes,
-    };
+    });
+  }
+
+  /**
+   * Повторно проверяет уже установленный principal без хранения raw credential.
+   * WebSocket boundary вызывает метод периодически и перед private operation,
+   * поэтому revoke/expiry прекращают доступ и для долгоживущего соединения.
+   */
+  async isPrincipalActive(principal: ApiKeyPrincipal): Promise<boolean> {
+    const credential = this.credentials.get(principal.keyId);
+    return Promise.resolve(
+      Boolean(
+        credential &&
+        credential.metadata.status === 'ACTIVE' &&
+        Date.parse(credential.metadata.expiresAt) > Date.now() &&
+        credential.metadata.userId === principal.userId &&
+        credential.metadata.role === principal.role,
+      ),
+    );
   }
 
   /**
@@ -222,6 +240,7 @@ export class ApiKeyRegistry {
   private defaultScopes(role: ApiKeyRole): readonly string[] {
     if (role === 'admin') return ['admin:*', 'trading:*'];
     if (role === 'trader') return ['trading:read', 'trading:write'];
+    if (role === 'risk_manager') return ['admin:*'];
     return ['admin:read'];
   }
 
@@ -256,7 +275,7 @@ export class ApiKeyGuard implements CanActivate {
       .switchToHttp()
       .getRequest<{ headers: Record<string, string | undefined>; principal?: ApiKeyPrincipal }>();
     if (request.headers['x-api-key']) {
-      request.principal = this.registry.authenticate(request.headers['x-api-key']);
+      request.principal = await this.registry.authenticate(request.headers['x-api-key']);
       return true;
     }
     await this.humanSessions.canActivate(context);
@@ -264,13 +283,32 @@ export class ApiKeyGuard implements CanActivate {
       .switchToHttp()
       .getRequest<{ principal: import('../../identity').HumanPrincipal }>().principal;
     if (human.kind === 'HUMAN_SESSION') this.csrf.canActivate(context);
+    const mappedRole = this.mapHumanRole(human.roles);
     request.principal = {
       keyId: `${human.kind.toLowerCase()}:${human.sessionId}`,
       userId: human.userId,
-      role: human.roles.includes('ADMIN') ? 'admin' : 'trader',
+      role: mappedRole,
       scopes: human.scopes,
     };
     return true;
+  }
+
+  /** Маппит ровно одну поддержанную human role; неоднозначность даёт deny-by-default. */
+  private mapHumanRole(roles: readonly import('../../identity').UserRole[]): ApiKeyRole {
+    const mapping: Partial<Record<import('../../identity').UserRole, ApiKeyRole>> = {
+      USER: 'trader',
+      ADMIN: 'admin',
+      SUPPORT: 'support',
+      RISK_MANAGER: 'risk_manager',
+      AUDITOR: 'auditor',
+    };
+    const mapped = [...new Set(roles.map((role) => mapping[role]).filter(Boolean))];
+    if (mapped.length !== 1)
+      throw new ForbiddenException({
+        code: 'AUTH_ROLE_UNSUPPORTED',
+        message: 'Role is not authorized for this endpoint',
+      });
+    return mapped[0]!;
   }
 }
 
@@ -303,6 +341,34 @@ export function assertApiKeyScope(principal: ApiKeyPrincipal, required: string):
       message: 'Required scope is missing',
     });
   }
+}
+
+/** Централизованная deny-by-default matrix transport actions. */
+export const AUTHORIZATION_POLICY = {
+  'trading.read': { scope: 'trading:read', roles: ['trader', 'admin'] },
+  'trading.write': { scope: 'trading:write', roles: ['trader', 'admin'] },
+  'admin.read': {
+    scope: 'admin:read',
+    roles: ['admin', 'risk_manager', 'auditor', 'support'],
+  },
+  'admin.write': { scope: 'admin:*', roles: ['admin', 'risk_manager'] },
+  'ledger.admin': { scope: 'admin:*', roles: ['admin'] },
+} as const satisfies Readonly<
+  Record<string, Readonly<{ scope: string; roles: readonly ApiKeyRole[] }>>
+>;
+
+/** Проверяет role и scope для именованного action до object authorization. */
+export function assertAuthorizedAction(
+  principal: ApiKeyPrincipal,
+  action: keyof typeof AUTHORIZATION_POLICY,
+): void {
+  const policy = AUTHORIZATION_POLICY[action];
+  if (!(policy.roles as readonly ApiKeyRole[]).includes(principal.role))
+    throw new ForbiddenException({
+      code: 'AUTH_ROLE_FORBIDDEN',
+      message: 'Role is not authorized for this action',
+    });
+  assertApiKeyScope(principal, policy.scope);
 }
 
 /**

@@ -103,7 +103,14 @@ export function validateEnvironment(config: EnvironmentConfig): EnvironmentConfi
     }
   }
 
-  for (const key of ['WEBSOCKET_MAX_SUBSCRIBERS', 'WEBSOCKET_MAX_PENDING'] as const) {
+  for (const key of [
+    'WEBSOCKET_MAX_SUBSCRIBERS',
+    'WEBSOCKET_MAX_PENDING',
+    'WEBSOCKET_MAX_CONNECTIONS_PER_IP',
+    'WEBSOCKET_MAX_MESSAGES_PER_WINDOW',
+    'WEBSOCKET_MESSAGE_WINDOW_MS',
+    'WEBSOCKET_MAX_SUBSCRIPTIONS_PER_SOCKET',
+  ] as const) {
     const value = config[key];
     if (
       value !== undefined &&
@@ -129,7 +136,14 @@ export function validateEnvironment(config: EnvironmentConfig): EnvironmentConfi
     }
   }
 
-  for (const key of ['GATEWAY_RATE_LIMIT', 'GATEWAY_RATE_WINDOW_MS'] as const) {
+  for (const key of [
+    'GATEWAY_RATE_LIMIT',
+    'GATEWAY_RATE_WINDOW_MS',
+    'AUTH_RATE_LIMIT',
+    'AUTH_RATE_WINDOW_MS',
+    'AUTH_RATE_GLOBAL_LIMIT',
+    'AUTH_RATE_MAX_BUCKETS',
+  ] as const) {
     const value = config[key];
     if (
       value !== undefined &&
@@ -264,6 +278,9 @@ export function validateEnvironment(config: EnvironmentConfig): EnvironmentConfi
   }
 
   const componentIdentity = runtimeAdapters.RUNTIME_PROFILE === 'component';
+  const tokenTransport = config['AUTH_TOKEN_TRANSPORT'] ?? 'cookie';
+  if (tokenTransport !== 'cookie' && tokenTransport !== 'bearer')
+    throw new Error('AUTH_TOKEN_TRANSPORT must be cookie or bearer');
   const userStore = config['AUTH_USER_STORE_ADAPTER'] ?? (componentIdentity ? 'memory' : undefined);
   const sessionStore =
     config['AUTH_SESSION_STORE_ADAPTER'] ?? (componentIdentity ? 'memory' : undefined);
@@ -300,10 +317,28 @@ export function validateEnvironment(config: EnvironmentConfig): EnvironmentConfi
   if (config['AUTH_PASSWORD_PEPPER'] === config['AUTH_TOKEN_HASH_SECRET']) {
     throw new Error('AUTH_PASSWORD_PEPPER and AUTH_TOKEN_HASH_SECRET must be independent secrets');
   }
+  const pepperVersion = config['AUTH_PASSWORD_PEPPER_VERSION'] ?? 'v1';
+  if (typeof pepperVersion !== 'string' || !/^[A-Za-z0-9_-]{1,32}$/.test(pepperVersion))
+    throw new Error('AUTH_PASSWORD_PEPPER_VERSION must be a safe identifier');
+  const pepperSet = config['AUTH_PASSWORD_PEPPER_SET'];
+  if (pepperSet !== undefined) {
+    try {
+      if (typeof pepperSet !== 'string') throw new Error('invalid pepper set type');
+      const set = JSON.parse(pepperSet) as Record<string, unknown>;
+      if (
+        typeof set[pepperVersion] !== 'string' ||
+        String(set[pepperVersion]).length < 32 ||
+        Object.values(set).some((value) => typeof value !== 'string' || value.length < 32)
+      )
+        throw new Error('invalid pepper set');
+    } catch {
+      throw new Error('AUTH_PASSWORD_PEPPER_SET must contain versioned strong secrets');
+    }
+  }
   const dummyHash = config['AUTH_DUMMY_PASSWORD_HASH'];
   if (
     typeof dummyHash !== 'string' ||
-    !/^scrypt\$\d+\$\d+\$\d+\$[A-Za-z0-9_-]+\$[A-Za-z0-9_-]+$/.test(dummyHash)
+    !/^scrypt\$(?:[A-Za-z0-9_-]+\$)?\d+\$\d+\$\d+\$[A-Za-z0-9_-]+\$[A-Za-z0-9_-]+$/.test(dummyHash)
   ) {
     throw new Error('AUTH_DUMMY_PASSWORD_HASH must be a precomputed scrypt hash');
   }
@@ -314,6 +349,14 @@ export function validateEnvironment(config: EnvironmentConfig): EnvironmentConfi
     'AUTH_MAX_SESSIONS_PER_USER',
     'AUTH_RECOVERY_TTL_SECONDS',
     'AUTH_REDIS_CONNECT_TIMEOUT_MS',
+    'AUTH_REDIS_COMMAND_TIMEOUT_MS',
+    'WEBSOCKET_AUTH_RECHECK_MS',
+    'AUTH_RECOVERY_MIN_RESPONSE_MS',
+    'AUTH_RECOVERY_DELIVERY_TIMEOUT_MS',
+    'AUTH_RECOVERY_DELIVERY_MAX_ATTEMPTS',
+    'AUTH_RECOVERY_DELIVERY_BACKOFF_MS',
+    'AUTH_RETENTION_INTERVAL_MS',
+    'AUTH_RETENTION_BATCH_SIZE',
   ] as const) {
     const value = config[key];
     const normalized =
@@ -325,27 +368,78 @@ export function validateEnvironment(config: EnvironmentConfig): EnvironmentConfi
   const absoluteTtl = Number(config['AUTH_SESSION_ABSOLUTE_TTL_SECONDS'] ?? 604800);
   if (idleTtl > absoluteTtl)
     throw new Error('AUTH_SESSION_IDLE_TTL_SECONDS cannot exceed absolute TTL');
+  const scryptCost = Number(config['AUTH_SCRYPT_COST'] ?? 16384);
+  if (
+    !Number.isInteger(scryptCost) ||
+    scryptCost < 16384 ||
+    scryptCost > 32768 ||
+    (scryptCost & (scryptCost - 1)) !== 0
+  ) {
+    throw new Error('AUTH_SCRYPT_COST must be a power of two between 16384 and 32768');
+  }
 
   if (!componentIdentity) {
+    if (typeof publicUrl !== 'string' || new URL(publicUrl).protocol !== 'https:')
+      throw new Error('APPLICATION_PUBLIC_URL must use HTTPS in production-like runtime');
+    for (const key of ['HTTP_ALLOWED_ORIGINS', 'WEBSOCKET_ALLOWED_ORIGINS'] as const) {
+      const raw = config[key];
+      if (typeof raw !== 'string' || !raw.trim()) throw new Error(`${key} is required`);
+      for (const value of raw.split(',')) {
+        const candidate = value.trim();
+        try {
+          const origin = new URL(candidate);
+          if (
+            origin.protocol !== 'https:' ||
+            origin.origin !== candidate ||
+            origin.username ||
+            origin.password ||
+            candidate === 'null' ||
+            candidate === '*'
+          )
+            throw new Error('unsafe origin');
+        } catch {
+          throw new Error(`${key} must contain exact HTTPS origins only`);
+        }
+      }
+    }
+    const trustedProxies = config['TRUSTED_PROXY_CIDRS'];
+    if (
+      typeof trustedProxies !== 'string' ||
+      !trustedProxies.trim() ||
+      trustedProxies
+        .split(',')
+        .some((value) => !/^[0-9a-fA-F:.]+(?:\/\d{1,3})?$/.test(value.trim()))
+    ) {
+      throw new Error('TRUSTED_PROXY_CIDRS must contain explicit IP/CIDR entries');
+    }
     const redisUrl = config['AUTH_REDIS_URL'];
     if (typeof redisUrl !== 'string')
       throw new Error('AUTH_REDIS_URL is required for production-like runtime');
     try {
       const parsed = new URL(redisUrl);
-      if (parsed.protocol !== 'rediss:' || !parsed.hostname || !parsed.password)
+      if (parsed.protocol !== 'rediss:' || !parsed.hostname || !parsed.username || !parsed.password)
         throw new Error('Redis TLS/AUTH required');
     } catch {
       throw new Error(
         'AUTH_REDIS_URL must use rediss:// with authentication in production-like runtime',
       );
     }
-    const cookieName = config['AUTH_COOKIE_NAME'];
-    if (
-      config['AUTH_COOKIE_SECURE'] !== 'true' ||
-      typeof cookieName !== 'string' ||
-      !cookieName.startsWith('__Host-')
-    ) {
-      throw new Error('production-like cookie auth requires Secure and __Host- cookie name');
+    if (tokenTransport === 'cookie') {
+      const cookieName = config['AUTH_COOKIE_NAME'];
+      const csrfCookieName = config['AUTH_CSRF_COOKIE_NAME'];
+      const sameSite = config['AUTH_COOKIE_SAME_SITE'];
+      if (
+        config['AUTH_COOKIE_SECURE'] !== 'true' ||
+        typeof cookieName !== 'string' ||
+        !cookieName.startsWith('__Host-') ||
+        typeof csrfCookieName !== 'string' ||
+        !csrfCookieName.startsWith('__Host-') ||
+        (sameSite !== 'Strict' && sameSite !== 'Lax')
+      ) {
+        throw new Error(
+          'production-like cookie auth requires Secure, Strict/Lax and __Host- cookie names',
+        );
+      }
     }
     const deliveryUrl = config['AUTH_RECOVERY_DELIVERY_URL'];
     if (typeof deliveryUrl !== 'string')
@@ -360,6 +454,9 @@ export function validateEnvironment(config: EnvironmentConfig): EnvironmentConfi
     if (typeof deliverySecret !== 'string' || deliverySecret.length < 32) {
       throw new Error('AUTH_RECOVERY_DELIVERY_SECRET must contain at least 32 characters');
     }
+    const decoyEmail = config['AUTH_RECOVERY_DECOY_EMAIL'];
+    if (typeof decoyEmail !== 'string' || !/^[^@\s]+@[^@\s]+$/.test(decoyEmail))
+      throw new Error('AUTH_RECOVERY_DECOY_EMAIL is required for timing-equalized recovery');
   }
 
   const bypassEnabled = config['AUTH_TEST_BYPASS_ENABLED'] === 'true';
@@ -381,5 +478,6 @@ export function validateEnvironment(config: EnvironmentConfig): EnvironmentConfi
     AUTH_USER_STORE_ADAPTER: userStore,
     AUTH_SESSION_STORE_ADAPTER: sessionStore,
     AUTH_API_KEY_STORE_ADAPTER: apiKeyStore,
+    AUTH_TOKEN_TRANSPORT: tokenTransport,
   };
 }

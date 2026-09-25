@@ -8,7 +8,11 @@ import {
   ApiTags,
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
-import { ApiKeyGuard, ApiKeyPrincipal } from '../../gateway/auth/gateway.auth';
+import {
+  ApiKeyGuard,
+  ApiKeyPrincipal,
+  assertAuthorizedAction,
+} from '../../gateway/auth/gateway.auth';
 import { PROJECTION_STORE_PORT, ProjectionStorePort } from '../ports/projection.port';
 import { BalanceView, OrderView, ProjectionMetrics, ProjectionPage, TradeView } from '../types';
 import {
@@ -55,6 +59,7 @@ export class ProjectionsController {
     @Query('limit') limit?: string,
     @Query('cursor') cursor?: string,
   ): Promise<ProjectionPage<OrderView>> {
+    assertAuthorizedAction(request.principal, 'trading.read');
     return this.projections.getOrders(request.principal.userId, Number(limit ?? 50), cursor);
   }
 
@@ -74,6 +79,7 @@ export class ProjectionsController {
     @Query('limit') limit?: string,
     @Query('cursor') cursor?: string,
   ): Promise<ProjectionPage<TradeView>> {
+    assertAuthorizedAction(request.principal, 'trading.read');
     return this.projections.getTrades(request.principal.userId, Number(limit ?? 50), cursor);
   }
 
@@ -93,6 +99,7 @@ export class ProjectionsController {
     @Query('limit') limit?: string,
     @Query('cursor') cursor?: string,
   ): Promise<ProjectionPage<BalanceView>> {
+    assertAuthorizedAction(request.principal, 'trading.read');
     return this.projections.getBalances(request.principal.userId, Number(limit ?? 50), cursor);
   }
 
@@ -100,7 +107,8 @@ export class ProjectionsController {
   @Get('metrics')
   @ApiOperation({ summary: 'Получить lag и версию projection consumer' })
   @ApiOkResponse({ type: ProjectionMetricsResponseDto })
-  async getMetrics(): Promise<ProjectionMetrics> {
+  async getMetrics(@Req() request: ProjectionRequest): Promise<ProjectionMetrics> {
+    assertAuthorizedAction(request.principal, 'admin.read');
     return this.projections.getMetrics();
   }
 }

@@ -12,11 +12,11 @@ import type { HumanAuthenticatedRequest } from './human-session.guard';
 export class CsrfGuard implements CanActivate {
   constructor(private readonly config: ConfigService) {}
   canActivate(context: ExecutionContext): boolean {
-    if (this.config.get('AUTH_TOKEN_TRANSPORT', 'cookie') !== 'cookie') return true;
     const request = context
       .switchToHttp()
       .getRequest<HumanAuthenticatedRequest & { method: string }>();
     if (request.principal.kind === 'TEST_BYPASS') return true;
+    if (this.config.get('AUTH_TOKEN_TRANSPORT', 'cookie') === 'bearer') return true;
     if (['GET', 'HEAD', 'OPTIONS'].includes(request.method)) return true;
     const expected = this.token(request.principal.sessionId);
     const supplied = this.header(request, 'x-csrf-token');

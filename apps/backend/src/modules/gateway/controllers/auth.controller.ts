@@ -57,6 +57,7 @@ import { RateLimitService } from '../application/gateway.rate-limit';
 import { IDEMPOTENCY_STORE_PORT, IdempotencyStorePort } from '../ports/gateway.idempotency.port';
 import { issueApiKeySchema, mutateApiKeySchema } from '../validation/auth.validation';
 import { ZodValidationPipe } from '../validation/gateway.validation';
+import { LOG_EVENTS, StructuredLogger } from '../../observability';
 
 /** HTTP request после успешной установки principal в `ApiKeyGuard`. */
 type AuthenticationRequest = Readonly<{ principal: ApiKeyPrincipal }>;
@@ -96,6 +97,7 @@ export class AuthenticationController {
     @Inject(IDEMPOTENCY_STORE_PORT) private readonly idempotency: IdempotencyStorePort,
     private readonly rateLimit: RateLimitService,
     @Inject(AUDIT_LOG_PORT) private readonly audit: AuditLogPort,
+    private readonly logger: StructuredLogger,
   ) {}
 
   /**
@@ -248,6 +250,11 @@ export class AuthenticationController {
           body.commandId,
           keyId,
         );
+        this.logger.info('gateway', LOG_EVENTS.AUTH_CREDENTIAL_REVOKED, {
+          outcome: 'success',
+          correlationId: body.commandId,
+          metadata: { credentialType: 'api-key' },
+        });
         return Promise.resolve(metadata);
       },
     );

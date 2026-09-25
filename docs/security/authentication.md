@@ -1,13 +1,13 @@
 # Authentication, sessions и identity
 
-Статус: действующий security design этапа 22.
+Статус: security design этапов 22–23.
 
 ## Границы механизмов
 
 | Механизм | Назначение | Credential | Source of truth |
 |---|---|---|---|
 | Human session | браузер/пользователь | opaque cookie, HttpOnly | Redis |
-| API key | machine-to-machine | `x-api-key`, показывается один раз | digest + metadata |
+| API key | machine-to-machine | `x-api-key`, показывается один раз | PostgreSQL digest + metadata |
 | Test bypass | isolated product tests | `X-Test-Auth-Token` | secret env + fixed identity |
 
 Human token не является API key. Test header не принимает `userId`, role или
@@ -42,6 +42,22 @@ email создаётся random token, PostgreSQL хранит только HMAC
 однократно передаётся подписанному HTTPS mail boundary. Consume атомарно ставит
 `consumed_at`; повтор и expired token получают один public error.
 
+## Consistency model и revoke SLO
+
+API key проверяется live SQL-запросом по digest: process-local snapshot не
+участвует в admission. Issue/rotate/revoke, audit и sensitive idempotency marker
+используют один `PostgresTransactionManager` context. Поэтому после успешного
+commit старый key не принимается ни одной HTTP replica. Private WebSocket
+проверяет key перед каждой новой private subscription и раз в
+`WEBSOCKET_AUTH_RECHECK_MS`; revoke SLO равен этому интервалу плюс 1 секунде на
+network scheduling. Ошибка PostgreSQL при recheck закрывает socket fail-closed.
+
+Redis session refresh использует Lua CAS: запись обновляется только если она
+существует, не revoked и имеет тот же `securityVersion`. Create/revoke-all
+сериализуются HMAC-keyed user lock; revoke-all атомарно увеличивает поколение,
+поэтому все sessions старого поколения недействительны ещё до обновления
+forensic metadata. Login, получивший lock после revoke, записывает новое поколение.
+
 ## Session schema и TTL
 
 Record содержит `sessionId`, `userId`, roles/scopes snapshot, auth level,
@@ -57,8 +73,9 @@ Raw token, email и accountId в key/value отсутствуют. Sliding refre
 ## Redis operations и degraded mode
 
 Deployment использует отдельного ACL user с командами `GET`, `SET`, `MGET`,
-`SADD`, `SMEMBERS`, `EXPIRE`, `PING`, `MULTI`, `EXEC` и namespace key pattern.
-Запрещены `KEYS`, `FLUSH*`, `CONFIG`, `EVAL`, admin/pubsub commands. Production
+`SADD`, `SMEMBERS`, `EXPIRE`, `DEL`, `INCR`, `DECR`, `PING`, `MULTI`, `EXEC` и `EVAL` только для
+загруженных приложением CAS scripts в namespace key pattern. Запрещены `KEYS`,
+`FLUSH*`, `CONFIG`, произвольные admin/pubsub commands. Production
 URL обязан быть `rediss://` с AUTH; TLS certificate проверяется клиентом.
 
 Redis outage не влияет на `/health/live`, но `redis-sessions` переводит readiness
@@ -71,6 +88,35 @@ Runbook: проверить TLS/ACL и latency, остановить admission �
 все replicas одновременно, восстановить Redis из durable topology, проверить
 точечный revoke и login canary, затем вернуть traffic. Liveness не использовать
 для диагностики Redis.
+
+Каждый lookup/command дополнительно ограничен
+`AUTH_REDIS_COMMAND_TIMEOUT_MS`; auth возвращает 503 после deadline и никогда не
+переходит на memory store. Shared Redis rate-limit использует только HMAC
+account/IP buckets, global bucket и TTL. Global ceiling проверяется до создания
+client buckets, поэтому смена адресов/subjects не создаёт unbounded cardinality.
+WebSocket replicas используют Redis для connection/message quotas; outage
+закрывает admission. Raw email/IP не являются key или label.
+
+## Transport и authorization invariant
+
+Runtime принимает только точное `AUTH_TOKEN_TRANSPORT=cookie|bearer`; смешанный
+режим блокирует startup. Cookie guard не читает bearer header, bearer guard не
+читает cookie. Bearer login выдаёт opaque token только в response
+`Authorization` и не создаёт cookies. Unsafe cookie request всегда проходит
+double-submit CSRF. Issue/rotation/clear используют одну cookie policy:
+`HttpOnly` для session, `Secure`, `SameSite`, `Path=/` и `__Host-` names.
+
+| Boundary | Минимальная policy |
+|---|---|
+| orders/account mutation | `trading:write` + object owner |
+| orders, instruments, balances, projections | `trading:read` + object owner |
+| projection operational metrics | `admin:read` |
+| admin mutations и API-key lifecycle | administrative role + `admin:*` |
+| admin read/audit | administrative role + `admin:read` |
+| private WebSocket | live credential + `trading:read` + exact userId |
+
+Неизвестная, пустая или неоднозначная human role не понижается до trader и
+получает 403. Machine role при issue обязана иметь совместимый scope.
 
 ## Endpoints
 
@@ -89,7 +135,7 @@ Runbook: проверить TLS/ACL и latency, остановить admission �
 Password/session/API key/recovery secrets запрещены в responses, logs, metrics,
 traces, projections, audit details и artifacts. Email, name, IP и User-Agent —
 PII: IP/UA сохраняются только как keyed digest и не используются metric labels.
-Challenge rows очищаются после 30 дней, revoked session metadata — после absolute
+Challenge rows очищаются bounded retention worker после consume/expiry, revoked session metadata — после absolute
 TTL, user/security audit — по общей семилетней политике. User registration,
 login/logout, password/profile changes и revoke создают security/audit events;
 test bypass не маскируется под пользовательский audit event.
@@ -99,7 +145,7 @@ test bypass не маскируется под пользовательский 
 - Hijacking/XSS: HttpOnly+Secure+SameSite, short idle TTL, point revoke.
 - Fixation/stale privilege: новый ID при auth/password change + securityVersion.
 - CSRF: derived double-submit token для unsafe cookie requests; Bearer не смешивается.
-- Credential stuffing/enumeration: отдельный rate limit, dummy scrypt, стабильные errors.
+- Credential stuffing/enumeration: shared Redis rate limit, dummy scrypt, decoy delivery и стабильные errors.
 - Replay: one-time consumed challenges, bounded expiry, API-key secret shown once.
 - Redis compromise: HMAC token lookup/keys, no raw credentials, TLS/ACL/minimal commands.
 - Insider/admin abuse: role/object checks, mandatory reason/idempotency and immutable audit.
@@ -113,3 +159,15 @@ dual-control контуре `admin` и требуют независимого a
 cookie получает 401 → password change → old cookies получают 401 → logout-all.
 Проверить, что ответы/логи не содержат canary password, cookie, API key, reset token
 или Redis URL; затем остановить Redis и убедиться в `ready=503`, `live=200`.
+
+Дополнительные угрозы этапа 23:
+
+- stale replica cache исключён live API-key lookup и межрепличными tests;
+- revoke/touch resurrection блокируется Redis CAS;
+- recovery timing oracle уменьшен одинаковым KDF+HTTPS delivery path и minimum response budget;
+- proxy spoofing блокируется exact trusted CIDR и отсутствием прямого host port backend;
+- public metrics блокируется ingress, scrape идёт только по internal network;
+- browser credential theft ограничен запретом reusable credentials в Web Storage;
+- registration conflict остаётся осознанным enumeration risk: 409 сохранён для
+  API compatibility, компенсируется shared IP/account/global limit, generic body,
+  отсутствием PII в telemetry и review риска не позднее 2026-12-25.

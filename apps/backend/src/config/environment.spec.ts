@@ -111,6 +111,39 @@ describe('environment validation', () => {
     ).toThrow('SWAGGER_PATH must be a safe relative URL path');
   });
 
+  it('accepts isolated bearer transport and rejects unknown mixed modes', () => {
+    expect(
+      validateEnvironment({
+        NODE_ENV: 'test',
+        PORT: '5000',
+        SERVICE_NAME: 'exchange-backend',
+        AUTH_TOKEN_TRANSPORT: 'bearer',
+        ...authSecrets,
+      }).AUTH_TOKEN_TRANSPORT,
+    ).toBe('bearer');
+    expect(() =>
+      validateEnvironment({
+        NODE_ENV: 'test',
+        PORT: '5000',
+        SERVICE_NAME: 'exchange-backend',
+        AUTH_TOKEN_TRANSPORT: 'cookie,bearer',
+        ...authSecrets,
+      }),
+    ).toThrow('AUTH_TOKEN_TRANSPORT must be cookie or bearer');
+  });
+
+  it.each(['8192', '20000', '1048576'])('rejects unsafe scrypt cost %s', (cost) => {
+    expect(() =>
+      validateEnvironment({
+        NODE_ENV: 'test',
+        PORT: '5000',
+        SERVICE_NAME: 'exchange-backend',
+        AUTH_SCRYPT_COST: cost,
+        ...authSecrets,
+      }),
+    ).toThrow('AUTH_SCRYPT_COST');
+  });
+
   /** Не допускает вывода управляемой строки или небезопасной схемы в startup URL. */
   it.each(['localhost:5000', 'javascript:alert(1)', 'file:///tmp/docs'])(
     'rejects an unsafe public URL: %s',

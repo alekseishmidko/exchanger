@@ -15,6 +15,14 @@
 
 https://:443 {
   tls internal
+  @internal path /internal/*
+  respond @internal 404
+  header {
+    Strict-Transport-Security "max-age=31536000"
+    X-Content-Type-Options "nosniff"
+    X-Frame-Options "DENY"
+    Content-Security-Policy "default-src 'none'; frame-ancestors 'none'"
+  }
   reverse_proxy backend-a:5000 backend-b:5000 {
     lb_policy first
     health_uri /health/live
@@ -26,6 +34,8 @@ https://:443 {
 }
 
 http://:80 {
+  @internal path /internal/*
+  respond @internal 404
   reverse_proxy backend-a:5000 backend-b:5000 {
     lb_policy first
     health_uri /health/live

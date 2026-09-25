@@ -1,10 +1,11 @@
 services:
   postgres:
-    image: postgres:16-alpine
+    image: "${POSTGRES_IMAGE:-postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea}"
     environment:
       POSTGRES_DB: exchange
       POSTGRES_USER: exchange
       POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}"
+      POSTGRES_APP_PASSWORD: "${POSTGRES_APP_PASSWORD:?POSTGRES_APP_PASSWORD is required}"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U exchange -d exchange"]
       interval: 5s
@@ -12,10 +13,11 @@ services:
       retries: 12
     volumes:
       - postgres-data:/var/lib/postgresql/data
+      - ./deploy/production/postgres-app-role.sh:/docker-entrypoint-initdb.d/010-app-role.sh:ro
     restart: unless-stopped
 
   migrate:
-    image: postgres:16-alpine
+    image: "${POSTGRES_IMAGE:-postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea}"
     depends_on:
       postgres:
         condition: service_healthy
@@ -45,11 +47,21 @@ services:
           psql -v ON_ERROR_STOP=1 -1 -f /migrations/004_identity_up.sql
           psql -v ON_ERROR_STOP=1 -c "INSERT INTO schema_migrations(version) VALUES ('004_identity')"
         fi
+        if ! psql -tAc "SELECT 1 FROM schema_migrations WHERE version='005_security_hardening'" | grep -q 1; then
+          psql -v ON_ERROR_STOP=1 -1 -f /migrations/005_security_hardening_up.sql
+          psql -v ON_ERROR_STOP=1 -c "INSERT INTO schema_migrations(version) VALUES ('005_security_hardening')"
+        fi
+        psql -v ON_ERROR_STOP=1 -c 'GRANT USAGE ON SCHEMA public TO exchange_app'
+        psql -v ON_ERROR_STOP=1 -c 'GRANT SELECT,INSERT,UPDATE,DELETE ON ALL TABLES IN SCHEMA public TO exchange_app'
+        psql -v ON_ERROR_STOP=1 -c 'GRANT USAGE,SELECT ON ALL SEQUENCES IN SCHEMA public TO exchange_app'
+        psql -v ON_ERROR_STOP=1 -c 'ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT,INSERT,UPDATE,DELETE ON TABLES TO exchange_app'
+        psql -v ON_ERROR_STOP=1 -c 'ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE,SELECT ON SEQUENCES TO exchange_app'
     volumes:
       - ./apps/backend/src/modules/ledger/infrastructure/migrations/001_ledger_up.sql:/migrations/001_ledger_up.sql:ro
       - ./apps/backend/src/infrastructure/postgres/migrations/002_durable_runtime_up.sql:/migrations/002_durable_runtime_up.sql:ro
       - ./apps/backend/src/infrastructure/postgres/migrations/003_durable_control_plane_up.sql:/migrations/003_durable_control_plane_up.sql:ro
       - ./apps/backend/src/infrastructure/postgres/migrations/004_identity_up.sql:/migrations/004_identity_up.sql:ro
+      - ./apps/backend/src/infrastructure/postgres/migrations/005_security_hardening_up.sql:/migrations/005_security_hardening_up.sql:ro
 
   backend:
     build:
@@ -63,13 +75,55 @@ services:
       - path: .env.production
         required: false
     environment:
-      POSTGRES_URL: "postgres://exchange:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/exchange"
+      POSTGRES_URL: "postgres://exchange_app:${POSTGRES_APP_PASSWORD:?POSTGRES_APP_PASSWORD is required}@postgres:5432/exchange"
     depends_on:
       migrate:
         condition: service_completed_successfully
+    expose:
+      - "5000"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:5000/health/ready >/dev/null"]
+      interval: 5s
+      timeout: 2s
+      retries: 20
+      start_period: 10s
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 256
+    mem_limit: 512m
+    cpus: 1.0
+    restart: unless-stopped
+
+  ingress:
+    image: "${CADDY_IMAGE:-caddy:2.9.1-alpine@sha256:b4e3952384eb9524a887633ce65c752dd7c71314d2c2acf98cd5c715aaa534f0}"
     ports:
-      - "5000:5000"
+      - "443:443"
+    volumes:
+      - ./deploy/production/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      backend:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+    mem_limit: 128m
     restart: unless-stopped
 
 volumes:
   postgres-data:
+  caddy-data:
+  caddy-config:

@@ -47,8 +47,11 @@ export class HumanSessionGuard implements CanActivate {
   }
 
   private extractSessionToken(request: HumanAuthenticatedRequest): string | undefined {
-    const authorization = this.header(request, 'authorization');
-    if (authorization?.startsWith('Bearer ')) return authorization.slice(7);
+    if (this.config.get('AUTH_TOKEN_TRANSPORT', 'cookie') === 'bearer') {
+      const authorization = this.header(request, 'authorization');
+      const match = authorization?.match(/^Bearer ([A-Za-z0-9_-]{32,256})$/);
+      return match?.[1];
+    }
     const cookie = this.header(request, 'cookie');
     const name = this.config.get<string>('AUTH_COOKIE_NAME', '__Host-exchange_session');
     return cookie

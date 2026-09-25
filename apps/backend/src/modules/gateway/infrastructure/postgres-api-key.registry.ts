@@ -1,5 +1,7 @@
-import { Injectable, OnModuleInit } from '@nestjs/common';
-import type { Pool, QueryResultRow } from 'pg';
+import { ConflictException, Injectable, NotFoundException, OnModuleInit } from '@nestjs/common';
+import type { Pool, PoolClient, QueryResultRow } from 'pg';
+import { randomBytes } from 'node:crypto';
+import type { PostgresTransactionManager } from '../../../infrastructure/postgres';
 import {
   ApiKeyCredential,
   ApiKeyMetadata,
@@ -26,13 +28,16 @@ type ApiKeyRow = QueryResultRow & {
 
 /**
  * Durable machine credential registry.
- * Startup загружает только digest+metadata; issue/rotate/revoke сначала фиксируют
- * PostgreSQL row и синхронизируют process cache. Raw secret существует только в
- * stack первого HTTP response и никогда не записывается в БД.
+ * Каждый authentication/revalidation обращается к PostgreSQL source of truth;
+ * startup snapshot нужен только для локального генератора новых keyId и никогда
+ * не участвует в допуске. Raw secret существует лишь в stack первого response.
  */
 @Injectable()
 export class PostgresApiKeyRegistry extends ApiKeyRegistry implements OnModuleInit {
-  constructor(private readonly pool: Pool) {
+  constructor(
+    private readonly pool: Pool,
+    private readonly transactions?: PostgresTransactionManager,
+  ) {
     super([]);
   }
 
@@ -48,15 +53,49 @@ export class PostgresApiKeyRegistry extends ApiKeyRegistry implements OnModuleIn
     }
   }
 
-  /** Проверяет cache digest синхронно и best-effort фиксирует last-used metadata. */
-  override authenticate(value: string | undefined): ApiKeyPrincipal {
-    const principal = super.authenticate(value);
-    void this.pool
-      .query('UPDATE machine_api_keys SET last_used_at=clock_timestamp() WHERE key_id=$1', [
-        principal.keyId,
-      ])
-      .catch(() => undefined);
-    return principal;
+  /**
+   * Проверяет credential непосредственно в PostgreSQL source of truth.
+   * Локальная replica не может принять stale digest после rotate/revoke другой
+   * replica; raw key преобразуется в digest до query и нигде не сохраняется.
+   */
+  override async authenticate(value: string | undefined): Promise<ApiKeyPrincipal> {
+    if (!value || value.length < 16 || value.length > 256) return super.authenticate(undefined);
+    const result = await this.database().query<ApiKeyRow>(
+      `UPDATE machine_api_keys
+          SET last_used_at=clock_timestamp()
+        WHERE secret_digest=$1 AND status='ACTIVE' AND expires_at>clock_timestamp()
+        RETURNING *`,
+      [this.digest(value)],
+    );
+    const row = result.rows[0];
+    if (!row) return super.authenticate(undefined);
+    return {
+      keyId: row.key_id,
+      role: row.role,
+      userId: row.owner_id,
+      scopes: row.scopes,
+    };
+  }
+
+  /** Проверяет live status долгоживущего principal без raw API key. */
+  override async isPrincipalActive(principal: ApiKeyPrincipal): Promise<boolean> {
+    const result = await this.database().query<{ active: boolean }>(
+      `SELECT EXISTS(
+         SELECT 1 FROM machine_api_keys
+          WHERE key_id=$1 AND owner_id=$2 AND role=$3 AND scopes=$4::text[]
+            AND status='ACTIVE' AND expires_at>clock_timestamp()
+       ) AS active`,
+      [principal.keyId, principal.userId, principal.role, principal.scopes ?? []],
+    );
+    return result.rows[0]?.active === true;
+  }
+
+  /** Возвращает актуальные metadata со всех replicas без process-local snapshot. */
+  override async list(): Promise<readonly ApiKeyMetadata[]> {
+    const rows = await this.database().query<ApiKeyRow>(
+      'SELECT * FROM machine_api_keys ORDER BY key_id',
+    );
+    return rows.rows.map((row) => this.map(row).metadata);
   }
 
   override async issue(
@@ -66,7 +105,7 @@ export class PostgresApiKeyRegistry extends ApiKeyRegistry implements OnModuleIn
     const issued = await super.issue(input, now);
     const credential = this.requireCredential(issued.metadata.keyId);
     try {
-      await this.pool.query(
+      await this.database().query(
         `INSERT INTO machine_api_keys (key_id,secret_digest,owner_id,owner_type,role,label,scopes,expires_at,status,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'ACTIVE',$9)`,
         [
           issued.metadata.keyId,
@@ -89,36 +128,47 @@ export class PostgresApiKeyRegistry extends ApiKeyRegistry implements OnModuleIn
   }
 
   override async rotate(keyId: string, now = new Date()): Promise<IssuedApiKey> {
-    const before = this.requireCredential(keyId);
-    const issued = await super.rotate(keyId, now);
-    const after = this.requireCredential(keyId);
-    try {
-      await this.pool.query(
-        `UPDATE machine_api_keys SET secret_digest=$2, expires_at=$3, rotated_at=$4, last_used_at=NULL WHERE key_id=$1`,
-        [keyId, after.digest, issued.metadata.expiresAt, issued.metadata.rotatedAt],
+    const apiKey = `ex_${randomBytes(32).toString('base64url')}`;
+    const expiresAt = new Date(now.getTime() + 90 * 24 * 60 * 60 * 1000).toISOString();
+    const result = await this.database().query<ApiKeyRow>(
+      `UPDATE machine_api_keys SET secret_digest=$2, expires_at=$3,
+         rotated_at=$4, last_used_at=NULL
+       WHERE key_id=$1 AND status='ACTIVE' RETURNING *`,
+      [keyId, this.digest(apiKey), expiresAt, now.toISOString()],
+    );
+    if (!result.rows[0]) {
+      const existing = await this.database().query<{ status: string }>(
+        'SELECT status FROM machine_api_keys WHERE key_id=$1',
+        [keyId],
       );
-      return issued;
-    } catch (error) {
-      this.credentials.set(keyId, before);
-      this.keyIdByDigest.delete(after.digest);
-      this.keyIdByDigest.set(before.digest, keyId);
-      throw error;
+      if (!existing.rows[0])
+        throw new NotFoundException({
+          code: 'API_KEY_NOT_FOUND',
+          message: 'API key was not found',
+        });
+      throw new ConflictException({ code: 'API_KEY_REVOKED', message: 'API key is revoked' });
     }
+    return { apiKey, metadata: this.map(result.rows[0]).metadata };
   }
 
   override async revoke(keyId: string, now = new Date()): Promise<ApiKeyMetadata> {
-    const before = this.requireCredential(keyId);
-    const metadata = await super.revoke(keyId, now);
+    const result = await this.database().query<ApiKeyRow>(
+      `UPDATE machine_api_keys SET status='REVOKED', revoked_at=COALESCE(revoked_at,$2)
+        WHERE key_id=$1 RETURNING *`,
+      [keyId, now.toISOString()],
+    );
+    if (!result.rows[0])
+      throw new NotFoundException({ code: 'API_KEY_NOT_FOUND', message: 'API key was not found' });
+    return this.map(result.rows[0]).metadata;
+  }
+
+  /** Выбирает transaction client idempotency boundary либо shared pool для read request. */
+  private database(): Pool | PoolClient {
+    if (!this.transactions) return this.pool;
     try {
-      await this.pool.query(
-        `UPDATE machine_api_keys SET status='REVOKED', revoked_at=$2 WHERE key_id=$1`,
-        [keyId, metadata.revokedAt],
-      );
-      return metadata;
-    } catch (error) {
-      this.credentials.set(keyId, before);
-      this.keyIdByDigest.set(before.digest, keyId);
-      throw error;
+      return this.transactions.currentClient();
+    } catch {
+      return this.pool;
     }
   }
 

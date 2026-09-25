@@ -30,6 +30,7 @@ import {
   ApiKeyGuard,
   ApiKeyPrincipal,
   assertAdminAccess,
+  assertAuthorizedAction,
   assertObjectAccess,
 } from '../../gateway/auth/gateway.auth';
 import { IDEMPOTENCY_STORE_PORT } from '../../gateway/ports/gateway.idempotency.port';
@@ -93,6 +94,7 @@ export class LedgerController {
     @Headers('idempotency-key') key: string | undefined,
     @Body(new ZodValidationPipe(createAccountSchema)) body: z.infer<typeof createAccountSchema>,
   ): Promise<AccountResponseDto> {
+    assertAuthorizedAction(request.principal, 'trading.write');
     assertObjectAccess(request.principal, body.ownerId);
     return this.execute(request.principal, key, body, () =>
       this.application.createAccount(
@@ -115,6 +117,7 @@ export class LedgerController {
     @Req() request: LedgerRequest,
     @Param('accountId') accountId: string,
   ): Promise<AccountResponseDto> {
+    assertAuthorizedAction(request.principal, 'trading.read');
     const account = await this.application.getAccount(accountId);
     assertObjectAccess(request.principal, account.ownerId);
     return account;
@@ -128,6 +131,7 @@ export class LedgerController {
     @Req() request: LedgerRequest,
     @Param('accountId') accountId: string,
   ): Promise<AccountBalancesResponseDto> {
+    assertAuthorizedAction(request.principal, 'trading.read');
     await this.authorizeAccount(request.principal, accountId);
     return { items: [...(await this.application.getBalances(accountId))] };
   }
@@ -142,6 +146,7 @@ export class LedgerController {
     @Param('accountId') accountId: string,
     @Param('assetId') assetId: string,
   ): Promise<BalanceResponseDto> {
+    assertAuthorizedAction(request.principal, 'trading.read');
     await this.authorizeAccount(request.principal, accountId);
     return this.application.getBalance(accountId, assetId);
   }
@@ -161,6 +166,7 @@ export class LedgerController {
     @Body(new ZodValidationPipe(changeBalanceSchema)) body: z.infer<typeof changeBalanceSchema>,
   ): Promise<BalanceResponseDto> {
     assertAdminAccess(request.principal);
+    assertAuthorizedAction(request.principal, 'ledger.admin');
     return this.execute(request.principal, key, { accountId, assetId, ...body }, () =>
       this.application.changeBalance(body.commandId, accountId, assetId, body.action, body.amount, {
         actorId: request.principal.userId,

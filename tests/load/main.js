@@ -1,7 +1,7 @@
 import { check, sleep } from 'k6';
 import http from 'k6/http';
 import { Counter, Rate, Trend } from 'k6/metrics';
-import { WebSocket } from 'k6/websockets';
+import ws from 'k6/ws';
 import exec from 'k6/execution';
 import { profile } from './lib/profiles.js';
 import { cancelOrderData, multiFillData, placeOrderData, uniqueId } from './lib/data.js';
@@ -55,8 +55,36 @@ const websocketScenario = {
   startTime: selectedProfile === 'smoke' ? '0s' : '5s',
 };
 if (durationOverride) {
-  if ('duration' in restScenario) restScenario.duration = durationOverride;
-  if ('duration' in websocketScenario) websocketScenario.duration = durationOverride;
+  applyDurationOverride(restScenario, durationOverride);
+  applyDurationOverride(websocketScenario, durationOverride);
+}
+
+/**
+ * Сокращает как constant-, так и ramping-сценарий до одного bounded интервала.
+ * Для ramping executor сохраняется форма ступеней и их target, поэтому
+ * `LOAD_DURATION=20s` действительно создаёт короткий breakpoint-прогон, а не
+ * незаметно оставляет исходные восемь минут.
+ */
+function applyDurationOverride(scenario, duration) {
+  if ('stages' in scenario) {
+    const totalMs = parseDurationMs(duration);
+    const stageCount = scenario.stages.length;
+    scenario.stages = scenario.stages.map((stage, index) => {
+      const start = Math.floor((totalMs * index) / stageCount);
+      const end = Math.floor((totalMs * (index + 1)) / stageCount);
+      return { ...stage, duration: `${Math.max(1, end - start)}ms` };
+    });
+    return;
+  }
+  scenario.duration = duration;
+}
+
+/** Преобразует поддерживаемый k6 duration в миллисекунды без неоднозначных значений. */
+function parseDurationMs(duration) {
+  const match = /^(\d+(?:\.\d+)?)(ms|s|m|h)$/.exec(duration);
+  if (!match) throw new Error(`Некорректный LOAD_DURATION: ${duration}`);
+  const multiplier = { ms: 1, s: 1000, m: 60_000, h: 3_600_000 }[match[2]];
+  return Math.max(1, Math.floor(Number(match[1]) * multiplier));
 }
 
 /**
@@ -363,43 +391,44 @@ export function restWorkload(data) {
  * Реализован Engine.IO v4 framing: `0` handshake, `40` namespace connect,
  * `42` event; на server ping `2` клиент отвечает pong `3`.
  */
-export async function websocketWorkload(data) {
+export function websocketWorkload(data) {
   const privateSession = exec.scenario.iterationInTest % 2 === 0;
-  const socket = new WebSocket(`${wsUrl}/socket.io/?EIO=4&transport=websocket`);
   let namespaceConnected = false;
   let acknowledged = false;
-  await new Promise((resolve) => {
-    const deadline = setTimeout(() => {
-      socket.close();
-      resolve();
-    }, websocketSessionMs());
-    socket.addEventListener('message', (event) => {
-      const frame = String(event.data);
-      if (frame.startsWith('0')) {
-        socket.send(`40/market-data,${privateSession ? JSON.stringify({ apiKey }) : ''}`);
-      } else if (frame.startsWith('40/market-data,')) {
-        namespaceConnected = true;
-        const requestId = uniqueId(
-          data.runId,
-          'ws',
-          exec.scenario.name,
-          exec.vu.idInTest,
-          exec.scenario.iterationInTest,
-        );
-        const request = privateSession
-          ? { requestId, channel: 'user', userId: __ENV.LOAD_ACCOUNT_ID || 'dev-user' }
-          : { requestId, channel: 'ticker', instrumentId: instrumentForWs() };
-        socket.send(`42/market-data,["market.subscribe",${JSON.stringify(request)}]`);
-      } else if (frame.startsWith('42/market-data,["market.ack"')) {
-        acknowledged = true;
-      } else if (frame === '2') socket.send('3');
-    });
-    socket.addEventListener('close', () => {
-      clearTimeout(deadline);
-      resolve();
-    });
-    socket.addEventListener('error', () => resolve());
-  });
+  const response = ws.connect(
+    `${wsUrl}/socket.io/?EIO=4&transport=websocket`,
+    { tags: { name: '/socket.io/market-data' } },
+    (socket) => {
+      socket.on('message', (message) => {
+        const frame = String(message);
+        if (frame.startsWith('0')) {
+          socket.send(`40/market-data,${privateSession ? JSON.stringify({ apiKey }) : ''}`);
+        } else if (frame.startsWith('40/market-data,')) {
+          namespaceConnected = true;
+          const requestId = uniqueId(
+            data.runId,
+            'ws',
+            exec.scenario.name,
+            exec.vu.idInTest,
+            exec.scenario.iterationInTest,
+          );
+          const request = privateSession
+            ? { requestId, channel: 'user', userId: __ENV.LOAD_ACCOUNT_ID || 'dev-user' }
+            : { requestId, channel: 'ticker', instrumentId: instrumentForWs() };
+          socket.send(`42/market-data,["market.subscribe",${JSON.stringify(request)}]`);
+        } else if (frame.startsWith('42/market-data,["market.ack"')) {
+          acknowledged = true;
+        } else if (frame === '2') socket.send('3');
+      });
+      // В отличие от global event-loop k6/websockets, blocking k6/ws связывает
+      // socket с VU и гарантированно выходит из connect после close/interrupt.
+      socket.setTimeout(() => socket.close(), websocketSessionMs());
+    },
+  );
+  if (!response || response.status !== 101) {
+    namespaceConnected = false;
+    acknowledged = false;
+  }
   websocketSuccess.add(namespaceConnected && acknowledged);
   check(null, { 'websocket subscription подтверждена': () => namespaceConnected && acknowledged });
 }

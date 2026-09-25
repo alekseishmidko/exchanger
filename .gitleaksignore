@@ -1,0 +1,2 @@
+# gitleaks:allow owner=security reason=test-only-recovery-hmac-fixture expires=2027-09-25
+ce3d800d1aea09170051fb9bab734d53c9412543:apps/backend/src/modules/identity/infrastructure/recovery-delivery.spec.ts:generic-api-key:7

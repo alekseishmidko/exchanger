@@ -31,8 +31,12 @@ Production и произвольное имя окружения runner отве
 ```bash
 CHAOS_ENVIRONMENT=staging \
 CHAOS_ACK=isolated-test-only \
-pnpm resilience:staging
+pnpm resilience:all
 ```
+
+`resilience:all` и прежний совместимый alias `resilience:staging` последовательно
+запускают все семь durable-сценариев. Ошибка одного сценария не скрывает
+результаты остальных, а общий отчёт сохраняется в `artifacts/resilience/`.
 
 Обычная проверка topology без fault injection запускается одной командой
 `pnpm staging:up`, доступна по `https://localhost:5443` и останавливается через

@@ -4,7 +4,7 @@ CREATE TABLE identity_users (
   name TEXT NOT NULL CHECK (char_length(name) BETWEEN 1 AND 120),
   password_hash TEXT NOT NULL CHECK (password_hash LIKE 'scrypt$%'),
   roles TEXT[] NOT NULL DEFAULT ARRAY['USER']::TEXT[],
-  scopes TEXT[] NOT NULL DEFAULT ARRAY['profile:read','profile:write','sessions:manage','trading:write']::TEXT[],
+  scopes TEXT[] NOT NULL DEFAULT ARRAY['profile:read','profile:write','sessions:manage','trading:read','trading:write']::TEXT[],
   email_verified_at TIMESTAMPTZ,
   password_reset_required BOOLEAN NOT NULL DEFAULT FALSE,
   security_version INTEGER NOT NULL DEFAULT 1 CHECK (security_version > 0),
@@ -22,6 +22,7 @@ CREATE TABLE identity_challenges (
   token_digest TEXT NOT NULL UNIQUE,
   expires_at TIMESTAMPTZ NOT NULL,
   consumed_at TIMESTAMPTZ,
+  security_version INTEGER NOT NULL DEFAULT 1,
   created_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
   CHECK (consumed_at IS NULL OR consumed_at >= created_at)
 );

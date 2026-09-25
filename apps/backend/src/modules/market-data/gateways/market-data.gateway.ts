@@ -8,9 +8,10 @@ import {
   SubscribeMessage,
   WebSocketGateway,
 } from '@nestjs/websockets';
-import { ApiKeyRegistry } from '../../gateway/auth/gateway.auth';
+import { ApiKeyRegistry, assertAuthorizedAction } from '../../gateway/auth/gateway.auth';
 import { BackpressureError, MarketDataHub, MarketDataMessage } from '../domain/market-data';
 import { MarketDataConnectionPolicy } from '../policies/market-data.connection-policy';
+import { MarketDataAbuseControl } from '../policies/market-data-abuse-control';
 import {
   MarketDataErrorPolicy,
   MarketDataProtocolError,
@@ -79,6 +80,9 @@ export class MarketDataGateway implements OnGatewayConnection, OnGatewayDisconne
   private readonly observer: MarketDataTelemetryObserver;
   private readonly maxPendingMessages: number;
   private readonly logger: OperationalLogger;
+  private readonly credentialRecheckMs: number;
+  private readonly credentialTimers = new Map<string, NodeJS.Timeout>();
+  private readonly maxSubscriptionsPerSocket: number;
 
   /**
    * Собирает WebSocket transport boundary и его эксплуатационные ограничения.
@@ -99,14 +103,19 @@ export class MarketDataGateway implements OnGatewayConnection, OnGatewayDisconne
     private readonly hub: MarketDataHub,
     private readonly apiKeys: ApiKeyRegistry,
     config: ConfigService,
-    metrics: MetricsService,
+    private readonly metrics: MetricsService,
     telemetry: TelemetryService,
+    private readonly abuseControl: MarketDataAbuseControl,
     @Optional() @Inject(StructuredLogger) logger?: StructuredLogger,
   ) {
     this.logger = logger ?? NOOP_OPERATIONAL_LOGGER;
     this.connectionPolicy = new MarketDataConnectionPolicy(config);
     this.observer = new MarketDataTelemetryObserver(metrics, telemetry);
     this.maxPendingMessages = Number(config.get<string | number>('WEBSOCKET_MAX_PENDING', 100));
+    this.credentialRecheckMs = Number(config.get('WEBSOCKET_AUTH_RECHECK_MS', 5_000));
+    this.maxSubscriptionsPerSocket = Number(
+      config.get('WEBSOCKET_MAX_SUBSCRIPTIONS_PER_SOCKET', 20),
+    );
   }
 
   /**
@@ -118,8 +127,12 @@ export class MarketDataGateway implements OnGatewayConnection, OnGatewayDisconne
    * @example Browser с `Origin: https://exchange.example.com` допускается только
    * если этот origin перечислен в `WEBSOCKET_ALLOWED_ORIGINS`.
    */
-  handleConnection(client: AuthenticatedSocket): void {
-    const decision = this.connectionPolicy.authenticate(client, this.apiKeys);
+  async handleConnection(client: AuthenticatedSocket): Promise<void> {
+    if (!(await this.abuseControl.admitIp(client))) {
+      client.disconnect(true);
+      return;
+    }
+    const decision = await this.connectionPolicy.authenticate(client, this.apiKeys);
     if (!decision.ok) {
       this.emitError(
         client,
@@ -127,9 +140,19 @@ export class MarketDataGateway implements OnGatewayConnection, OnGatewayDisconne
         this.errorPolicy.handshake(decision.code, decision.message),
       );
       client.disconnect(true);
+      this.abuseControl.release(client);
+      return;
+    }
+    if (
+      client.data.principal &&
+      !(await this.abuseControl.admitPrincipal(client, client.data.principal.userId))
+    ) {
+      client.disconnect(true);
+      this.abuseControl.release(client);
       return;
     }
     this.subscriptions.open(client.id);
+    this.startCredentialRecheck(client);
     this.logger.info('market-data', LOG_EVENTS.WEBSOCKET_CONNECTED, {
       metadata: { authenticated: Boolean(client.data.principal) },
     });
@@ -141,7 +164,11 @@ export class MarketDataGateway implements OnGatewayConnection, OnGatewayDisconne
    * unsubscribe-функции вызываются до удаления socket registry.
    */
   handleDisconnect(client: AuthenticatedSocket): void {
+    const timer = this.credentialTimers.get(client.id);
+    if (timer) clearInterval(timer);
+    this.credentialTimers.delete(client.id);
     this.subscriptions.close(client.id);
+    this.abuseControl.release(client);
   }
 
   /**
@@ -154,7 +181,11 @@ export class MarketDataGateway implements OnGatewayConnection, OnGatewayDisconne
    * instrumentId: 'BTC-USD' }` даёт ack, затем initial snapshot.
    */
   @SubscribeMessage('market.subscribe')
-  subscribe(@ConnectedSocket() client: AuthenticatedSocket, @MessageBody() raw: unknown): void {
+  async subscribe(
+    @ConnectedSocket() client: AuthenticatedSocket,
+    @MessageBody() raw: unknown,
+  ): Promise<void> {
+    if (!(await this.abuseControl.admitMessage(client))) return;
     const result = subscriptionSchema.safeParse(raw);
     if (!result.success) {
       this.emitError(
@@ -165,17 +196,33 @@ export class MarketDataGateway implements OnGatewayConnection, OnGatewayDisconne
       return;
     }
     const request: SubscribeRequestDto = result.data;
-    this.observeMessage('subscribe', request.channel, request.trace ?? {}, () =>
+    await this.observeMessageAsync('subscribe', request.channel, request.trace ?? {}, () =>
       this.subscribeValidated(client, request),
     );
   }
 
   /** Регистрирует уже валидированную подписку внутри WebSocket tracing context. */
-  private subscribeValidated(client: AuthenticatedSocket, request: SubscribeRequestDto): void {
+  private async subscribeValidated(
+    client: AuthenticatedSocket,
+    request: SubscribeRequestDto,
+  ): Promise<void> {
     try {
+      if (
+        request.channel === 'user' &&
+        client.data.principal &&
+        !(await this.apiKeys.isPrincipalActive(client.data.principal))
+      ) {
+        client.disconnect(true);
+        return;
+      }
       const key = this.subscriptionKey(request);
       const current = this.subscriptions.current(client.id);
       if (!current) return;
+      if (!current.has(key) && current.size >= this.maxSubscriptionsPerSocket)
+        throw new HttpException(
+          { code: 'MARKET_DATA_SUBSCRIPTION_LIMIT', message: 'Subscription limit exceeded' },
+          429,
+        );
       const pendingMessages: MarketDataMessage[] = [];
       let acknowledged = false;
       const deliver = (message: MarketDataMessage): void => {
@@ -208,6 +255,30 @@ export class MarketDataGateway implements OnGatewayConnection, OnGatewayDisconne
     }
   }
 
+  /** Периодически закрывает socket после revoke/rotate/expiry credential. */
+  private startCredentialRecheck(client: AuthenticatedSocket): void {
+    const timer = setInterval(() => {
+      void this.revalidateConnection(client);
+    }, this.credentialRecheckMs);
+    timer.unref();
+    this.credentialTimers.set(client.id, timer);
+  }
+
+  /** Продлевает distributed quota lease и проверяет live machine credential. */
+  private async revalidateConnection(client: AuthenticatedSocket): Promise<void> {
+    try {
+      await this.abuseControl.renew(client, this.credentialRecheckMs);
+      const principal = client.data.principal;
+      if (!principal) return;
+      const active = await this.apiKeys.isPrincipalActive(principal);
+      this.metrics.observeCredentialRevalidation(active ? 'active' : 'revoked');
+      if (!active) client.disconnect(true);
+    } catch {
+      this.metrics.observeCredentialRevalidation('unavailable');
+      client.disconnect(true);
+    }
+  }
+
   /**
    * Снимает ровно одну подписку и оставляет остальные каналы активными.
    * Повторная команда для отсутствующего ключа также получает ack, то есть client
@@ -216,7 +287,11 @@ export class MarketDataGateway implements OnGatewayConnection, OnGatewayDisconne
    * @example Отписка `book:BTC-USD` не затрагивает `ticker:BTC-USD`.
    */
   @SubscribeMessage('market.unsubscribe')
-  unsubscribe(@ConnectedSocket() client: AuthenticatedSocket, @MessageBody() raw: unknown): void {
+  async unsubscribe(
+    @ConnectedSocket() client: AuthenticatedSocket,
+    @MessageBody() raw: unknown,
+  ): Promise<void> {
+    if (!(await this.abuseControl.admitMessage(client))) return;
     const result = subscriptionSchema.safeParse(raw);
     if (!result.success) {
       this.emitError(
@@ -245,7 +320,11 @@ export class MarketDataGateway implements OnGatewayConnection, OnGatewayDisconne
    * @example При `lastSequence=41` и сохранённых 42,43 отправляются два increment.
    */
   @SubscribeMessage('market.resync')
-  resync(@ConnectedSocket() client: AuthenticatedSocket, @MessageBody() raw: unknown): void {
+  async resync(
+    @ConnectedSocket() client: AuthenticatedSocket,
+    @MessageBody() raw: unknown,
+  ): Promise<void> {
+    if (!(await this.abuseControl.admitMessage(client))) return;
     const result = resyncSchema.safeParse(raw);
     if (!result.success) {
       this.emitError(client, this.requestId(raw), this.errorPolicy.malformed('Resync is invalid'));
@@ -271,7 +350,11 @@ export class MarketDataGateway implements OnGatewayConnection, OnGatewayDisconne
    * @example `heartbeat({requestId:'ping-1'})` создаёт `heartbeat.ack` sequence 0.
    */
   @SubscribeMessage('heartbeat')
-  heartbeat(@ConnectedSocket() client: AuthenticatedSocket, @MessageBody() raw: unknown): void {
+  async heartbeat(
+    @ConnectedSocket() client: AuthenticatedSocket,
+    @MessageBody() raw: unknown,
+  ): Promise<void> {
+    if (!(await this.abuseControl.admitMessage(client))) return;
     const result = heartbeatSchema.safeParse(raw);
     if (!result.success) {
       this.emitError(
@@ -299,6 +382,7 @@ export class MarketDataGateway implements OnGatewayConnection, OnGatewayDisconne
         401,
       );
     }
+    assertAuthorizedAction(principal, 'trading.read');
     return this.hub.subscribePrivate(client.id, principal.userId, request.userId ?? '', (message) =>
       this.emitMarketData(client, request.requestId, message),
     );
@@ -381,5 +465,15 @@ export class MarketDataGateway implements OnGatewayConnection, OnGatewayDisconne
     handler: () => void,
   ): void {
     this.observer.observe(operation, channel, carrier, handler);
+  }
+
+  /** Async-вариант observer для live credential revalidation. */
+  private observeMessageAsync(
+    operation: string,
+    channel: string,
+    carrier: TraceCarrier,
+    handler: () => Promise<void>,
+  ): Promise<void> {
+    return this.observer.observe(operation, channel, carrier, handler);
   }
 }

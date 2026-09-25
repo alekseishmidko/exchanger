@@ -4,19 +4,24 @@ import { HttpException } from '@nestjs/common';
 
 /** Brute-force limiter возвращает один public code и не включает email/IP key. */
 describe('AuthRateLimit', () => {
-  it('rejects attempts beyond the configured fixed window', () => {
+  it('rejects attempts beyond the configured fixed window', async () => {
     const limiter = new AuthRateLimit(
-      new ConfigService({ AUTH_RATE_LIMIT: '2', AUTH_RATE_WINDOW_MS: '1000' }),
+      new ConfigService({
+        RUNTIME_PROFILE: 'component',
+        AUTH_RATE_LIMIT: '2',
+        AUTH_RATE_GLOBAL_LIMIT: '2',
+        AUTH_RATE_WINDOW_MS: '1000',
+      }),
     );
-    limiter.check('digest-only', 0);
-    limiter.check('digest-only', 1);
+    await limiter.check(['digest-only'], 0);
+    await limiter.check(['digest-only'], 1);
     try {
-      limiter.check('digest-only', 2);
+      await limiter.check(['digest-only'], 2);
       throw new Error('RATE_LIMIT_WAS_NOT_APPLIED');
     } catch (error) {
       expect(error).toBeInstanceOf(HttpException);
       expect((error as HttpException).getResponse()).toMatchObject({ code: 'AUTH_RATE_LIMITED' });
     }
-    expect(() => limiter.check('digest-only', 1001)).not.toThrow();
+    await expect(limiter.check(['digest-only'], 1001)).resolves.toBeUndefined();
   });
 });

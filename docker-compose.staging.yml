@@ -8,7 +8,7 @@ x-backend: &backend
     - path: .env.staging
       required: false
   environment: &backend-environment
-    POSTGRES_URL: postgres://exchange:staging-only-password@toxiproxy:8666/exchange
+    POSTGRES_URL: postgres://exchange_app:${STAGING_POSTGRES_APP_PASSWORD:-staging-app-only-password}@toxiproxy:8666/exchange
     BUILD_VERSION: ${BUILD_SHA:-local-dirty}
   depends_on:
     migrate:
@@ -26,6 +26,13 @@ x-backend: &backend
   cpus: ${STAGING_BACKEND_CPUS:-1.0}
   mem_limit: ${STAGING_BACKEND_MEMORY:-512m}
   pids_limit: ${STAGING_BACKEND_PIDS:-256}
+  read_only: true
+  tmpfs:
+    - /tmp:rw,noexec,nosuid,size=16m
+  cap_drop:
+    - ALL
+  security_opt:
+    - no-new-privileges:true
   ulimits:
     nofile:
       soft: ${STAGING_BACKEND_NOFILE:-4096}
@@ -39,6 +46,7 @@ services:
       POSTGRES_DB: exchange
       POSTGRES_USER: exchange
       POSTGRES_PASSWORD: staging-only-password
+      POSTGRES_APP_PASSWORD: ${STAGING_POSTGRES_APP_PASSWORD:-staging-app-only-password}
     command:
       - postgres
       - -c
@@ -157,11 +165,21 @@ services:
           psql -v ON_ERROR_STOP=1 -1 -f /migrations/004_identity_up.sql
           psql -v ON_ERROR_STOP=1 -c "INSERT INTO schema_migrations(version) VALUES ('004_identity')"
         fi
+        if ! psql -tAc "SELECT 1 FROM schema_migrations WHERE version='005_security_hardening'" | grep -q 1; then
+          psql -v ON_ERROR_STOP=1 -1 -f /migrations/005_security_hardening_up.sql
+          psql -v ON_ERROR_STOP=1 -c "INSERT INTO schema_migrations(version) VALUES ('005_security_hardening')"
+        fi
+        psql -v ON_ERROR_STOP=1 -c 'GRANT USAGE ON SCHEMA public TO exchange_app'
+        psql -v ON_ERROR_STOP=1 -c 'GRANT SELECT,INSERT,UPDATE,DELETE ON ALL TABLES IN SCHEMA public TO exchange_app'
+        psql -v ON_ERROR_STOP=1 -c 'GRANT USAGE,SELECT ON ALL SEQUENCES IN SCHEMA public TO exchange_app'
+        psql -v ON_ERROR_STOP=1 -c 'ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT,INSERT,UPDATE,DELETE ON TABLES TO exchange_app'
+        psql -v ON_ERROR_STOP=1 -c 'ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE,SELECT ON SEQUENCES TO exchange_app'
     volumes:
       - ./apps/backend/src/modules/ledger/infrastructure/migrations/001_ledger_up.sql:/migrations/001_ledger_up.sql:ro
       - ./apps/backend/src/infrastructure/postgres/migrations/002_durable_runtime_up.sql:/migrations/002_durable_runtime_up.sql:ro
       - ./apps/backend/src/infrastructure/postgres/migrations/003_durable_control_plane_up.sql:/migrations/003_durable_control_plane_up.sql:ro
       - ./apps/backend/src/infrastructure/postgres/migrations/004_identity_up.sql:/migrations/004_identity_up.sql:ro
+      - ./apps/backend/src/infrastructure/postgres/migrations/005_security_hardening_up.sql:/migrations/005_security_hardening_up.sql:ro
     restart: 'no'
 
   backend-a:
