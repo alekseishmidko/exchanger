@@ -24,16 +24,22 @@ import {
  */
 @Module({
   providers: [
+    /** Component implementation user storage без внешней базы. */
     MemoryUserStore,
+    /** Component implementation session storage с теми же port semantics. */
     MemorySessionStore,
+    /** Перехватывает recovery delivery в tests, не отправляя внешние сообщения. */
     MemoryRecoveryDelivery,
+    /** Удаляет истёкшие identity records согласно retention policy. */
     IdentityRetentionService,
+    /** Выбирает memory либо PostgreSQL user repository по runtime profile. */
     {
       provide: USER_STORE,
       inject: [ConfigService, MemoryUserStore, POSTGRES_POOL],
       useFactory: (config: ConfigService, memory: MemoryUserStore, pool: Pool): UserStore =>
         config.getOrThrow('RUNTIME_PROFILE') === 'component' ? memory : new PostgresUserStore(pool),
     },
+    /** Выбирает test delivery либо HTTPS delivery для recovery token. */
     {
       provide: RECOVERY_DELIVERY,
       inject: [ConfigService, MemoryRecoveryDelivery],
@@ -42,6 +48,7 @@ import {
           ? memory
           : new HttpsRecoveryDelivery(config),
     },
+    /** Выбирает локальные sessions либо shared Redis session store. */
     {
       provide: SESSION_STORE,
       inject: [ConfigService, MemorySessionStore],
@@ -51,6 +58,7 @@ import {
           : new RedisSessionStore(config),
     },
   ],
+  /** AuthModule получает storage ports; memory delivery экспортируется для test assertions. */
   exports: [USER_STORE, SESSION_STORE, RECOVERY_DELIVERY, MemoryRecoveryDelivery],
 })
 export class IdentityModule {}

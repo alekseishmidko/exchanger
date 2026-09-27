@@ -9,7 +9,9 @@ import { IDEMPOTENCY_STORE_PORT, IdempotencyStorePort } from './ports/gateway.id
 
 @Module({
   providers: [
+    /** Memory store обеспечивает детерминированную idempotency в component profile. */
     IdempotencyStore,
+    /** Выбирает durable idempotency store, сохраняя единый port для controllers. */
     {
       provide: IDEMPOTENCY_STORE_PORT,
       inject: [ConfigService, POSTGRES_TRANSACTION],
@@ -21,8 +23,10 @@ import { IDEMPOTENCY_STORE_PORT, IdempotencyStorePort } from './ports/gateway.id
           ? new PostgresIdempotencyStore(transactions)
           : new IdempotencyStore(),
     },
+    /** Применяет общие bounded request limits к HTTP capabilities. */
     RateLimitService,
   ],
+  /** Делает shared HTTP primitives доступными без импорта полного GatewayModule. */
   exports: [IdempotencyStore, IDEMPOTENCY_STORE_PORT, RateLimitService],
 })
 export class GatewayCommonModule {}

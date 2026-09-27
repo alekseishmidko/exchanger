@@ -23,8 +23,20 @@ import { TradingRuntimeProcessor } from './trading-runtime.processor';
 
 /** Nest module, экспортирующий единый application processor spot MVP. */
 @Module({
-  imports: [InstrumentsModule, LedgerModule, SettlementModule, ProjectionsModule, MarketDataModule],
+  imports: [
+    /** Проверяет existence/status инструмента до допуска заявки. */
+    InstrumentsModule,
+    /** Резервирует и освобождает средства через ledger port. */
+    LedgerModule,
+    /** Проводит matched trades атомарно через settlement boundary. */
+    SettlementModule,
+    /** Обновляет query read models в event sequence order. */
+    ProjectionsModule,
+    /** Публикует принятые market events внешним подписчикам. */
+    MarketDataModule,
+  ],
   providers: [
+    /** Собирает единый command processor только из публичных application ports. */
     {
       provide: TradingRuntimeProcessor,
       inject: [
@@ -44,6 +56,7 @@ import { TradingRuntimeProcessor } from './trading-runtime.processor';
         new TradingRuntimeProcessor(instruments, ledger, settlement, projections, marketData),
     },
   ],
+  /** Gateway получает processor как TradingCommandPort-compatible application boundary. */
   exports: [TradingRuntimeProcessor],
 })
 export class TradingRuntimeModule {}

@@ -40,19 +40,36 @@ import { SessionCookieService } from './security/session-cookie.service';
  * adapters остаются внутренними деталями AuthModule.
  */
 @Module({
-  imports: [AuditModule, IdentityModule, GatewayCommonModule],
+  imports: [
+    /** Записывает login, logout, credential и session security events. */
+    AuditModule,
+    /** Предоставляет storage ports users, sessions и recovery delivery. */
+    IdentityModule,
+    /** Переиспользует общие idempotency и rate-limit primitives HTTP boundary. */
+    GatewayCommonModule,
+  ],
   controllers: [
+    /** Реализует регистрацию, login, logout, verification и password recovery пользователя. */
     UserAuthenticationController,
+    /** Управляет machine principals и lifecycle API keys. */
     MachineAuthenticationController,
+    /** Даёт пользователю безопасные self-service операции над собственным профилем. */
     UsersSelfServiceController,
+    /** Позволяет администраторам просматривать и отзывать пользовательские сессии. */
     AdminSessionsController,
   ],
   providers: [
+    /** Оркестрирует human-auth use cases без transport-specific логики. */
     HumanAuthService,
+    /** Хеширует и проверяет пароли с настроенными bounded scrypt parameters. */
     PasswordHasher,
+    /** Ограничивает credential attempts до выполнения дорогостоящей проверки пароля. */
     AuthRateLimit,
+    /** Аутентифицирует browser session и формирует human principal. */
     HumanSessionGuard,
+    /** Защищает cookie-authenticated mutation requests от CSRF. */
     CsrfGuard,
+    /** Централизует безопасные атрибуты и lifecycle session cookie. */
     SessionCookieService,
     /** Выбирает durable registry для production-like profile или bounded in-memory registry. */
     {
@@ -90,8 +107,10 @@ import { SessionCookieService } from './security/session-cookie.service';
         return new ApiKeyRegistry(entries);
       },
     },
+    /** Аутентифицирует machine requests через выбранный API-key registry. */
     ApiKeyGuard,
   ],
+  /** Экспортирует только auth application/security boundary для transport-модулей. */
   exports: [
     HumanAuthService,
     AuthRateLimit,

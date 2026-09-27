@@ -18,8 +18,14 @@ import { AuthModule } from '../auth';
  * вызвать `publishPublic(...)` без зависимости от Socket.IO.
  */
 @Module({
-  imports: [AuthModule, GatewayCommonModule],
+  imports: [
+    /** Авторизует private user streams и изолирует данные разных principals. */
+    AuthModule,
+    /** Переиспользует общие abuse/rate-limit primitives transport boundary. */
+    GatewayCommonModule,
+  ],
   providers: [
+    /** Создаёт bounded pub/sub hub с лимитами подписчиков и pending messages. */
     {
       provide: MarketDataHub,
       inject: [ConfigService, MetricsService],
@@ -30,9 +36,12 @@ import { AuthModule } from '../auth';
           metrics,
         ),
     },
+    /** Ограничивает subscription churn и недопустимые WebSocket команды. */
     MarketDataAbuseControl,
+    /** Реализует Socket.IO protocol: subscribe, replay, heartbeat и resync. */
     MarketDataGateway,
   ],
+  /** Trading runtime публикует события только через transport-agnostic hub. */
   exports: [MarketDataHub],
 })
 export class MarketDataModule {}

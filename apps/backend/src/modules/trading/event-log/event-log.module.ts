@@ -14,6 +14,7 @@ import { PostgresEventLogAdapter } from './postgres-event-log.adapter';
  */
 @Module({
   providers: [
+    /** Связывает event-log port с in-memory log или transactional outbox adapter. */
     {
       provide: EVENT_LOG_PORT,
       inject: [ConfigService, POSTGRES_TRANSACTION],
@@ -26,6 +27,7 @@ import { PostgresEventLogAdapter } from './postgres-event-log.adapter';
           : new EventLog(),
     },
   ],
+  /** Producers/consumers используют append/read contract без знания storage implementation. */
   exports: [EVENT_LOG_PORT],
 })
 export class EventLogModule {}

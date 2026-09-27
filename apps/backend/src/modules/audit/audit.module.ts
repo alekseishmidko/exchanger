@@ -8,7 +8,9 @@ import { AUDIT_LOG_PORT, AuditLogPort } from './ports/audit.port';
 /** Composition root append-only audit boundary. */
 @Module({
   providers: [
+    /** In-memory реализация нужна component tests и служит domain implementation. */
     AuditLog,
+    /** Выбирает append-only PostgreSQL log для durable runtime. */
     {
       provide: AUDIT_LOG_PORT,
       inject: [ConfigService, POSTGRES_TRANSACTION],
@@ -21,6 +23,7 @@ import { AUDIT_LOG_PORT, AuditLogPort } from './ports/audit.port';
           : new AuditLog(),
     },
   ],
+  /** Экспортирует domain implementation и абстрактный port для совместимости consumers. */
   exports: [AuditLog, AUDIT_LOG_PORT],
 })
 export class AuditModule {}

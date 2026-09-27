@@ -31,15 +31,23 @@ import { AuthModule } from '../auth';
  */
 @Module({
   imports: [
+    /** Аудирует принятые и отклонённые торговые команды. */
     AuditModule,
+    /** Подключает machine/human authentication guards и principals. */
     AuthModule,
+    /** Добавляет idempotency store и общий request rate limiting. */
     GatewayCommonModule,
+    /** Резервирует monotonic sequence и partition ownership durable-команд. */
     SequencerModule,
+    /** Проверяет operational pause/freeze до допуска команды к runtime. */
     AdmissionControlModule,
+    /** Выполняет принятую команду через единый in-process trading orchestrator. */
     TradingRuntimeModule,
   ],
+  /** Публикует REST endpoints заявок и их query/cancel operations. */
   controllers: [GatewayController],
   providers: [
+    /** Выбирает direct runtime либо durable PostgreSQL command adapter. */
     {
       provide: TRADING_COMMAND_PORT,
       inject: [ConfigService, POSTGRES_TRANSACTION, SEQUENCER_STORE_PORT, TradingRuntimeProcessor],
@@ -60,6 +68,7 @@ import { AuthModule } from '../auth';
           : runtime,
     },
   ],
+  /** Экспортирует auth/common boundaries и command port, скрывая controller implementation. */
   exports: [AuthModule, GatewayCommonModule, TRADING_COMMAND_PORT],
 })
 export class GatewayModule {}

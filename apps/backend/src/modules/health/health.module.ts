@@ -20,10 +20,22 @@ import { IdentityModule, SESSION_STORE, SessionStore } from '../identity';
 
 /** Собирает health endpoints, проверки зависимостей и HTTP-наблюдаемость. */
 @Module({
-  imports: [SequencerModule, AdmissionControlModule, TradingWorkersModule, IdentityModule],
+  imports: [
+    /** Проверяет доступность partition lease и sequencer store. */
+    SequencerModule,
+    /** Учитывает готовность operational controls при расчёте readiness. */
+    AdmissionControlModule,
+    /** Не объявляет backend ready, пока durable consumers не работоспособны. */
+    TradingWorkersModule,
+    /** Проверяет session store, необходимый для пользовательской авторизации. */
+    IdentityModule,
+  ],
+  /** Публикует отдельные liveness и dependency-aware readiness endpoints. */
   controllers: [HealthController],
   providers: [
+    /** Агрегирует результаты проверок и применяет health response policy. */
     HealthService,
+    /** Собирает runtime-specific список критичных внешних зависимостей. */
     {
       provide: HEALTH_DEPENDENCIES,
       inject: [
