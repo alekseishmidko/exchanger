@@ -1,0 +1,137 @@
+asyncapi: 3.0.0
+id: urn:exchange:realtime-market-data:websocket:v1
+info:
+  title: Exchange Realtime Reference Prices WebSocket API
+  version: 1.0.0
+  description: >-
+    Socket.IO namespace /realtime-market-data. Clients subscribe by local
+    instrumentId; upstream credentials and provider subscriptions are never exposed.
+defaultContentType: application/json
+servers:
+  development:
+    host: localhost:5001
+    pathname: /socket.io
+    protocol: ws
+channels:
+  realtimeSubscribe:
+    address: realtime.subscribe
+    messages:
+      subscribe:
+        $ref: '#/components/messages/Subscribe'
+  realtimeQuote:
+    address: realtime.quote
+    messages:
+      quote:
+        $ref: '#/components/messages/Quote'
+  realtimeStatus:
+    address: realtime.status
+    messages:
+      status:
+        $ref: '#/components/messages/Status'
+  realtimeExecution:
+    address: realtime.execution
+    messages:
+      execution:
+        $ref: '#/components/messages/Execution'
+operations:
+  receiveSubscription:
+    action: receive
+    channel:
+      $ref: '#/channels/realtimeSubscribe'
+    messages:
+      - $ref: '#/channels/realtimeSubscribe/messages/subscribe'
+  sendQuote:
+    action: send
+    channel:
+      $ref: '#/channels/realtimeQuote'
+    messages:
+      - $ref: '#/channels/realtimeQuote/messages/quote'
+  sendStatus:
+    action: send
+    channel:
+      $ref: '#/channels/realtimeStatus'
+    messages:
+      - $ref: '#/channels/realtimeStatus/messages/status'
+  sendPrivateExecution:
+    action: send
+    channel:
+      $ref: '#/channels/realtimeExecution'
+    messages:
+      - $ref: '#/channels/realtimeExecution/messages/execution'
+components:
+  messages:
+    Subscribe:
+      payload:
+        $ref: '#/components/schemas/SubscribePayload'
+    Quote:
+      payload:
+        $ref: '#/components/schemas/QuotePayload'
+    Status:
+      payload:
+        $ref: '#/components/schemas/StatusPayload'
+    Execution:
+      payload:
+        $ref: '#/components/schemas/ExecutionPayload'
+  schemas:
+    SubscribePayload:
+      type: object
+      additionalProperties: false
+      required: [requestId, instrumentIds]
+      properties:
+        requestId: { type: string, minLength: 1, maxLength: 128 }
+        instrumentIds:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items: { type: string, minLength: 1, maxLength: 128 }
+    QuotePayload:
+      type: object
+      additionalProperties: false
+      required:
+        - instrumentId
+        - quoteId
+        - price
+        - priceType
+        - providerTimestamp
+        - receivedAt
+        - expiresAt
+        - sequence
+        - status
+        - source
+      properties:
+        instrumentId: { type: string }
+        quoteId: { type: string }
+        price: { type: string, pattern: '^(0|[1-9][0-9]*)(\.[0-9]+)?$' }
+        priceType: { const: LAST }
+        providerTimestamp: { type: string, format: date-time }
+        receivedAt: { type: string, format: date-time }
+        expiresAt: { type: string, format: date-time }
+        sequence: { type: string, pattern: '^[1-9][0-9]*$' }
+        status: { enum: [FRESH, STALE] }
+        source: { const: TwelveData }
+    StatusPayload:
+      type: object
+      additionalProperties: true
+      description: Provider or per-instrument FRESH/STALE/UNAVAILABLE state.
+    ExecutionPayload:
+      type: object
+      additionalProperties: false
+      required: [commandId, orderId, executionId, accountId, instrumentId, side, quantity, price, notional, fee, quoteId, priceSource, priceType, providerTimestamp, receivedAt, status, createdAt]
+      properties:
+        commandId: { type: string }
+        orderId: { type: string }
+        executionId: { type: string }
+        accountId: { type: string }
+        instrumentId: { type: string }
+        side: { enum: [BUY, SELL] }
+        quantity: { type: string }
+        price: { type: string }
+        notional: { type: string }
+        fee: { type: string }
+        quoteId: { type: string }
+        priceSource: { const: TwelveData }
+        priceType: { const: LAST }
+        providerTimestamp: { type: string, format: date-time }
+        receivedAt: { type: string, format: date-time }
+        status: { const: FILLED }
+        createdAt: { type: string, format: date-time }

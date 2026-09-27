@@ -67,6 +67,14 @@ export interface LedgerPort {
     asset: AssetId,
     amount: Decimal,
   ): OperationResult | Promise<OperationResult>;
+  /** Атомарно переводит available средства между двумя счетами. */
+  transferAvailable(
+    id: OperationId,
+    debit: AccountId,
+    credit: AccountId,
+    asset: AssetId,
+    amount: Decimal,
+  ): OperationResult | Promise<OperationResult>;
   /**
    * Атомарно переносит available в reserved.
    * Суммарный balance не меняется, а reserved не превышает total.

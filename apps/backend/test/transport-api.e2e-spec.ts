@@ -34,6 +34,17 @@ describe('Transport API completeness', () => {
 
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
+      .overrideProvider(ConfigService)
+      .useValue(
+        new ConfigService({
+          ...process.env,
+          NODE_ENV: 'test',
+          RUNTIME_PROFILE: 'component',
+          AUTH_USER_STORE_ADAPTER: 'memory',
+          AUTH_SESSION_STORE_ADAPTER: 'memory',
+          AUTH_API_KEY_STORE_ADAPTER: 'memory',
+        }),
+      )
       .overrideProvider(ApiKeyRegistry)
       .useValue(testApiKeyRegistry())
       .compile();

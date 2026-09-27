@@ -184,3 +184,28 @@ tests.
 [`asyncapi/market-data.yaml`](asyncapi/market-data.yaml). Клиент хранит sequence,
 после reconnect повторяет subscriptions и запрашивает `market.resync`; private
 subscription восстанавливается только после успешной повторной authentication.
+
+## Twelve Data realtime-контур (этапы 1–5)
+
+Каталог доступен через `GET /api/v1/realtime/instruments` и
+`GET /api/v1/realtime/instruments/{instrumentId}`. Он читается только из
+локального snapshot и поддерживает `assetClass`, `exchange`, `status`, `query`,
+`limit` и opaque `cursor`; пользовательский запрос никогда не вызывает Twelve
+Data. `GET /api/v1/realtime/market-status` возвращает только нормализованное
+состояние ingest-контура без ключей и upstream URL.
+
+`GET /api/v1/realtime/quotes?instrumentIds=...` возвращает локальные состояния
+`FRESH`, `STALE` или `UNAVAILABLE`. Namespace `/realtime-market-data` принимает
+`realtime.subscribe`, `realtime.unsubscribe` и `heartbeat`, отправляет initial
+snapshot после ack, затем `realtime.quote`, `realtime.status` и приватные
+`realtime.execution`.
+
+`POST /api/v1/realtime/orders` требует `Idempotency-Key` и `expectedQuoteId`.
+Повтор той же команды возвращает исходное исполнение; другая команда с тем же
+ключом отклоняется. `QUOTE_CHANGED`/`QUOTE_STALE` имеют HTTP 409, отсутствие
+цены или системной ликвидности — HTTP 503. История доступна через GET того же
+resource и фильтруется по authenticated owner.
+
+Текущие `/api/v1/instruments`, `/api/v1/orders` и `/market-data` не меняются.
+Клиент не должен подключаться к Twelve Data напрямую или использовать provider
+symbol как локальный `instrumentId`.

@@ -109,6 +109,62 @@ describe('environment validation', () => {
     ).toThrow('SWAGGER_ENABLED must be true, false, 1, or 0');
   });
 
+  it('requires Twelve Data secrets and safe dependency URLs only when enabled', () => {
+    const base = {
+      NODE_ENV: 'test',
+      PORT: '5000',
+      SERVICE_NAME: 'exchange-backend',
+      ...authSecrets,
+    };
+    expect(() => validateEnvironment({ ...base, TWELVE_DATA_ENABLED: 'true' })).toThrow(
+      'TWELVE_DATA_API_KEY is required',
+    );
+    expect(() =>
+      validateEnvironment({
+        ...base,
+        TWELVE_DATA_ENABLED: 'true',
+        TWELVE_DATA_API_KEY: 'provider-secret',
+        TWELVE_DATA_REST_URL: 'http://api.twelvedata.com',
+        TWELVE_DATA_WS_URL: 'wss://ws.twelvedata.com/v1/quotes/price',
+        TWELVE_DATA_REDIS_URL: 'redis://127.0.0.1:6379',
+      }),
+    ).toThrow('TWELVE_DATA_REST_URL must use https:');
+  });
+
+  it('rejects unsafe quote TTL and catalog configuration', () => {
+    const base = {
+      NODE_ENV: 'test',
+      PORT: '5000',
+      SERVICE_NAME: 'exchange-backend',
+      ...authSecrets,
+    };
+    expect(() =>
+      validateEnvironment({
+        ...base,
+        TWELVE_DATA_QUOTE_MAX_AGE_MS: '5000',
+        TWELVE_DATA_QUOTE_TTL_MS: '1000',
+      }),
+    ).toThrow('cannot be lower');
+    expect(() =>
+      validateEnvironment({ ...base, TWELVE_DATA_ASSET_CLASSES: 'crypto,unknown' }),
+    ).toThrow('unsupported asset class');
+  });
+
+  it('keeps realtime execution behind provider, durable adapters and bounded fees', () => {
+    const base = {
+      NODE_ENV: 'test',
+      PORT: '5000',
+      SERVICE_NAME: 'exchange-backend',
+      ...authSecrets,
+    };
+    expect(() => validateEnvironment({ ...base, REALTIME_EXECUTION_ENABLED: 'true' })).toThrow(
+      'requires TWELVE_DATA_ENABLED',
+    );
+    expect(() => validateEnvironment({ ...base, REALTIME_EXECUTION_FEE_RATE: '1' })).toThrow(
+      'must be within [0, 1)',
+    );
+  });
+
   it('rejects development instrument seeding outside development', () => {
     expect(() =>
       validateEnvironment({

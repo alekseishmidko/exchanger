@@ -50,6 +50,10 @@ export class MetricsService implements OperationalMetrics, OnModuleDestroy {
   private readonly credentialRevalidation = this.counter(
     'exchange_auth_credential_revalidation_total',
   );
+  private readonly realtimeTicks = this.counter('exchange_realtime_ticks_total');
+  private readonly realtimeProviderState = this.gauge('exchange_realtime_provider_state');
+  private readonly realtimeExecutions = this.counter('exchange_realtime_execution_total');
+  private readonly realtimeLiquidity = this.gauge('exchange_realtime_liquidity_available');
   private readonly projectionLag = this.gauge('exchange_projection_lag_events');
   private readonly consumerLag = this.gauge('exchange_consumer_lag_events');
   private readonly resourceUtilization = this.gauge('exchange_resource_utilization_ratio');
@@ -200,6 +204,27 @@ export class MetricsService implements OperationalMetrics, OnModuleDestroy {
    */
   markMarketDataPublished(channel: 'book' | 'trades' | 'ticker'): void {
     this.lastMarketDataAt.set(channel, Date.now());
+  }
+
+  /** Учитывает upstream ticks без symbol label и контролирует cardinality. */
+  observeRealtimeTick(outcome: 'accepted' | 'duplicate' | 'invalid'): void {
+    this.realtimeTicks.inc({ labels: { outcome }, exemplarLabels: this.exemplar() });
+  }
+
+  /** Кодирует bounded lifecycle: disabled=0, follower=.2, connecting=.5, connected=1, degraded=-1. */
+  setRealtimeProviderState(
+    state: 'DISABLED' | 'FOLLOWER' | 'CONNECTING' | 'CONNECTED' | 'DEGRADED',
+  ): void {
+    const values = { DISABLED: 0, FOLLOWER: 0.2, CONNECTING: 0.5, CONNECTED: 1, DEGRADED: -1 };
+    this.realtimeProviderState.set(values[state]);
+  }
+
+  observeRealtimeExecution(outcome: 'filled' | 'rejected', reason = 'none'): void {
+    this.realtimeExecutions.inc({ labels: { outcome, reason }, exemplarLabels: this.exemplar() });
+  }
+
+  setRealtimeLiquidityAvailable(available: boolean): void {
+    this.realtimeLiquidity.set(available ? 1 : 0);
   }
 
   /** Записывает latency отдельного этапа критического пути. */

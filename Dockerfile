@@ -16,6 +16,15 @@ COPY packages/contracts packages/contracts
 FROM base AS development
 CMD ["pnpm", "--filter", "@exchange/backend", "start:dev"]
 
+# Black-box API flows должны стартовать одинаково на чистом GitHub runner и
+# локально. В отличие от development Compose этот target не требует bind mounts,
+# named node_modules volumes или runtime install: contracts и backend уже
+# собраны в image, а запуск проверяет именно immutable artifact.
+FROM base AS api-flows
+RUN pnpm --filter @exchange/contracts build \
+    && pnpm --filter @exchange/backend build
+CMD ["pnpm", "--filter", "@exchange/backend", "start"]
+
 FROM base AS build
 RUN pnpm build
 RUN pnpm --filter @exchange/backend --prod deploy --legacy /production/backend

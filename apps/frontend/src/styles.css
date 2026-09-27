@@ -146,6 +146,58 @@ h2 {
   margin-bottom: 18px;
 }
 
+.realtime-panel {
+  margin-bottom: 18px;
+}
+
+.realtime-controls,
+.realtime-badges {
+  display: flex;
+  gap: 10px;
+  align-items: end;
+}
+
+.realtime-controls label {
+  flex: 1;
+}
+
+.realtime-quote-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(140px, 1fr));
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.price-card {
+  display: grid;
+  gap: 6px;
+}
+
+.price-card span {
+  color: #94a3b8;
+  font-size: 0.78rem;
+}
+
+.quote-state {
+  border: 1px solid #475569;
+  border-radius: 999px;
+  padding: 0.4rem 0.7rem;
+  font-size: 0.75rem;
+}
+
+.quote-state.connected,
+.quote-state.fresh {
+  border-color: #22c55e;
+  color: #86efac;
+}
+
+.quote-state.stale,
+.quote-state.disconnected,
+.quote-state.unavailable {
+  border-color: #ef4444;
+  color: #fca5a5;
+}
+
 .user-auth-panel {
   margin-bottom: 18px;
 }

@@ -198,6 +198,143 @@ paths:
       operationId: getInstrument
       responses:
         '200': { description: Instrument rules history }
+  /api/v1/realtime/instruments:
+    get:
+      operationId: listRealtimeInstruments
+      security: [{ ApiKeyAuth: [] }]
+      responses:
+        '200': { description: Locally cached Twelve Data instrument catalog }
+        '400': { description: Invalid filters or pagination }
+  /api/v1/realtime/instruments/{instrumentId}:
+    parameters:
+      - $ref: '#/components/parameters/InstrumentId'
+    get:
+      operationId: getRealtimeInstrument
+      security: [{ ApiKeyAuth: [] }]
+      responses:
+        '200': { description: Realtime instrument metadata }
+        '404': { description: Realtime instrument not found }
+  /api/v1/realtime/market-status:
+    get:
+      operationId: getRealtimeMarketStatus
+      security: [{ ApiKeyAuth: [] }]
+      responses:
+        '200': { description: Bounded provider and ingest status }
+  /api/v1/realtime/quotes:
+    get:
+      operationId: listRealtimeQuotes
+      security: [{ ApiKeyAuth: [] }]
+      parameters:
+        - { name: instrumentIds, in: query, required: true, schema: { type: string, maxLength: 12900 } }
+      responses:
+        '200': { description: 'Fresh, stale or unavailable local quote snapshots' }
+        '400': { description: Invalid or oversized instrument set }
+  /api/v1/realtime/orders:
+    post:
+      operationId: executeRealtimeOrder
+      security: [{ ApiKeyAuth: [] }]
+      parameters:
+        - { name: Idempotency-Key, in: header, required: true, schema: { type: string, maxLength: 128 } }
+      responses:
+        '200': { description: Reference-price execution filled }
+        '400': { description: Invalid or non-tradable operation }
+        '409': { description: 'Quote changed, stale or execution paused' }
+        '503': { description: Price or liquidity unavailable }
+    get:
+      operationId: listRealtimeOrders
+      security: [{ ApiKeyAuth: [] }]
+      responses:
+        '200': { description: Principal-owned realtime execution history }
+  /api/v1/realtime/orders/{orderId}:
+    parameters:
+      - { name: orderId, in: path, required: true, schema: { type: string, minLength: 1, maxLength: 128 } }
+    get:
+      operationId: getRealtimeOrder
+      security: [{ ApiKeyAuth: [] }]
+      responses:
+        '200': { description: Principal-owned realtime execution }
+        '404': { description: Order not found }
+  /api/v1/admin/realtime/catalog-sync:
+    post:
+      operationId: triggerRealtimeCatalogSync
+      security: [{ ApiKeyAuth: [] }]
+      parameters:
+        - {
+            name: Idempotency-Key,
+            in: header,
+            required: true,
+            schema: { type: string, maxLength: 128 },
+          }
+      responses:
+        '202': { description: Catalog sync accepted }
+        '400': { description: Invalid idempotency key }
+  /api/v1/admin/realtime/instruments/{instrumentId}/price-enable:
+    parameters:
+      - $ref: '#/components/parameters/InstrumentId'
+    post:
+      operationId: enableRealtimeInstrumentPrice
+      security: [{ ApiKeyAuth: [] }]
+      parameters:
+        - { name: Idempotency-Key, in: header, required: true, schema: { type: string, maxLength: 128 } }
+      responses:
+        '201': { description: Realtime price ingest enabled }
+        '400': { description: Invalid idempotency key }
+        '404': { description: Instrument not found or inactive }
+  /api/v1/admin/realtime/instruments/{instrumentId}/price-disable:
+    parameters:
+      - $ref: '#/components/parameters/InstrumentId'
+    post:
+      operationId: disableRealtimeInstrumentPrice
+      security: [{ ApiKeyAuth: [] }]
+      parameters:
+        - { name: Idempotency-Key, in: header, required: true, schema: { type: string, maxLength: 128 } }
+      responses:
+        '201': { description: Realtime price ingest disabled }
+        '400': { description: Invalid idempotency key }
+        '404': { description: Instrument not found }
+  /api/v1/admin/realtime/instruments/{instrumentId}/trading-enable:
+    parameters:
+      - $ref: '#/components/parameters/InstrumentId'
+    post:
+      operationId: enableRealtimeInstrumentTrading
+      security: [{ ApiKeyAuth: [] }]
+      parameters:
+        - { name: Idempotency-Key, in: header, required: true, schema: { type: string, maxLength: 128 } }
+      responses:
+        '201': { description: Reference-price execution enabled for instrument }
+        '404': { description: 'Instrument not found, inactive or price-disabled' }
+  /api/v1/admin/realtime/instruments/{instrumentId}/trading-disable:
+    parameters:
+      - $ref: '#/components/parameters/InstrumentId'
+    post:
+      operationId: disableRealtimeInstrumentTrading
+      security: [{ ApiKeyAuth: [] }]
+      parameters:
+        - { name: Idempotency-Key, in: header, required: true, schema: { type: string, maxLength: 128 } }
+      responses:
+        '201': { description: Reference-price execution disabled for instrument }
+  /api/v1/admin/realtime/execution/pause:
+    post:
+      operationId: pauseRealtimeExecution
+      security: [{ ApiKeyAuth: [] }]
+      parameters:
+        - { name: Idempotency-Key, in: header, required: true, schema: { type: string, maxLength: 128 } }
+      responses:
+        '201': { description: Execution kill switch enabled }
+  /api/v1/admin/realtime/execution/resume:
+    post:
+      operationId: resumeRealtimeExecution
+      security: [{ ApiKeyAuth: [] }]
+      parameters:
+        - { name: Idempotency-Key, in: header, required: true, schema: { type: string, maxLength: 128 } }
+      responses:
+        '201': { description: Execution kill switch disabled }
+  /api/v1/admin/realtime/execution/reconciliation:
+    get:
+      operationId: reconcileRealtimeExecution
+      security: [{ ApiKeyAuth: [] }]
+      responses:
+        '200': { description: 'Commands, quote snapshots, executions and pending outbox counts' }
   /api/v1/accounts:
     post:
       operationId: createAccount

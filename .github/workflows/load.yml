@@ -51,8 +51,8 @@ jobs:
 
       - name: Show SUT logs on failure
         if: failure()
-        run: docker compose -f docker-compose.development.yml -f docker-compose.observability.yml -f docker-compose.load.yml logs backend
+        run: find artifacts/load -name backend.log -exec cat {} \;
 
       - name: Stop environment
         if: always()
-        run: docker compose -f docker-compose.development.yml -f docker-compose.observability.yml -f docker-compose.load.yml down --volumes
+        run: docker compose -f docker-compose.api-flows.yml -f docker-compose.observability.yml -f docker-compose.load.yml down --volumes --remove-orphans

@@ -15,6 +15,8 @@ export type AlertSignals = Readonly<{
   projectionLag: number;
   backendUp: boolean;
   telemetryExportFailures: number;
+  realtimeProviderDegraded: boolean;
+  realtimeLiquidityAvailable: boolean;
 }>;
 
 /** Имена Prometheus alerts, синхронизируемые contract test с alerts.yaml. */
@@ -25,6 +27,8 @@ export const ALERT_NAMES = [
   'ExchangeMarketDataStale',
   'ExchangeProjectionLagHigh',
   'ExchangeTelemetryBlackout',
+  'ExchangeRealtimeProviderDegraded',
+  'ExchangeRealtimeLiquidityUnavailable',
 ] as const;
 
 /** Имя проверяемого алерта этапа 15. */
@@ -52,6 +56,8 @@ export function evaluateAlerts(signals: AlertSignals): Readonly<Record<AlertName
     ExchangeMarketDataStale: signals.marketDataSaturation > 0.8 || signals.marketDataGaps > 0,
     ExchangeProjectionLagHigh: signals.projectionLag > 1000,
     ExchangeTelemetryBlackout: !signals.backendUp || signals.telemetryExportFailures > 10,
+    ExchangeRealtimeProviderDegraded: signals.realtimeProviderDegraded,
+    ExchangeRealtimeLiquidityUnavailable: !signals.realtimeLiquidityAvailable,
   };
 }
 
@@ -66,4 +72,6 @@ export const NORMAL_SIGNALS: AlertSignals = {
   projectionLag: 0,
   backendUp: true,
   telemetryExportFailures: 0,
+  realtimeProviderDegraded: false,
+  realtimeLiquidityAvailable: true,
 };

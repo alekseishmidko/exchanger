@@ -6,7 +6,10 @@ import { resolve } from 'node:path';
 
 const runId = randomUUID().replaceAll('-', '').slice(0, 12).toLowerCase();
 const projectName = `exchange-api-flows-${runId}`;
-const composeArgs = ['compose', '-f', 'docker-compose.development.yml'];
+// API-flow использует immutable image без development bind mounts и runtime
+// install. Это устраняет зависимость cold GitHub runner от состояния named
+// node_modules volumes и pnpm store внутри запущенного контейнера.
+const composeArgs = ['compose', '-f', 'docker-compose.api-flows.yml'];
 const reportDirectory = resolve(process.env['API_FLOW_REPORT_DIR'] ?? 'artifacts/api-flows');
 
 /**
@@ -79,6 +82,29 @@ function exitCode(result) {
   return result.status ?? 1;
 }
 
+/** Удаляет credentials и ограничивает объём container log в CI console. */
+function sanitizedBackendLog(result) {
+  const apiKey = process.env['API_FLOW_API_KEY'] ?? 'dev-key';
+  const adminApiKey = process.env['API_FLOW_ADMIN_API_KEY'] ?? 'dev-admin-key';
+  const value = `${result.stdout ?? ''}${result.stderr ?? ''}`
+    .replaceAll(apiKey, '[REDACTED_API_KEY]')
+    .replaceAll(adminApiKey, '[REDACTED_ADMIN_API_KEY]');
+  const maxLength = 64 * 1024;
+  return value.length <= maxLength ? value : `[truncated]\n${value.slice(-maxLength)}`;
+}
+
+/** Собирает backend diagnostics, сохраняет artifact и показывает причину job. */
+async function publishBackendDiagnostics() {
+  const logs = run('docker', [...composeArgs, 'logs', '--no-color', 'backend'], false);
+  const sanitized = sanitizedBackendLog(logs);
+  await writeFile(resolve(reportDirectory, 'backend.log'), sanitized);
+  if (sanitized) {
+    process.stderr.write('\n=== API flow backend diagnostics ===\n');
+    process.stderr.write(sanitized);
+    if (!sanitized.endsWith('\n')) process.stderr.write('\n');
+  }
+}
+
 let flowCode = 1;
 await mkdir(reportDirectory, { recursive: true });
 // Каждый запуск публикует только собственную диагностику: старый failure log не
@@ -97,16 +123,11 @@ try {
   const flow = run(process.execPath, ['scripts/run-api-flows.mjs']);
   flowCode = exitCode(flow);
   if (flowCode !== 0) {
-    const logs = run('docker', [...composeArgs, 'logs', '--no-color', 'backend'], false);
-    const apiKey = process.env['API_FLOW_API_KEY'] ?? 'dev-key';
-    const sanitized = `${logs.stdout ?? ''}${logs.stderr ?? ''}`.replaceAll(
-      apiKey,
-      '[REDACTED_API_KEY]',
-    );
-    await writeFile(resolve(reportDirectory, 'backend.log'), sanitized);
+    await publishBackendDiagnostics();
   }
 } catch (error) {
   process.stderr.write(`${error instanceof Error ? error.message : 'API flow startup failed'}\n`);
+  await publishBackendDiagnostics();
 } finally {
   process.stdout.write(`Stopping isolated API flow environment: ${projectName}\n`);
   run('docker', [...composeArgs, 'down', '--volumes', '--remove-orphans']);

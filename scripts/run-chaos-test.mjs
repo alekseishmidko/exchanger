@@ -38,7 +38,7 @@ const loadDirectory = resolve(resultDirectory, 'load');
 const hostBaseUrl = (process.env['CHAOS_BASE_URL'] ?? 'http://localhost:5001').replace(/\/+$/, '');
 const composeFiles = [
   '-f',
-  'docker-compose.development.yml',
+  'docker-compose.api-flows.yml',
   '-f',
   'docker-compose.observability.yml',
   '-f',

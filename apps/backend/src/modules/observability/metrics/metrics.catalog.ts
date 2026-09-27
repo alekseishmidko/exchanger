@@ -39,6 +39,10 @@ export const METRIC_LABEL_POLICY = {
   exchange_telemetry_export_failures_total: ['signal', 'reason'],
   exchange_telemetry_dropped_total: ['signal', 'reason'],
   exchange_auth_credential_revalidation_total: ['outcome'],
+  exchange_realtime_ticks_total: ['outcome'],
+  exchange_realtime_provider_state: [],
+  exchange_realtime_execution_total: ['outcome', 'reason'],
+  exchange_realtime_liquidity_available: [],
 } as const;
 
 /** Имя метрики, разрешённое публичным observability contract. */

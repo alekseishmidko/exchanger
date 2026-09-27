@@ -31,6 +31,11 @@ describe('Human authentication HTTP contract', () => {
       .useValue(
         new ConfigService({
           ...process.env,
+          NODE_ENV: 'test',
+          RUNTIME_PROFILE: 'component',
+          AUTH_USER_STORE_ADAPTER: 'memory',
+          AUTH_SESSION_STORE_ADAPTER: 'memory',
+          AUTH_API_KEY_STORE_ADAPTER: 'memory',
           AUTH_TEST_BYPASS_ENABLED: 'true',
           AUTH_TEST_BYPASS_TOKEN: 'isolated-test-bypass-token-never-production-2026',
           AUTH_TEST_IDENTITY: process.env['AUTH_TEST_IDENTITY'],

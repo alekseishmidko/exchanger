@@ -44,3 +44,17 @@ groups:
         annotations:
           runbook_url: https://runbooks.example.com/exchange/observability-blackout
           diagnostic_context: Business readiness must remain independent; inspect collector queue and storage capacity.
+      - alert: ExchangeRealtimeProviderDegraded
+        expr: min(exchange_realtime_provider_state) < 0 or increase(exchange_realtime_ticks_total{outcome="invalid"}[5m]) > 20
+        for: 2m
+        labels: { severity: warning, owner: market-data }
+        annotations:
+          runbook_url: https://runbooks.example.com/exchange/realtime-provider
+          diagnostic_context: Inspect Twelve Data heartbeat/reconnect, leader lease, credits and invalid payload rate; do not fail the legacy matching flow.
+      - alert: ExchangeRealtimeLiquidityUnavailable
+        expr: exchange_realtime_liquidity_available == 0 or increase(exchange_realtime_execution_total{outcome="rejected",reason="LIQUIDITY_UNAVAILABLE"}[5m]) > 0
+        for: 0m
+        labels: { severity: critical, owner: treasury }
+        annotations:
+          runbook_url: https://runbooks.example.com/exchange/realtime-liquidity
+          diagnostic_context: Keep realtime execution paused, reconcile system balances and fund the configured liquidity account without minting inside an order.

@@ -32,7 +32,7 @@ if (redisProbe.status !== 0) {
   process.exit(redisProbe.status ?? 1);
 }
 
-/** Запускает единственный real-Redis suite с явным opt-in и serial execution. */
+/** Запускает все real-Redis suites с явным opt-in и serial execution. */
 const result = spawnSync(
   'corepack',
   [
@@ -42,6 +42,7 @@ const result = spawnSync(
     'exec',
     'jest',
     'src/modules/identity/infrastructure/redis-session.int-spec.ts',
+    'src/modules/realtime-market/infrastructure/redis-quote.int-spec.ts',
     '--runInBand',
   ],
   {

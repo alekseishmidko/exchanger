@@ -57,6 +57,8 @@ describe('Observability as code', () => {
       projectionLag: 10_000,
       backendUp: false,
       telemetryExportFailures: 100,
+      realtimeProviderDegraded: true,
+      realtimeLiquidityAvailable: false,
     };
     expect(Object.values(evaluateAlerts(degraded))).not.toContain(false);
     expect(Object.values(evaluateAlerts(NORMAL_SIGNALS))).not.toContain(true);

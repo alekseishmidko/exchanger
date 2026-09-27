@@ -1,5 +1,6 @@
 import { resolve, sep } from 'node:path';
 import { validateRuntimeAdapters } from './runtime-adapters';
+import { validateRealtimeEnvironment } from './realtime-environment';
 
 /** Допустимые режимы запуска backend-приложения. */
 export type Environment = 'development' | 'production' | 'test';
@@ -244,6 +245,8 @@ export function validateEnvironment(config: EnvironmentConfig): EnvironmentConfi
   ) {
     throw new Error('ISOLATED_STAGING_SEED_INSTRUMENTS requires the isolated chaos interlock');
   }
+
+  validateRealtimeEnvironment(config);
 
   for (const key of [
     'WORKER_BATCH_SIZE',

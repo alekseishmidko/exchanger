@@ -2,6 +2,7 @@ import { ColumnDef } from '@tanstack/react-table';
 import { Suspense, lazy, useCallback, useMemo, useState } from 'react';
 import { DataTable } from './components/DataTable';
 import { SimulationPanel } from './components/SimulationPanel';
+import { RealtimeMarketPanel } from './components/RealtimeMarketPanel';
 import { UserAuthPanel } from './components/UserAuthPanel';
 import {
   ApiClientConfig,
@@ -577,6 +578,8 @@ export function App() {
       <UserAuthPanel onAuthenticated={selectHumanUser} />
 
       <SimulationPanel />
+
+      <RealtimeMarketPanel baseUrl={baseUrl} apiKey={apiKey} />
 
       <section className="panel config-panel">
         <label>
