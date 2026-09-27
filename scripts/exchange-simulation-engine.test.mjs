@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   createPseudoRandom,
+  extractSessionCookies,
   mapConcurrent,
   normalizeSimulationConfig,
 } from './exchange-simulation-engine.mjs';
@@ -12,6 +13,19 @@ test('pseudo-random generator is deterministic for the same seed', () => {
   assert.deepEqual(
     Array.from({ length: 8 }, () => first()),
     Array.from({ length: 8 }, () => second()),
+  );
+});
+
+test('extracts opaque session and CSRF credentials from login cookies', () => {
+  assert.deepEqual(
+    extractSessionCookies([
+      'exchange_session=opaque-session; Path=/; HttpOnly; SameSite=Strict',
+      'exchange_csrf=csrf-value; Path=/; SameSite=Strict',
+    ]),
+    {
+      cookie: 'exchange_session=opaque-session; exchange_csrf=csrf-value',
+      csrfToken: 'csrf-value',
+    },
   );
 });
 

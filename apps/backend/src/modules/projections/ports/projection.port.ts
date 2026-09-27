@@ -24,6 +24,8 @@ export const PROJECTION_STORE_PORT = Symbol('PROJECTION_STORE_PORT');
  * таблицам или внутреннему состоянию consumer.
  */
 export interface ProjectionStorePort {
+  /** Резервирует следующий sequence внутри текущей projection transaction. */
+  nextSequence(): number | Promise<number>;
   /**
    * Идемпотентно применяет следующее последовательное событие.
    * Duplicate eventId не меняет модель, а sequence gap останавливает consumer.

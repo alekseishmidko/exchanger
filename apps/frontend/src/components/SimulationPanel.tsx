@@ -5,6 +5,9 @@ type SimulationStatus = Readonly<{
   running: boolean;
   runId: string | null;
   startedAt: string | null;
+  usersRegistered: number;
+  usersLoggedIn: number;
+  accountsReady: number;
   usersReady: number;
   usersTotal: number;
   marketsReady: number;
@@ -23,6 +26,9 @@ const emptyStatus: SimulationStatus = {
   running: false,
   runId: null,
   startedAt: null,
+  usersRegistered: 0,
+  usersLoggedIn: 0,
+  accountsReady: 0,
   usersReady: 0,
   usersTotal: 0,
   marketsReady: 0,
@@ -97,8 +103,9 @@ export function SimulationPanel() {
           <p className="eyebrow">Synthetic market</p>
           <h2>Симуляция 1000 пользователей</h2>
           <p className="muted">
-            Worker выпускает trader credentials, создаёт и финансирует аккаунты, затем генерирует
-            парные BUY/SELL заявки по шести рынкам через публичный API.
+            Worker регистрирует пользователей, выполняет вход по email и паролю, создаёт и
+            финансирует аккаунты, затем генерирует парные BUY/SELL заявки по шести рынкам через
+            session-authenticated API.
           </p>
         </div>
         <span className={`simulation-phase ${status.phase}`}>{status.phase}</span>
@@ -154,7 +161,12 @@ export function SimulationPanel() {
       {requestError ? <p className="simulation-error">{requestError}</p> : null}
 
       <div className="simulation-metrics">
-        <Metric label="Пользователи" value={`${status.usersReady}/${status.usersTotal || users}`} />
+        <Metric
+          label="Регистрация"
+          value={`${status.usersRegistered}/${status.usersTotal || users}`}
+        />
+        <Metric label="Вход" value={`${status.usersLoggedIn}/${status.usersTotal || users}`} />
+        <Metric label="Аккаунты" value={`${status.accountsReady}/${status.usersTotal || users}`} />
         <Metric label="Рынки" value={`${status.marketsReady}/6`} />
         <Metric label="Раунды" value={String(status.rounds)} />
         <Metric label="Отправлено" value={String(status.ordersSubmitted)} />

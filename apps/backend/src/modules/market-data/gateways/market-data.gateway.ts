@@ -8,7 +8,7 @@ import {
   SubscribeMessage,
   WebSocketGateway,
 } from '@nestjs/websockets';
-import { ApiKeyRegistry, assertAuthorizedAction } from '../../gateway/auth/gateway.auth';
+import { ApiKeyRegistry, assertAuthorizedAction } from '../../auth';
 import { BackpressureError, MarketDataHub, MarketDataMessage } from '../domain/market-data';
 import { MarketDataConnectionPolicy } from '../policies/market-data.connection-policy';
 import { MarketDataAbuseControl } from '../policies/market-data-abuse-control';

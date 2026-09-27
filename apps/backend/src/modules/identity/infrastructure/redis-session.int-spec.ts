@@ -7,7 +7,7 @@ import { createHmac } from 'node:crypto';
 import { createClient } from 'redis';
 import type { SessionRecord } from '../domain/identity.types';
 import { RedisSessionStore } from './redis-session.store';
-import { AuthRateLimit } from '../security/auth-rate-limit';
+import { AuthRateLimit } from '../../auth/security/auth-rate-limit';
 
 const redisAvailable = process.env['RUN_REDIS_INTEGRATION'] === 'true';
 

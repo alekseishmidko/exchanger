@@ -5,6 +5,7 @@ import { GatewayCommonModule } from '../gateway/gateway-common.module';
 import { MarketDataGateway } from './gateways/market-data.gateway';
 import { MetricsService } from '../observability';
 import { MarketDataAbuseControl } from './policies/market-data-abuse-control';
+import { AuthModule } from '../auth';
 
 /**
  * Составляет market-data boundary: domain producers работают с `MarketDataHub`,
@@ -17,8 +18,14 @@ import { MarketDataAbuseControl } from './policies/market-data-abuse-control';
  * вызвать `publishPublic(...)` без зависимости от Socket.IO.
  */
 @Module({
-  imports: [GatewayCommonModule],
+  imports: [
+    /** Авторизует private user streams и изолирует данные разных principals. */
+    AuthModule,
+    /** Переиспользует общие abuse/rate-limit primitives transport boundary. */
+    GatewayCommonModule,
+  ],
   providers: [
+    /** Создаёт bounded pub/sub hub с лимитами подписчиков и pending messages. */
     {
       provide: MarketDataHub,
       inject: [ConfigService, MetricsService],
@@ -29,9 +36,12 @@ import { MarketDataAbuseControl } from './policies/market-data-abuse-control';
           metrics,
         ),
     },
+    /** Ограничивает subscription churn и недопустимые WebSocket команды. */
     MarketDataAbuseControl,
+    /** Реализует Socket.IO protocol: subscribe, replay, heartbeat и resync. */
     MarketDataGateway,
   ],
+  /** Trading runtime публикует события только через transport-agnostic hub. */
   exports: [MarketDataHub],
 })
 export class MarketDataModule {}

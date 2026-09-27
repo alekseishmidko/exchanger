@@ -6,8 +6,9 @@ import { Instrument } from './instrument';
 
 /**
  * Наполняет ephemeral-каталог минимальным активным инструментом для ручного
- * development-стенда. Seeder включается явным env-флагом и запрещён вне
- * development через общую валидацию окружения.
+ * development-стенда или изолированного resilience-контура. Оба режима
+ * включаются явными env-флагами; staging-флаг дополнительно защищён chaos
+ * interlock в общей валидации окружения.
  */
 @Injectable()
 export class DevelopmentInstrumentSeeder implements OnApplicationBootstrap {
@@ -18,8 +19,13 @@ export class DevelopmentInstrumentSeeder implements OnApplicationBootstrap {
 
   /** Создаёт BTC-USD до начала обработки пользовательских запросов. */
   onApplicationBootstrap(): void {
-    const enabled = this.config.get<string>('DEVELOPMENT_SEED_INSTRUMENTS');
-    if (enabled !== 'true' && enabled !== '1') return;
+    const developmentEnabled = this.config.get<string>('DEVELOPMENT_SEED_INSTRUMENTS');
+    const stagingEnabled = this.config.get<string>('ISOLATED_STAGING_SEED_INSTRUMENTS');
+    if (
+      !['true', '1'].includes(developmentEnabled ?? '') &&
+      !['true', '1'].includes(stagingEnabled ?? '')
+    )
+      return;
 
     const instrument = new Instrument(
       'BTC-USD',

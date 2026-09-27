@@ -55,7 +55,6 @@ export class TradingRuntimeProcessor implements TradingCommandPort {
   private readonly engines = new Map<string, MatchingEngine>();
   private readonly orderStates = new Map<string, RuntimeOrderState>();
   private readonly results = new Map<string, GatewayCommandResult>();
-  private projectionSequence = 0;
 
   constructor(
     private readonly instruments: InstrumentCatalogService,
@@ -247,10 +246,11 @@ export class TradingRuntimeProcessor implements TradingCommandPort {
   ): Promise<void> {
     for (const event of events) {
       if (event.kind === 'ORDER_ACCEPTED' || event.kind === 'ORDER_CANCELLED') {
+        const projectionSequence = await this.projections.nextSequence();
         await this.projections.apply({
           eventId: `projection-${commandId}-${event.kind}-${event.sequence}`,
           eventType: event.kind === 'ORDER_ACCEPTED' ? 'OrderAccepted' : 'OrderCancelled',
-          sequence: this.nextProjectionSequence(),
+          sequence: projectionSequence,
           correlationId: commandId,
           causationId: commandId,
           payload: {
@@ -297,10 +297,11 @@ export class TradingRuntimeProcessor implements TradingCommandPort {
     };
     await this.settlement.appendTrade(trade);
     const settlement = await this.settlement.settleTrade(trade);
+    const tradeProjectionSequence = await this.projections.nextSequence();
     await this.projections.apply({
       eventId: trade.eventId,
       eventType: 'TradeExecuted',
-      sequence: this.nextProjectionSequence(),
+      sequence: tradeProjectionSequence,
       correlationId: commandId,
       causationId: commandId,
       payload: {
@@ -314,10 +315,11 @@ export class TradingRuntimeProcessor implements TradingCommandPort {
         price: event.price,
       },
     });
+    const settlementProjectionSequence = await this.projections.nextSequence();
     await this.projections.apply({
       eventId: settlement.eventId,
       eventType: 'SettlementApplied',
-      sequence: this.nextProjectionSequence(),
+      sequence: settlementProjectionSequence,
       correlationId: commandId,
       causationId: trade.eventId,
       payload: { settlementId: settlement.settlementId, tradeId: trade.tradeId, postings: [] },
@@ -369,11 +371,6 @@ export class TradingRuntimeProcessor implements TradingCommandPort {
   }
 
   /** Выдаёт contiguous sequence для projection consumer независимо от book sequence. */
-  private nextProjectionSequence(): number {
-    this.projectionSequence += 1;
-    return this.projectionSequence;
-  }
-
   private requireOrder(orderId: string): RuntimeOrderState {
     const state = this.orderStates.get(orderId);
     if (!state)

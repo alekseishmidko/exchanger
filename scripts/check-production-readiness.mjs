@@ -44,16 +44,20 @@ for (const scriptName of [
 }
 
 const ci = readRequired('.github/workflows/ci.yml');
+const verifyRunner = readRequired('scripts/run-backend-checks.mjs');
+if (!ci.includes('pnpm verify:local')) {
+  failures.push('CI не запускает общий pnpm verify:local gate');
+}
 for (const check of [
-  'pnpm contracts:check',
-  'pnpm adversarial:check',
-  'pnpm observability:check',
-  'pnpm load:check',
-  'pnpm chaos:check',
-  'pnpm test',
-  'pnpm build',
+  'contracts:check',
+  'adversarial:check',
+  'observability:check',
+  'load:check',
+  'chaos:check',
+  'workspace:test',
+  'workspace:build',
 ]) {
-  if (!ci.includes(check)) failures.push(`CI не запускает ${check}`);
+  if (!verifyRunner.includes(`'${check}'`)) failures.push(`verify:local не запускает ${check}`);
 }
 
 const loadWorkflow = readRequired('.github/workflows/load.yml');

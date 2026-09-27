@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 import { readFileSync } from 'node:fs';
 
-const workflow = readFileSync('.github/workflows/ci.yml', 'utf8');
+const workflow = readFileSync(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8');
+const localVerify = readFileSync(new URL('./run-backend-checks.mjs', import.meta.url), 'utf8');
+const containerCheck = readFileSync(new URL('./run-container-check.mjs', import.meta.url), 'utf8');
 const failures = [];
 
 /** Возвращает YAML-блок шага по его имени до следующего шага. */
@@ -13,21 +15,41 @@ function stepBlock(name) {
   return workflow.slice(start, next < 0 ? workflow.length : next);
 }
 
-const imageBuild = stepBlock('Build production image for vulnerability scan');
-if (!imageBuild) failures.push('Production image scan build step is missing');
-if (!/\bload:\s*true\b/.test(imageBuild)) failures.push('Scan image must be loaded into Docker');
-if (!/\bprovenance:\s*false\b/.test(imageBuild) || !/\bsbom:\s*false\b/.test(imageBuild))
-  failures.push('Docker --load scan build must disable manifest-list attestations');
+const parityVerify = stepBlock('Local and CI parity verification');
+if (!/run:\s*pnpm verify:local/.test(parityVerify))
+  failures.push('CI verify job must call the same verify:local command used by developers');
+
+for (const requiredCheck of [
+  'security:audit:prod',
+  'security:audit:all',
+  'workspace:lint',
+  'workspace:format:check',
+  'workspace:typecheck',
+  'postgres durable integration',
+  'redis:check',
+  'workspace:test',
+  'workspace:build',
+  'security:artifact',
+  'container:check',
+]) {
+  if (!localVerify.includes(`'${requiredCheck}'`))
+    failures.push(`verify:local is missing required check: ${requiredCheck}`);
+}
+
+if (!containerCheck.includes("'fs'") || !containerCheck.includes("'image'"))
+  failures.push('container:check must scan both filesystem/IaC and the production image');
 
 const secretScan = stepBlock('Secret scanning');
 if (!/GITHUB_TOKEN:\s*\$\{\{\s*secrets\.GITHUB_TOKEN\s*\}\}/.test(secretScan))
   failures.push('Gitleaks PR scan must receive GITHUB_TOKEN');
 if (!/fetch-depth:\s*0/.test(workflow)) failures.push('Secret scan requires full Git history');
-if (!/run:\s*pnpm redis:check/.test(workflow))
-  failures.push('CI must use the same redis:check command as local development');
+if (!workflow.includes('Install Redis integration test binary'))
+  failures.push('CI must install the redis-server binary required by verify:local');
 
 if (failures.length > 0) {
-  process.stderr.write(`CI workflow contract failed:\n${failures.map((item) => `- ${item}`).join('\n')}\n`);
+  process.stderr.write(
+    `CI workflow contract failed:\n${failures.map((item) => `- ${item}`).join('\n')}\n`,
+  );
   process.exitCode = 1;
 } else {
   process.stdout.write('CI workflow contract checks passed.\n');

@@ -2,7 +2,7 @@ import { Test } from '@nestjs/testing';
 import { FastifyAdapter, NestFastifyApplication } from '@nestjs/platform-fastify';
 import request from 'supertest';
 import { AppModule } from '../../app.module';
-import { ApiKeyRegistry } from './auth/gateway.auth';
+import { ApiKeyRegistry } from '../auth';
 import { ADMISSION_CONTROL_PORT, AdmissionControlPort } from '../admin/admission-control';
 import { InMemoryTradingCommandPort, TRADING_COMMAND_PORT } from './types/gateway.types';
 

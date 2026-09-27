@@ -1,7 +1,8 @@
 import { ColumnDef } from '@tanstack/react-table';
-import { Suspense, lazy, useMemo, useState } from 'react';
+import { Suspense, lazy, useCallback, useMemo, useState } from 'react';
 import { DataTable } from './components/DataTable';
 import { SimulationPanel } from './components/SimulationPanel';
+import { UserAuthPanel } from './components/UserAuthPanel';
 import {
   ApiClientConfig,
   RequestLogEntry,
@@ -190,6 +191,29 @@ export function App() {
   const [flowRunId, setFlowRunId] = useState('не запускался');
   const [flowBusy, setFlowBusy] = useState(false);
   const [showDiagnostics, setShowDiagnostics] = useState(false);
+
+  const selectHumanUser = useCallback((userId: string) => {
+    const suffix = crypto.randomUUID().slice(0, 8);
+    setApiKey('');
+    setAccountId(userId);
+    setPlaceBody(
+      prettyJson({
+        ...defaultPlaceOrder,
+        commandId: `manual-place-${suffix}`,
+        orderId: `manual-order-${suffix}`,
+        clientOrderId: `manual-order-${suffix}`,
+        accountId: userId,
+      }),
+    );
+    setAccountBody(
+      prettyJson({
+        ...defaultCreateAccount,
+        commandId: `manual-account-${suffix}`,
+        accountId: userId,
+        ownerId: userId,
+      }),
+    );
+  }, []);
 
   const config: ApiClientConfig = useMemo(() => ({ baseUrl, apiKey }), [baseUrl, apiKey]);
   const adminConfig: ApiClientConfig = useMemo(
@@ -529,6 +553,13 @@ export function App() {
         <div className="status-actions">
           <button
             onClick={() =>
+              document.getElementById('user-auth')?.scrollIntoView({ behavior: 'smooth' })
+            }
+          >
+            Регистрация / вход
+          </button>
+          <button
+            onClick={() =>
               document.getElementById('simulation')?.scrollIntoView({ behavior: 'smooth' })
             }
           >
@@ -543,6 +574,8 @@ export function App() {
         </div>
       </header>
 
+      <UserAuthPanel onAuthenticated={selectHumanUser} />
+
       <SimulationPanel />
 
       <section className="panel config-panel">
@@ -555,7 +588,7 @@ export function App() {
           />
         </label>
         <label>
-          API key
+          API key (оставьте пустым для browser session)
           <input
             value={apiKey}
             onChange={(event) => setApiKey(event.target.value)}

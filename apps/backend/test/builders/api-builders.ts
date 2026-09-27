@@ -1,4 +1,4 @@
-import { ApiKeyRegistry } from '../../src/modules/gateway';
+import { ApiKeyRegistry } from '../../src/modules/auth';
 
 /** Роли тестовых API keys, которые повторяют public access matrix Gateway/Admin. */
 type TestApiKeyRole = 'trader' | 'admin' | 'risk_manager' | 'auditor' | 'support';

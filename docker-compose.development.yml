@@ -24,6 +24,11 @@ services:
       # Массовый synthetic worker использует отдельные trader keys, но setup
       # выполняет admin funding для всех пользователей через тот же boundary.
       GATEWAY_RATE_LIMIT: '${GATEWAY_RATE_LIMIT:-100000}'
+      # Synthetic users проходят настоящий register/login с одного контейнера.
+      # Высокие значения применяются только в development profile; production
+      # сохраняет строгие distributed password-admission limits.
+      AUTH_RATE_LIMIT: '${AUTH_RATE_LIMIT:-100000}'
+      AUTH_RATE_GLOBAL_LIMIT: '${AUTH_RATE_GLOBAL_LIMIT:-100000}'
     ports:
       # В контейнере backend слушает PORT=5000, а host-порт можно переопределить:
       # BACKEND_HOST_PORT=5010 pnpm docker:development

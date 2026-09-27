@@ -70,6 +70,11 @@ export class ProjectionStore implements ProjectionStorePort {
     this.metrics = metrics ?? NOOP_OPERATIONAL_METRICS;
   }
 
+  /** Возвращает следующий sequence текущей in-memory projection. */
+  nextSequence(): number {
+    return this.appliedSequence + 1;
+  }
+
   /**
    * Применяет одно событие к соответствующей read-модели.
    *

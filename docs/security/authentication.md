@@ -2,13 +2,18 @@
 
 Статус: security design этапов 22–23.
 
+HTTP composition boundary выделен в отдельный `AuthModule`: он публикует human
+`/api/v1/auth/*` и machine `/api/v1/machine-auth/*` endpoints. `IdentityModule`
+остаётся владельцем user/password/session application state, а торговый
+`GatewayModule` больше не объявляет auth-контроллеры.
+
 ## Границы механизмов
 
-| Механизм | Назначение | Credential | Source of truth |
-|---|---|---|---|
-| Human session | браузер/пользователь | opaque cookie, HttpOnly | Redis |
-| API key | machine-to-machine | `x-api-key`, показывается один раз | PostgreSQL digest + metadata |
-| Test bypass | isolated product tests | `X-Test-Auth-Token` | secret env + fixed identity |
+| Механизм      | Назначение             | Credential                         | Source of truth              |
+| ------------- | ---------------------- | ---------------------------------- | ---------------------------- |
+| Human session | браузер/пользователь   | opaque cookie, HttpOnly            | Redis                        |
+| API key       | machine-to-machine     | `x-api-key`, показывается один раз | PostgreSQL digest + metadata |
+| Test bypass   | isolated product tests | `X-Test-Auth-Token`                | secret env + fixed identity  |
 
 Human token не является API key. Test header не принимает `userId`, role или
 accountId: они приходят только из `AUTH_TEST_IDENTITY`. Bypass допустим одновременно
@@ -106,14 +111,14 @@ Runtime принимает только точное `AUTH_TOKEN_TRANSPORT=cooki
 double-submit CSRF. Issue/rotation/clear используют одну cookie policy:
 `HttpOnly` для session, `Secure`, `SameSite`, `Path=/` и `__Host-` names.
 
-| Boundary | Минимальная policy |
-|---|---|
-| orders/account mutation | `trading:write` + object owner |
-| orders, instruments, balances, projections | `trading:read` + object owner |
-| projection operational metrics | `admin:read` |
-| admin mutations и API-key lifecycle | administrative role + `admin:*` |
-| admin read/audit | administrative role + `admin:read` |
-| private WebSocket | live credential + `trading:read` + exact userId |
+| Boundary                                   | Минимальная policy                              |
+| ------------------------------------------ | ----------------------------------------------- |
+| orders/account mutation                    | `trading:write` + object owner                  |
+| orders, instruments, balances, projections | `trading:read` + object owner                   |
+| projection operational metrics             | `admin:read`                                    |
+| admin mutations и API-key lifecycle        | administrative role + `admin:*`                 |
+| admin read/audit                           | administrative role + `admin:read`              |
+| private WebSocket                          | live credential + `trading:read` + exact userId |
 
 Неизвестная, пустая или неоднозначная human role не понижается до trader и
 получает 403. Machine role при issue обязана иметь совместимый scope.

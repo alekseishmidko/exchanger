@@ -1,8 +1,9 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const root = 'apps/backend/dist';
-if (!existsSync(root)) throw new Error('Production artifact is missing; run build first');
+const root = fileURLToPath(new URL('../apps/backend/dist/', import.meta.url));
+if (!existsSync(root)) throw new Error('Production artifact is missing; run backend build first');
 
 const files = [];
 const walk = (directory) => {
@@ -14,7 +15,9 @@ const walk = (directory) => {
 };
 walk(root);
 
-const forbiddenFiles = files.filter((file) => /(?:\.map$|\.spec\.|\.test\.|fixture|__tests__)/i.test(file));
+const forbiddenFiles = files.filter((file) =>
+  /(?:\.map$|\.spec\.|\.test\.|fixture|__tests__)/i.test(file),
+);
 const forbiddenPatterns = [
   /AUTH_TEST_BYPASS_ENABLED\s*[=:]\s*['"]?true/i,
   /GATEWAY_API_KEYS\s*[=:]/,

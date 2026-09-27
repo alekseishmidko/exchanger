@@ -1,5 +1,5 @@
 import { io, Socket } from 'socket.io-client';
-import { ApiKeyRegistry } from '../../src/modules/gateway';
+import { ApiKeyRegistry } from '../../src/modules/auth';
 import { MarketDataHub } from '../../src/modules/market-data/domain/market-data';
 
 /** Минимальный envelope shape, проверяемый WebSocket integration-тестом. */

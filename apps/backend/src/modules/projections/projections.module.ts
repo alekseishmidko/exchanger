@@ -7,13 +7,22 @@ import { ProjectionsController } from './controllers/projections.controller';
 import { PostgresProjectionStore } from './infrastructure/postgres-projection.store';
 import { PROJECTION_STORE_PORT } from './ports/projection.port';
 import type { ProjectionStorePort } from './ports/projection.port';
+import { AuthModule } from '../auth';
 
-/** Собирает read-model store и query API, используя только gateway auth boundary. */
+/** Собирает read-model store и query API, используя публичный auth boundary. */
 @Module({
-  imports: [GatewayCommonModule],
+  imports: [
+    /** Проверяет principal перед чтением пользовательских projection данных. */
+    AuthModule,
+    /** Применяет общие query limits и rate limiting к read API. */
+    GatewayCommonModule,
+  ],
+  /** Публикует bounded queries для orders, trades, balances и projection metrics. */
   controllers: [ProjectionsController],
   providers: [
+    /** In-memory read-model store для component runtime и unit tests. */
     ProjectionStore,
+    /** Выбирает memory либо versioned PostgreSQL projection store. */
     {
       provide: PROJECTION_STORE_PORT,
       inject: [ConfigService, POSTGRES_TRANSACTION, ProjectionStore],
@@ -27,6 +36,7 @@ import type { ProjectionStorePort } from './ports/projection.port';
           : memory,
     },
   ],
+  /** Writers и query boundary зависят от port, а не от concrete store. */
   exports: [PROJECTION_STORE_PORT],
 })
 export class ProjectionsModule {}

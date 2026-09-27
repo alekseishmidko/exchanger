@@ -1,6 +1,6 @@
 import type { ExecutionContext } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import type { IdentityService } from '../application/identity.service';
+import type { HumanAuthService } from '../application/human-auth.service';
 import { CsrfGuard } from './csrf.guard';
 import { HumanSessionGuard } from './human-session.guard';
 
@@ -26,7 +26,7 @@ describe('human auth transport isolation', () => {
       },
     };
     const context = executionContext(request);
-    const guard = new HumanSessionGuard({ authenticate } as unknown as IdentityService, config);
+    const guard = new HumanSessionGuard({ authenticate } as unknown as HumanAuthService, config);
     await expect(guard.canActivate(context)).resolves.toBe(true);
     expect(authenticate).toHaveBeenCalledWith('b'.repeat(48));
     expect(new CsrfGuard(config).canActivate(context)).toBe(true);
@@ -47,7 +47,7 @@ describe('human auth transport isolation', () => {
       },
     };
     const context = executionContext(request);
-    const guard = new HumanSessionGuard({ authenticate } as unknown as IdentityService, config);
+    const guard = new HumanSessionGuard({ authenticate } as unknown as HumanAuthService, config);
     await expect(guard.canActivate(context)).resolves.toBe(true);
     expect(authenticate).toHaveBeenCalledWith('c'.repeat(48));
     expect(() => new CsrfGuard(config).canActivate(context)).toThrow('CSRF validation failed');

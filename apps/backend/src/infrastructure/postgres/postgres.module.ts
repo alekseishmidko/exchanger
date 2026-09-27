@@ -41,6 +41,7 @@ class PostgresPoolLifecycle implements OnApplicationShutdown {
 @Global()
 @Module({
   providers: [
+    /** Создаёт один bounded connection pool из проверенной runtime-конфигурации. */
     {
       provide: POSTGRES_POOL,
       inject: [ConfigService],
@@ -59,11 +60,13 @@ class PostgresPoolLifecycle implements OnApplicationShutdown {
           application_name: config.get<string>('SERVICE_NAME', 'exchange-backend'),
         }),
     },
+    /** Даёт adapters общий transaction manager и сохраняет единую ACID boundary. */
     {
       provide: POSTGRES_TRANSACTION,
       inject: [POSTGRES_POOL],
       useFactory: (pool: Pool): PostgresTransactionManager => new PostgresTransactionManager(pool),
     },
+    /** Выбирает direct execution для component runtime и PostgreSQL transaction для durable runtime. */
     {
       provide: ATOMIC_EXECUTION_PORT,
       inject: [ConfigService, POSTGRES_TRANSACTION],
@@ -75,8 +78,10 @@ class PostgresPoolLifecycle implements OnApplicationShutdown {
           ? DIRECT_ATOMIC_EXECUTION
           : new PostgresAtomicExecution(transactions),
     },
+    /** Закрывает общий pool при завершении Nest application. */
     PostgresPoolLifecycle,
   ],
+  /** Экспортирует только infrastructure ports; connection settings наружу не передаются. */
   exports: [POSTGRES_POOL, POSTGRES_TRANSACTION, ATOMIC_EXECUTION_PORT],
 })
 export class PostgresModule {}

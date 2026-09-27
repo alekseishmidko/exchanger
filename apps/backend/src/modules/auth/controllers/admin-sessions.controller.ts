@@ -1,3 +1,8 @@
+/**
+ * HTTP boundary административного управления пользовательскими sessions.
+ * Transport требует human admin session, CSRF, strict body и idempotency key;
+ * role/scope authorization повторно выполняется application service.
+ */
 import {
   BadRequestException,
   Body,
@@ -21,11 +26,11 @@ import {
 } from '@nestjs/swagger';
 import { z } from 'zod';
 import { ZodValidationPipe } from '../../gateway/validation/gateway.validation';
-import { IdentityService } from '../application/identity.service';
-import { AdminSessionActionRequestDto, PublicSessionDto } from '../dto/identity.dto';
+import { HumanAuthService } from '../application/human-auth.service';
+import { AdminSessionActionRequestDto, PublicSessionDto } from '../dto/human-auth.dto';
 import { CsrfGuard } from '../security/csrf.guard';
 import { HumanAuthenticatedRequest, HumanSessionGuard } from '../security/human-session.guard';
-import { adminActionSchema } from '../validation/identity.validation';
+import { adminActionSchema } from '../validation/human-auth.validation';
 
 /**
  * Административный session-control boundary.
@@ -38,9 +43,10 @@ import { adminActionSchema } from '../validation/identity.validation';
 @ApiTags('Admin user sessions')
 @ApiSecurity('SessionCookie')
 export class AdminSessionsController {
-  constructor(private readonly identity: IdentityService) {}
+  /** @param identity Admin auth use cases с authorization, idempotency и audit. */
+  constructor(private readonly identity: HumanAuthService) {}
 
-  /** Просматривает active/revoked metadata пользователя без token/digest. */
+  /** Просматривает active/revoked metadata пользователя без token, digest или fingerprints. */
   @Get('sessions') @ApiOkResponse({ type: [PublicSessionDto] }) list(
     @Req() request: HumanAuthenticatedRequest,
     @Param('userId') userId: string,
@@ -48,7 +54,7 @@ export class AdminSessionsController {
     return this.identity.adminListSessions(request.principal, userId);
   }
 
-  /** Отзывает одну session и пишет неизменяемый audit record. */
+  /** Проверяет command id, идемпотентно отзывает session и пишет immutable audit record. */
   @Delete('sessions/:sessionId')
   @HttpCode(204)
   @ApiHeader({ name: 'Idempotency-Key', required: true })
@@ -64,7 +70,7 @@ export class AdminSessionsController {
     await this.identity.adminRevoke(request.principal, userId, sessionId, body.reason, commandId);
   }
 
-  /** Отзывает все sessions пользователя; операция не возвращает credentials. */
+  /** Идемпотентно отзывает все sessions пользователя; операция не возвращает credentials. */
   @Post('sessions/revoke-all')
   @ApiOperation({ summary: 'Принудительно завершить все сессии пользователя' })
   @ApiHeader({ name: 'Idempotency-Key', required: true })
@@ -85,7 +91,7 @@ export class AdminSessionsController {
     };
   }
 
-  /** Требует recovery и отзывает sessions, не принимая password в payload. */
+  /** Выставляет обязательный password reset и отзывает sessions, не принимая новый password. */
   @Post('require-password-reset')
   @HttpCode(204)
   @ApiHeader({ name: 'Idempotency-Key', required: true })
@@ -104,6 +110,7 @@ export class AdminSessionsController {
     );
   }
 
+  /** Валидирует Idempotency-Key до application call и audit side effect. */
   private requireCommandId(value: string | undefined): asserts value is string {
     if (!value || !/^[A-Za-z0-9._:-]{8,128}$/.test(value))
       throw new BadRequestException({

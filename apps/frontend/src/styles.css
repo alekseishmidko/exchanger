@@ -146,6 +146,57 @@ h2 {
   margin-bottom: 18px;
 }
 
+.user-auth-panel {
+  margin-bottom: 18px;
+}
+
+.auth-state {
+  border: 1px solid #475569;
+  border-radius: 999px;
+  color: #cbd5e1;
+  padding: 0.45rem 0.8rem;
+  text-transform: uppercase;
+}
+
+.auth-state.authenticated {
+  border-color: #22c55e;
+  color: #86efac;
+}
+
+.auth-form {
+  display: grid;
+  grid-template-columns: auto repeat(3, minmax(180px, 1fr)) auto;
+  gap: 12px;
+  align-items: end;
+}
+
+.auth-tabs {
+  display: flex;
+  gap: 8px;
+}
+
+.auth-tabs button:not(.active) {
+  border-color: #475569;
+  background: #1e293b;
+}
+
+.authenticated-user {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: center;
+}
+
+.authenticated-user > div {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+}
+
+.authenticated-user span {
+  color: #94a3b8;
+}
+
 .simulation-controls {
   display: grid;
   grid-template-columns: repeat(4, minmax(130px, 1fr)) auto auto;
@@ -180,7 +231,7 @@ h2 {
 
 .simulation-metrics {
   display: grid;
-  grid-template-columns: repeat(7, minmax(110px, 1fr));
+  grid-template-columns: repeat(9, minmax(95px, 1fr));
   gap: 10px;
   margin-bottom: 16px;
 }

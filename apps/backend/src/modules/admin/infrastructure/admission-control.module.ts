@@ -8,6 +8,7 @@ import { PostgresAdmissionControl } from './postgres-admission-control';
 /** Shared composition root operational controls без зависимости от transport modules. */
 @Module({
   providers: [
+    /** Связывает стабильный port с memory или PostgreSQL adapter согласно runtime profile. */
     {
       provide: ADMISSION_CONTROL_PORT,
       inject: [ConfigService, POSTGRES_TRANSACTION],
@@ -20,6 +21,7 @@ import { PostgresAdmissionControl } from './postgres-admission-control';
           : new MemoryAdmissionControl(),
     },
   ],
+  /** Соседние модули получают только port и не знают о выбранном storage adapter. */
   exports: [ADMISSION_CONTROL_PORT],
 })
 export class AdmissionControlModule {}

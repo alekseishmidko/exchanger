@@ -32,7 +32,7 @@ import {
   assertAdminAccess,
   assertAuthorizedAction,
   assertObjectAccess,
-} from '../../gateway/auth/gateway.auth';
+} from '../../auth';
 import { IDEMPOTENCY_STORE_PORT } from '../../gateway/ports/gateway.idempotency.port';
 import type { IdempotencyStorePort } from '../../gateway/ports/gateway.idempotency.port';
 import { RateLimitService } from '../../gateway/application/gateway.rate-limit';

@@ -38,19 +38,17 @@ import {
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
 import { z } from 'zod';
-import { ADMISSION_CONTROL_PORT, AdmissionControlPort } from '../../admin/admission-control';
+import {
+  ADMISSION_CONTROL_PORT,
+  AdmissionControlPort,
+} from '../../admin/ports/admission-control.port';
 import {
   GatewayCancelOrderCommand,
   GatewayPlaceOrderCommand,
   TRADING_COMMAND_PORT,
   TradingCommandPort,
 } from '../types/gateway.types';
-import {
-  ApiKeyGuard,
-  ApiKeyPrincipal,
-  assertAuthorizedAction,
-  assertObjectAccess,
-} from '../auth/gateway.auth';
+
 import { IDEMPOTENCY_STORE_PORT, IdempotencyStorePort } from '../ports/gateway.idempotency.port';
 import { RateLimitService } from '../application/gateway.rate-limit';
 import {
@@ -73,6 +71,12 @@ import {
   GatewayOrderPageResponseDto,
   PlaceOrderRequestDto,
 } from '../dto/gateway.dto';
+import {
+  ApiKeyGuard,
+  ApiKeyPrincipal,
+  assertAuthorizedAction,
+  assertObjectAccess,
+} from '@app/modules/auth';
 
 /** Минимальная форма request после выполнения ApiKeyGuard. */
 type GatewayRequest = { principal: ApiKeyPrincipal };
@@ -106,6 +110,7 @@ export class GatewayController {
    * @param rateLimit Ограничитель нагрузки на API key boundary.
    * @param metrics Метрики command acceptance/rejection.
    * @param telemetry Adapter admission span текущего HTTP trace.
+   * @param admission
    * @param logger Необязательный operational logger с no-op fallback.
    */
   constructor(

@@ -2,7 +2,7 @@ import { Test } from '@nestjs/testing';
 import { FastifyAdapter, NestFastifyApplication } from '@nestjs/platform-fastify';
 import request from 'supertest';
 import { AppModule } from '../src/app.module';
-import { ApiKeyRegistry } from '../src/modules/gateway';
+import { ApiKeyRegistry } from '../src/modules/auth';
 import {
   GatewayCancelOrderCommand,
   GatewayCommandResult,

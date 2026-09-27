@@ -1,3 +1,4 @@
+/** Double-submit CSRF enforcement для unsafe cookie-authenticated requests. */
 import { CanActivate, ExecutionContext, ForbiddenException, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createHmac, timingSafeEqual } from 'node:crypto';
@@ -10,7 +11,9 @@ import type { HumanAuthenticatedRequest } from './human-session.guard';
  */
 @Injectable()
 export class CsrfGuard implements CanActivate {
+  /** @param config HMAC secret и выбранный credential transport. */
   constructor(private readonly config: ConfigService) {}
+  /** Пропускает safe/bearer/test requests; остальные требуют matching CSRF header. */
   canActivate(context: ExecutionContext): boolean {
     const request = context
       .switchToHttp()
@@ -27,16 +30,19 @@ export class CsrfGuard implements CanActivate {
       });
     return true;
   }
+  /** Детерминированно выводит CSRF token из непредсказуемого server sessionId. */
   token(sessionId: string): string {
     return createHmac('sha256', this.config.getOrThrow<string>('AUTH_TOKEN_HASH_SECRET'))
       .update(`csrf\u0000${sessionId}`)
       .digest('base64url');
   }
+  /** Сравнивает token constant-time после проверки одинаковой длины. */
   private equal(left: string, right: string): boolean {
     const a = Buffer.from(left);
     const b = Buffer.from(right);
     return a.length === b.length && timingSafeEqual(a, b);
   }
+  /** Нормализует multi-value header без изменения исходного request. */
   private header(request: HumanAuthenticatedRequest, name: string): string | undefined {
     const value = request.headers[name];
     return Array.isArray(value) ? value[0] : value;

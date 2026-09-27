@@ -1,4 +1,4 @@
-import { resolve } from 'node:path';
+import { resolve, sep } from 'node:path';
 import { validateRuntimeAdapters } from './runtime-adapters';
 
 /** Допустимые режимы запуска backend-приложения. */
@@ -22,7 +22,8 @@ export function environmentFilePaths(
   runtimeDirectory: string,
   environment: string = process.env['NODE_ENV'] ?? 'development',
 ): readonly string[] {
-  const root = resolve(runtimeDirectory, '../../..');
+  const compiledRuntime = runtimeDirectory.endsWith(`${sep}dist${sep}src`);
+  const root = resolve(runtimeDirectory, compiledRuntime ? '../../../..' : '../../..');
   return [
     resolve(root, `.env.${environment}`),
     resolve(root, `.env.${environment}.example`),
@@ -225,6 +226,23 @@ export function validateEnvironment(config: EnvironmentConfig): EnvironmentConfi
   }
   if (nodeEnv !== 'development' && ['true', '1'].includes(String(seedInstruments))) {
     throw new Error('DEVELOPMENT_SEED_INSTRUMENTS is allowed only in development');
+  }
+  const stagingSeedInstruments = config['ISOLATED_STAGING_SEED_INSTRUMENTS'];
+  if (
+    stagingSeedInstruments !== undefined &&
+    (typeof stagingSeedInstruments !== 'string' ||
+      !['true', 'false', '1', '0'].includes(stagingSeedInstruments))
+  ) {
+    throw new Error('ISOLATED_STAGING_SEED_INSTRUMENTS must be true, false, 1, or 0');
+  }
+  if (
+    ['true', '1'].includes(String(stagingSeedInstruments)) &&
+    !(
+      ['staging', 'github-actions-chaos'].includes(String(config['CHAOS_ENVIRONMENT'])) &&
+      config['CHAOS_ACK'] === 'isolated-test-only'
+    )
+  ) {
+    throw new Error('ISOLATED_STAGING_SEED_INSTRUMENTS requires the isolated chaos interlock');
   }
 
   for (const key of [

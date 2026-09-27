@@ -1,3 +1,4 @@
+/** Password KDF adapter: parsing, bounded parameter validation, pepper rotation и rehash policy. */
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { randomBytes, scrypt as scryptCallback, timingSafeEqual } from 'node:crypto';
@@ -9,6 +10,7 @@ import { randomBytes, scrypt as scryptCallback, timingSafeEqual } from 'node:cry
  */
 @Injectable()
 export class PasswordHasher {
+  /** @param config Активные scrypt cost и versioned deployment peppers. */
   constructor(private readonly config: ConfigService) {}
 
   /** Создаёт salt и PHC-подобную строку без plaintext password/pepper. */
@@ -99,6 +101,7 @@ export class PasswordHasher {
     );
   }
 
+  /** Выбирает pepper указанной версии, позволяя проверить hash во время key rotation. */
   private pepper(version = this.pepperVersion()): string {
     const configured = this.config.get<string>('AUTH_PASSWORD_PEPPER_SET');
     if (configured) {
@@ -115,6 +118,7 @@ export class PasswordHasher {
     return this.config.get('AUTH_PASSWORD_PEPPER_VERSION', 'v1');
   }
 
+  /** Преобразует callback scrypt в Promise и сохраняет параметры KDF явными. */
   private derive(
     value: string,
     salt: Buffer,

@@ -8,6 +8,7 @@ import { SEQUENCER_STORE_PORT, SequencerStorePort } from './sequencer.port';
 /** Composition root durable partition ownership и recovery store. */
 @Module({
   providers: [
+    /** Выбирает локальный sequencer либо PostgreSQL lease/recovery implementation. */
     {
       provide: SEQUENCER_STORE_PORT,
       inject: [ConfigService, POSTGRES_TRANSACTION],
@@ -20,6 +21,7 @@ import { SEQUENCER_STORE_PORT, SequencerStorePort } from './sequencer.port';
           : new MemorySequencerStore(),
     },
   ],
+  /** Command admission и health checks используют единый sequencer port. */
   exports: [SEQUENCER_STORE_PORT],
 })
 export class SequencerModule {}

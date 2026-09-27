@@ -8,7 +8,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AuditModule } from '../audit';
-import { AuthenticationController } from './controllers/auth.controller';
 import { GatewayController } from './controllers/gateway.controller';
 import { POSTGRES_TRANSACTION, PostgresTransactionManager } from '../../infrastructure/postgres';
 import { PostgresTradingCommandAdapter } from './infrastructure/postgres-trading-command.adapter';
@@ -18,6 +17,7 @@ import { AdmissionControlModule } from '../admin/admission-control';
 import { SEQUENCER_STORE_PORT, SequencerModule, SequencerStorePort } from '../trading/sequencer';
 import { GatewayCommonModule } from './gateway-common.module';
 import { TradingRuntimeModule, TradingRuntimeProcessor } from '../trading/runtime';
+import { AuthModule } from '../auth';
 
 /**
  * Composition root Gateway-модуля.
@@ -31,14 +31,23 @@ import { TradingRuntimeModule, TradingRuntimeProcessor } from '../trading/runtim
  */
 @Module({
   imports: [
+    /** Аудирует принятые и отклонённые торговые команды. */
     AuditModule,
+    /** Подключает machine/human authentication guards и principals. */
+    AuthModule,
+    /** Добавляет idempotency store и общий request rate limiting. */
     GatewayCommonModule,
+    /** Резервирует monotonic sequence и partition ownership durable-команд. */
     SequencerModule,
+    /** Проверяет operational pause/freeze до допуска команды к runtime. */
     AdmissionControlModule,
+    /** Выполняет принятую команду через единый in-process trading orchestrator. */
     TradingRuntimeModule,
   ],
-  controllers: [AuthenticationController, GatewayController],
+  /** Публикует REST endpoints заявок и их query/cancel operations. */
+  controllers: [GatewayController],
   providers: [
+    /** Выбирает direct runtime либо durable PostgreSQL command adapter. */
     {
       provide: TRADING_COMMAND_PORT,
       inject: [ConfigService, POSTGRES_TRANSACTION, SEQUENCER_STORE_PORT, TradingRuntimeProcessor],
@@ -59,6 +68,7 @@ import { TradingRuntimeModule, TradingRuntimeProcessor } from '../trading/runtim
           : runtime,
     },
   ],
-  exports: [GatewayCommonModule, TRADING_COMMAND_PORT],
+  /** Экспортирует auth/common boundaries и command port, скрывая controller implementation. */
+  exports: [AuthModule, GatewayCommonModule, TRADING_COMMAND_PORT],
 })
 export class GatewayModule {}

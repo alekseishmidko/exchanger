@@ -19,8 +19,14 @@ import { SettlementService } from './settlement';
  * `consumeTrades(3)`; offset будет зафиксирован только после ledger commit.
  */
 @Module({
-  imports: [LedgerModule, EventLogModule],
+  imports: [
+    /** Применяет balanced postings и idempotent ledger effects. */
+    LedgerModule,
+    /** Читает trade events и фиксирует settlement progress/outcomes. */
+    EventLogModule,
+  ],
   providers: [
+    /** Собирает settlement orchestrator внутри общей atomic-execution boundary. */
     {
       provide: SettlementService,
       inject: [LEDGER_PORT, EVENT_LOG_PORT, ATOMIC_EXECUTION_PORT],
@@ -32,6 +38,7 @@ import { SettlementService } from './settlement';
         new SettlementService(ledger, eventLog, 8, undefined, undefined, undefined, atomic),
     },
   ],
+  /** Runtime/workers вызывают settlement use case без доступа к его adapters. */
   exports: [SettlementService],
 })
 export class SettlementModule {}

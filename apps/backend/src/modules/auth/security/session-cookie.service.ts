@@ -1,6 +1,7 @@
+/** Central cookie/bearer serialization policy для newly issued human sessions. */
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import type { SessionIssueResult } from '../application/identity.service';
+import type { SessionIssueResult } from '../application/human-auth.service';
 import { CsrfGuard } from './csrf.guard';
 
 /** Минимальный response port для установки cookie без привязки к Fastify type. */
@@ -13,6 +14,10 @@ export type CookieResponse = { header(name: string, value: string | readonly str
  */
 @Injectable()
 export class SessionCookieService {
+  /**
+   * @param config Transport, cookie names, SameSite/Secure и TTL policy.
+   * @param csrf Генератор session-bound double-submit token.
+   */
   constructor(
     private readonly config: ConfigService,
     private readonly csrf: CsrfGuard,
@@ -40,14 +45,17 @@ export class SessionCookieService {
     ]);
   }
 
+  /** Сериализует одинаковые Path/SameSite/Secure attributes для issue и deletion. */
   private serialize(name: string, value: string, maxAge: number, httpOnly: boolean): string {
     const secure = this.config.get('AUTH_COOKIE_SECURE', 'false') === 'true';
     const sameSite = this.config.get<string>('AUTH_COOKIE_SAME_SITE', 'Strict');
     return `${name}=${value}; Path=/; Max-Age=${maxAge}${httpOnly ? '; HttpOnly' : ''}; SameSite=${sameSite}${secure ? '; Secure' : ''}`;
   }
+  /** Возвращает единственное сконфигурированное имя session cookie. */
   private sessionName(): string {
     return this.config.get('AUTH_COOKIE_NAME', 'exchange_session');
   }
+  /** Возвращает имя readable CSRF cookie, отдельное от HttpOnly credential. */
   private csrfName(): string {
     return this.config.get('AUTH_CSRF_COOKIE_NAME', 'exchange_csrf');
   }

@@ -3,7 +3,7 @@ import { FastifyAdapter, NestFastifyApplication } from '@nestjs/platform-fastify
 import request from 'supertest';
 import { AppModule } from '../../app.module';
 import { ConfigService } from '@nestjs/config';
-import { MemoryRecoveryDelivery } from './infrastructure/recovery-delivery';
+import { MemoryRecoveryDelivery } from '../identity/infrastructure/recovery-delivery';
 
 /** Извлекает cookies и CSRF token без публикации opaque session в snapshots. */
 function authenticationHeaders(response: request.Response): { cookie: string; csrf: string } {
@@ -17,7 +17,7 @@ function authenticationHeaders(response: request.Response): { cookie: string; cs
   return { cookie, csrf };
 }
 
-describe('User identity HTTP contract', () => {
+describe('Human authentication HTTP contract', () => {
   let app: NestFastifyApplication;
   let aliceId: string;
   let delivery: MemoryRecoveryDelivery;

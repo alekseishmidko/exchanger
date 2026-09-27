@@ -6,7 +6,7 @@
  * не попадают в эти классы.
  */
 import { ApiProperty } from '@nestjs/swagger';
-import { ApiKeyRole } from '../auth/gateway.auth';
+import { ApiKeyRole } from '../domain/authentication';
 
 /**
  * Публичный результат проверки API key текущего запроса.

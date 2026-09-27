@@ -29,14 +29,18 @@ Production и произвольное имя окружения runner отве
 Для production-like сценариев используется отдельная команда:
 
 ```bash
-CHAOS_ENVIRONMENT=staging \
-CHAOS_ACK=isolated-test-only \
 pnpm resilience:all
 ```
 
 `resilience:all` и прежний совместимый alias `resilience:staging` последовательно
-запускают все семь durable-сценариев. Ошибка одного сценария не скрывает
-результаты остальных, а общий отчёт сохраняется в `artifacts/resilience/`.
+запускают все семь durable-сценариев. Сам suite является явным подтверждением
+запуска isolated fault topology: orchestrator передаёт interlock только своим
+дочерним процессам и назначает каждому сценарию свободные host-порты. Поэтому
+suite можно запускать рядом с development/staging стендом без конфликтов портов.
+Одиночные команды `resilience:network`, `resilience:process-kill` и другие всё
+ещё требуют явных `CHAOS_ENVIRONMENT=staging` и
+`CHAOS_ACK=isolated-test-only`. Ошибка одного сценария не скрывает результаты
+остальных, а общий отчёт сохраняется в `artifacts/resilience/`.
 
 Обычная проверка topology без fault injection запускается одной командой
 `pnpm staging:up`, доступна по `https://localhost:5443` и останавливается через

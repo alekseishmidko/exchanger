@@ -45,18 +45,21 @@ import {
   IssuedApiKeyResponseDto,
   IssueApiKeyRequestDto,
   MutateApiKeyRequestDto,
-} from '../dto/auth.dto';
+} from '../dto/machine-auth.dto';
 import {
   ApiKeyGuard,
   ApiKeyPrincipal,
   ApiKeyRegistry,
   assertAdminAccess,
   assertApiKeyScope,
-} from '../auth/gateway.auth';
-import { RateLimitService } from '../application/gateway.rate-limit';
-import { IDEMPOTENCY_STORE_PORT, IdempotencyStorePort } from '../ports/gateway.idempotency.port';
-import { issueApiKeySchema, mutateApiKeySchema } from '../validation/auth.validation';
-import { ZodValidationPipe } from '../validation/gateway.validation';
+} from '../domain/authentication';
+import { RateLimitService } from '../../gateway/application/gateway.rate-limit';
+import {
+  IDEMPOTENCY_STORE_PORT,
+  IdempotencyStorePort,
+} from '../../gateway/ports/gateway.idempotency.port';
+import { issueApiKeySchema, mutateApiKeySchema } from '../validation/machine-auth.validation';
+import { ZodValidationPipe } from '../../gateway/validation/gateway.validation';
 import { LOG_EVENTS, StructuredLogger } from '../../observability';
 
 /** HTTP request после успешной установки principal в `ApiKeyGuard`. */
@@ -79,7 +82,7 @@ type AuthenticationRequest = Readonly<{ principal: ApiKeyPrincipal }>;
 @ApiTags('Authentication')
 @ApiSecurity('ApiKeyAuth')
 @ApiUnauthorizedResponse({ description: 'API-ключ отсутствует или недействителен.' })
-export class AuthenticationController {
+export class MachineAuthenticationController {
   /**
    * Собирает authentication transport boundary из application ports.
    *

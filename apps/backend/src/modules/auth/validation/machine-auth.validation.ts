@@ -1,5 +1,5 @@
 /**
- * Файл содержит runtime validation API-key lifecycle endpoints.
+ * Файл содержит runtime validation machine-auth lifecycle endpoints.
  *
  * Схемы отделены от DTO, чтобы Swagger documentation и фактическая проверка
  * входа не расходились незаметно. Все auth write-команды используют bounded
