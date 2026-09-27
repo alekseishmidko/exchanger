@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { readFileSync } from 'node:fs';
 
-const workflow = readFileSync('.github/workflows/ci.yml', 'utf8');
+const workflow = readFileSync(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8');
 const failures = [];
 
 /** Возвращает YAML-блок шага по его имени до следующего шага. */
@@ -27,7 +27,9 @@ if (!/run:\s*pnpm redis:check/.test(workflow))
   failures.push('CI must use the same redis:check command as local development');
 
 if (failures.length > 0) {
-  process.stderr.write(`CI workflow contract failed:\n${failures.map((item) => `- ${item}`).join('\n')}\n`);
+  process.stderr.write(
+    `CI workflow contract failed:\n${failures.map((item) => `- ${item}`).join('\n')}\n`,
+  );
   process.exitCode = 1;
 } else {
   process.stdout.write('CI workflow contract checks passed.\n');
