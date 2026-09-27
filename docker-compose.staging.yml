@@ -10,11 +10,18 @@ x-backend: &backend
   environment: &backend-environment
     POSTGRES_URL: postgres://exchange_app:${STAGING_POSTGRES_APP_PASSWORD:-staging-app-only-password}@toxiproxy:8666/exchange
     BUILD_VERSION: ${BUILD_SHA:-local-dirty}
+    CHAOS_ENVIRONMENT: ${CHAOS_ENVIRONMENT:-refused}
+    CHAOS_ACK: ${CHAOS_ACK:-refused}
+    ISOLATED_STAGING_SEED_INSTRUMENTS: 'true'
+    # Node доверяет только ephemeral CA из isolated Redis TLS container.
+    NODE_EXTRA_CA_CERTS: /staging-redis-tls/ca.crt
   depends_on:
     migrate:
       condition: service_completed_successfully
     toxiproxy-config:
       condition: service_completed_successfully
+    redis:
+      condition: service_healthy
     otel-collector:
       condition: service_started
   healthcheck:
@@ -29,6 +36,8 @@ x-backend: &backend
   read_only: true
   tmpfs:
     - /tmp:rw,noexec,nosuid,size=16m
+  volumes:
+    - staging-redis-tls:/staging-redis-tls:ro
   cap_drop:
     - ALL
   security_opt:
@@ -100,6 +109,30 @@ services:
     pids_limit: 256
     restart: 'no'
 
+  redis:
+    build:
+      context: .
+      dockerfile: deploy/staging/redis-tls/Dockerfile
+    environment:
+      STAGING_REDIS_PASSWORD: ${STAGING_REDIS_PASSWORD:-staging-redis-isolated-password-2026}
+    volumes:
+      - staging-redis-data:/data
+      - staging-redis-tls:/tls
+    healthcheck:
+      test:
+        [
+          'CMD-SHELL',
+          'REDISCLI_AUTH="$$STAGING_REDIS_PASSWORD" redis-cli --tls --cacert /tls/ca.crt ping | grep -q PONG',
+        ]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+      start_period: 5s
+    cpus: 0.5
+    mem_limit: 256m
+    pids_limit: 128
+    restart: unless-stopped
+
   toxiproxy:
     image: ghcr.io/shopify/toxiproxy:2.12.0
     labels:
@@ -169,6 +202,22 @@ services:
           psql -v ON_ERROR_STOP=1 -1 -f /migrations/005_security_hardening_up.sql
           psql -v ON_ERROR_STOP=1 -c "INSERT INTO schema_migrations(version) VALUES ('005_security_hardening')"
         fi
+        # Только ephemeral local/CI staging: сохраняются SHA-256 digests, а не raw keys.
+        psql -v ON_ERROR_STOP=1 -c "INSERT INTO machine_api_keys
+          (key_id, secret_digest, owner_id, owner_type, role, label, scopes, expires_at)
+          VALUES
+          ('configured-staging-trader', '41139ef262461bda89b4ee072d7bd6a94c211cd091f2d3bb0dfe915d4c05323d', 'staging-user', 'SYSTEM', 'trader', 'isolated staging trader', ARRAY['trading:read','trading:write'], clock_timestamp() + INTERVAL '90 days'),
+          ('configured-staging-admin-1', '8f1c99d3979bd37ad04dc762fc495456e8364d14c9d37329ed9949c97a7eff30', 'staging-admin', 'SYSTEM', 'admin', 'isolated staging admin one', ARRAY['admin:*','trading:*'], clock_timestamp() + INTERVAL '90 days'),
+          ('configured-staging-admin-2', '8b8a2ab7c0973035d95fe7c4543cc5fedd7ea64eda553de5de00378d36055c75', 'staging-admin-2', 'SYSTEM', 'admin', 'isolated staging admin two', ARRAY['admin:*','trading:*'], clock_timestamp() + INTERVAL '90 days')
+          ON CONFLICT (key_id) DO NOTHING"
+        psql -v ON_ERROR_STOP=1 -c "INSERT INTO assets (id, code, scale) VALUES
+          ('BTC', 'BTC', 8), ('USD', 'USD', 2) ON CONFLICT (id) DO NOTHING;
+          INSERT INTO accounts (id, owner_id) VALUES ('staging-user', 'staging-user')
+          ON CONFLICT (id) DO NOTHING;
+          INSERT INTO balances (account_id, asset_id, available, reserved) VALUES
+          ('staging-user', 'BTC', 1000000, 0),
+          ('staging-user', 'USD', 1000000000, 0)
+          ON CONFLICT (account_id, asset_id) DO NOTHING"
         psql -v ON_ERROR_STOP=1 -c 'GRANT USAGE ON SCHEMA public TO exchange_app'
         psql -v ON_ERROR_STOP=1 -c 'GRANT SELECT,INSERT,UPDATE,DELETE ON ALL TABLES IN SCHEMA public TO exchange_app'
         psql -v ON_ERROR_STOP=1 -c 'GRANT USAGE,SELECT ON ALL SEQUENCES IN SCHEMA public TO exchange_app'
@@ -348,6 +397,8 @@ services:
 volumes:
   staging-postgres-data:
   staging-postgres-standby-data:
+  staging-redis-data:
+  staging-redis-tls:
   staging-caddy-data:
   staging-caddy-config:
   staging-tempo-data:

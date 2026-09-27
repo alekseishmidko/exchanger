@@ -1,3 +1,8 @@
+/**
+ * PostgreSQL adapter machine credentials.
+ * Все read/write операции используют live database state; process-local maps
+ * базового registry не участвуют в authentication decisions production path.
+ */
 import { ConflictException, Injectable, NotFoundException, OnModuleInit } from '@nestjs/common';
 import type { Pool, PoolClient, QueryResultRow } from 'pg';
 import { randomBytes } from 'node:crypto';
@@ -8,7 +13,7 @@ import {
   ApiKeyPrincipal,
   ApiKeyRegistry,
   IssuedApiKey,
-} from '../auth/gateway.auth';
+} from '../domain/authentication';
 
 type ApiKeyRow = QueryResultRow & {
   key_id: string;
@@ -34,6 +39,10 @@ type ApiKeyRow = QueryResultRow & {
  */
 @Injectable()
 export class PostgresApiKeyRegistry extends ApiKeyRegistry implements OnModuleInit {
+  /**
+   * @param pool Shared PostgreSQL pool для обычных reads/authentication.
+   * @param transactions Опциональный current transaction для idempotent admin command.
+   */
   constructor(
     private readonly pool: Pool,
     private readonly transactions?: PostgresTransactionManager,
@@ -41,6 +50,7 @@ export class PostgresApiKeyRegistry extends ApiKeyRegistry implements OnModuleIn
     super([]);
   }
 
+  /** Загружает metadata snapshot только для совместимости inherited key-id operations. */
   async onModuleInit(): Promise<void> {
     const rows = await this.pool.query<ApiKeyRow>('SELECT * FROM machine_api_keys');
     this.credentials.clear();
@@ -98,6 +108,10 @@ export class PostgresApiKeyRegistry extends ApiKeyRegistry implements OnModuleIn
     return rows.rows.map((row) => this.map(row).metadata);
   }
 
+  /**
+   * Генерирует credential через domain registry и сохраняет только digest/metadata.
+   * При SQL failure локальная временная запись удаляется до повторного выброса ошибки.
+   */
   override async issue(
     input: Parameters<ApiKeyRegistry['issue']>[0],
     now = new Date(),
@@ -127,6 +141,7 @@ export class PostgresApiKeyRegistry extends ApiKeyRegistry implements OnModuleIn
     }
   }
 
+  /** Атомарно заменяет digest active key; старый secret перестаёт работать после UPDATE. */
   override async rotate(keyId: string, now = new Date()): Promise<IssuedApiKey> {
     const apiKey = `ex_${randomBytes(32).toString('base64url')}`;
     const expiresAt = new Date(now.getTime() + 90 * 24 * 60 * 60 * 1000).toISOString();
@@ -151,6 +166,7 @@ export class PostgresApiKeyRegistry extends ApiKeyRegistry implements OnModuleIn
     return { apiKey, metadata: this.map(result.rows[0]).metadata };
   }
 
+  /** Идемпотентно сохраняет REVOKED status и первое время revoke для audit metadata. */
   override async revoke(keyId: string, now = new Date()): Promise<ApiKeyMetadata> {
     const result = await this.database().query<ApiKeyRow>(
       `UPDATE machine_api_keys SET status='REVOKED', revoked_at=COALESCE(revoked_at,$2)
@@ -172,6 +188,7 @@ export class PostgresApiKeyRegistry extends ApiKeyRegistry implements OnModuleIn
     }
   }
 
+  /** Преобразует SQL row во внутреннюю credential model без раскрытия digest наружу. */
   private map(row: ApiKeyRow): ApiKeyCredential {
     return {
       digest: row.secret_digest,

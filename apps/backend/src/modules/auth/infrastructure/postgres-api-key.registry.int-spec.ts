@@ -4,7 +4,7 @@ import { PostgresApiKeyRegistry } from './postgres-api-key.registry';
 const postgresUrl = process.env['POSTGRES_URL'];
 const describePostgres = postgresUrl ? describe : describe.skip;
 
-/** Проверяет live machine credentials через две реплики на настоящем PostgreSQL. */
+/** Проверяет machine credentials через две реплики на настоящем PostgreSQL. */
 describePostgres('PostgresApiKeyRegistry integration', () => {
   let pool: Pool;
 

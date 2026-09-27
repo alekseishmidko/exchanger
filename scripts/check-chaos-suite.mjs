@@ -49,6 +49,18 @@ if (failures.length === 0) {
       failures.push(`Staging resilience runner не содержит safety guard ${guard}`);
     }
   }
+  for (const suiteInterlock of [
+    "CHAOS_ENVIRONMENT: process.env['CHAOS_ENVIRONMENT'] ?? 'staging'",
+    "CHAOS_ACK: process.env['CHAOS_ACK'] ?? 'isolated-test-only'",
+    'STAGING_HTTP_PORT',
+    'TOXIPROXY_HOST_PORT',
+  ]) {
+    if (!stagingSuite.includes(suiteInterlock)) {
+      failures.push(
+        `Resilience suite не настраивает isolated child environment: ${suiteInterlock}`,
+      );
+    }
+  }
   for (const scenario of CHAOS_SCENARIOS) {
     for (const field of ['id', 'status', 'dependency', 'injection', 'expected', 'alert', 'owner']) {
       if (!scenario[field]) failures.push(`Сценарий ${scenario.id} не содержит поле ${field}`);

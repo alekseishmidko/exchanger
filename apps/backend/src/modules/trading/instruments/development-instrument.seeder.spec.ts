@@ -31,4 +31,16 @@ describe('DevelopmentInstrumentSeeder', () => {
 
     expect(catalog.list()).toEqual([]);
   });
+
+  it('registers the same fixture for the isolated staging resilience environment', () => {
+    const catalog = new InstrumentCatalogService();
+    const seeder = new DevelopmentInstrumentSeeder(
+      new ConfigService({ ISOLATED_STAGING_SEED_INSTRUMENTS: 'true' }),
+      catalog,
+    );
+
+    seeder.onApplicationBootstrap();
+
+    expect(catalog.get('BTC-USD').status).toBe('ACTIVE');
+  });
 });

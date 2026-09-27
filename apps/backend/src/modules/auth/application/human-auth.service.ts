@@ -1,3 +1,11 @@
+/**
+ * Application layer human authentication.
+ *
+ * Сервис выполняет полный credential flow после transport validation: создаёт
+ * password hash, проверяет login, выпускает и отзывает opaque sessions,
+ * обслуживает recovery challenges и фиксирует security-sensitive действия.
+ * HTTP cookies и wire DTO здесь намеренно отсутствуют.
+ */
 import {
   BadRequestException,
   ForbiddenException,
@@ -15,7 +23,7 @@ import type {
   PublicUser,
   SessionRecord,
   UserRecord,
-} from '../domain/identity.types';
+} from '@app/modules/identity';
 import {
   RECOVERY_DELIVERY,
   RecoveryDelivery,
@@ -23,7 +31,7 @@ import {
   SessionStore,
   USER_STORE,
   UserStore,
-} from '../ports/identity.ports';
+} from '@app/modules/identity';
 import { PasswordHasher } from '../security/password-hasher';
 import { LOG_EVENTS, StructuredLogger } from '../../observability';
 import {
@@ -55,7 +63,19 @@ export type SessionIssueResult = Readonly<{
  * немедленно ротирует credential и отзывает stale sessions.
  */
 @Injectable()
-export class IdentityService {
+export class HumanAuthService {
+  /**
+   * Собирает auth use cases только из портов хранения и security adapters.
+   *
+   * @param users Source of truth пользовательских records и recovery challenges.
+   * @param sessions Source of truth server-side sessions; raw token туда не передаётся.
+   * @param passwords Adapter KDF/pepper для hash и constant-work verification.
+   * @param config TTL, session limits и секреты HMAC.
+   * @param audit Append-only журнал security/admin операций.
+   * @param recoveryDelivery Доставка одноразового challenge во внешний канал.
+   * @param idempotency Дедупликация административных mutations.
+   * @param logger Необязательная operational telemetry без credential payload.
+   */
   constructor(
     @Inject(USER_STORE) private readonly users: UserStore,
     @Inject(SESSION_STORE) private readonly sessions: SessionStore,
@@ -67,7 +87,11 @@ export class IdentityService {
     @Optional() private readonly logger?: StructuredLogger,
   ) {}
 
-  /** Регистрирует пользователя и сразу создаёт server-side session. */
+  /**
+   * Регистрирует пользователя и сразу создаёт server-side session.
+   * Password сначала необратимо хешируется, email нормализуется перед storage,
+   * затем security event предшествует выдаче нового opaque credential.
+   */
   async register(
     input: Readonly<{ email: string; password: string; name: string }>,
     context: SessionContext,
@@ -82,7 +106,11 @@ export class IdentityService {
     return this.issueSession(user, context);
   }
 
-  /** Проверяет password enumeration-resistant способом и ротирует session identifier. */
+  /**
+   * Проверяет password enumeration-resistant способом и выдаёт новый session identifier.
+   * Для неизвестного email выполняется та же KDF-проверка на dummy hash; устаревший
+   * hash обновляется после успешного входа без изменения публичного результата.
+   */
   async login(
     input: Readonly<{ email: string; password: string }>,
     context: SessionContext,
@@ -112,7 +140,12 @@ export class IdentityService {
     return this.issueSession(user, context);
   }
 
-  /** Live lookup session + user блокирует revoked/stale/privilege-changed context. */
+  /**
+   * Аутентифицирует opaque token через live session и live user record.
+   *
+   * Проверяет TTL, revoke state и `securityVersion`, продлевает только idle TTL
+   * в пределах absolute TTL и возвращает principal без самого credential.
+   */
   async authenticate(rawToken: string | undefined): Promise<HumanPrincipal> {
     if (!rawToken || rawToken.length < 32 || rawToken.length > 256) throw this.unauthorized();
     const digest = this.digest(rawToken, 'session');
@@ -153,7 +186,7 @@ export class IdentityService {
     };
   }
 
-  /** Возвращает allow-listed profile и capabilities из live user state. */
+  /** Возвращает allow-listed profile и capabilities из актуального user state. */
   async me(
     principal: HumanPrincipal,
   ): Promise<{ user: PublicUser; capabilities: readonly string[] }> {
@@ -161,19 +194,19 @@ export class IdentityService {
     return { user: this.publicUser(user), capabilities: [...user.scopes] };
   }
 
-  /** Отзывает текущую сессию без удаления forensic metadata. */
+  /** Отзывает текущую сессию без удаления forensic metadata и пишет security event. */
   async logout(principal: HumanPrincipal, correlationId: string): Promise<void> {
     await this.sessions.revoke(principal.userId, principal.sessionId, new Date().toISOString());
     await this.securityEvent(principal.userId, 'SESSION_LOGOUT', correlationId);
   }
-  /** Отзывает все сессии, включая текущую. */
+  /** Отзывает все сессии, включая текущую, единым storage operation. */
   async logoutAll(principal: HumanPrincipal, correlationId: string): Promise<number> {
     const count = await this.sessions.revokeAll(principal.userId, new Date().toISOString());
     await this.securityEvent(principal.userId, 'ALL_SESSIONS_REVOKED', correlationId);
     return count;
   }
 
-  /** Изменяет только name; security/system fields отсутствуют в input type. */
+  /** Изменяет только name; security/system fields отсутствуют в input type и результате. */
   async updateProfile(
     principal: HumanPrincipal,
     name: string,
@@ -184,7 +217,11 @@ export class IdentityService {
     return this.publicUser(user);
   }
 
-  /** Проверяет current password, меняет hash, отзывает остальные sessions и выдаёт новую сессию. */
+  /**
+   * Проверяет current password, меняет hash и выдаёт новую session.
+   * Обновление password увеличивает `securityVersion`; выбранные старые sessions
+   * отзываются до выпуска credential, исключая окно использования stale identity.
+   */
   async changePassword(
     principal: HumanPrincipal,
     input: Readonly<{ currentPassword: string; newPassword: string; logoutOtherSessions: boolean }>,
@@ -209,11 +246,13 @@ export class IdentityService {
     return this.issueSession(updated, context, 'PASSWORD_REAUTHENTICATED');
   }
 
+  /** Маппит session records владельца в metadata без token digest и device fingerprints. */
   async listSessions(principal: HumanPrincipal): Promise<readonly PublicSession[]> {
     return (await this.sessions.listByUser(principal.userId)).map((item) =>
       this.publicSession(item, item.sessionId === principal.sessionId),
     );
   }
+  /** Отзывает принадлежащую principal session и не раскрывает чужие session identifiers. */
   async revokeOwnSession(
     principal: HumanPrincipal,
     sessionId: string,
@@ -227,7 +266,11 @@ export class IdentityService {
     await this.securityEvent(principal.userId, 'SESSION_REVOKED', correlationId);
   }
 
-  /** Enumeration-resistant request: неизвестный email выполняет dummy KDF и получает тот же результат. */
+  /**
+   * Создаёт одноразовый recovery challenge без email-enumeration side channel.
+   * Для неизвестного email выполняются dummy KDF и decoy delivery; для известного
+   * сохраняется только HMAC digest, а ошибка доставки инвалидирует challenge.
+   */
   async requestChallenge(kind: 'EMAIL_VERIFY' | 'PASSWORD_RESET', email: string): Promise<void> {
     const startedAt = Date.now();
     this.logger?.info('identity', LOG_EVENTS.AUTH_RECOVERY_REQUESTED, {
@@ -274,6 +317,7 @@ export class IdentityService {
     }
   }
 
+  /** Однократно поглощает verification challenge и отмечает email подтверждённым. */
   async confirmEmail(token: string): Promise<void> {
     const user = await this.users.consumeChallenge('EMAIL_VERIFY', this.digest(token, 'recovery'));
     if (!user) {
@@ -282,6 +326,7 @@ export class IdentityService {
     }
     await this.users.markEmailVerified(user.id);
   }
+  /** Поглощает reset challenge, заменяет password hash и отзывает все старые sessions. */
   async resetPassword(token: string, password: string, correlationId: string): Promise<void> {
     const user = await this.users.completePasswordReset(
       this.digest(token, 'recovery'),
@@ -310,7 +355,7 @@ export class IdentityService {
     if (remaining > 0) await new Promise((resolve) => setTimeout(resolve, remaining));
   }
 
-  /** Admin safe session listing. */
+  /** Проверяет admin principal и возвращает безопасную session metadata целевого пользователя. */
   async adminListSessions(
     actor: HumanPrincipal,
     userId: string,
@@ -318,6 +363,7 @@ export class IdentityService {
     this.requireAdmin(actor);
     return (await this.sessions.listByUser(userId)).map((item) => this.publicSession(item, false));
   }
+  /** Идемпотентно отзывает одну session и записывает actor/reason в audit log. */
   async adminRevoke(
     actor: HumanPrincipal,
     userId: string,
@@ -343,6 +389,7 @@ export class IdentityService {
       },
     );
   }
+  /** Идемпотентно отзывает все sessions пользователя и возвращает фактическое число изменений. */
   async adminRevokeAll(
     actor: HumanPrincipal,
     userId: string,
@@ -368,6 +415,7 @@ export class IdentityService {
     );
     return result.revokedCount;
   }
+  /** Помечает password обязательным к замене и атомарно закрывает существующий session access. */
   async adminRequirePasswordReset(
     actor: HumanPrincipal,
     userId: string,
@@ -395,6 +443,10 @@ export class IdentityService {
     );
   }
 
+  /**
+   * Создаёт raw token, сохраняет только его HMAC digest и ограничивает число sessions.
+   * Raw credential возвращается transport-слою ровно для установки HttpOnly cookie.
+   */
   private async issueSession(
     user: UserRecord,
     context: SessionContext,
@@ -432,14 +484,17 @@ export class IdentityService {
     return { token, user: this.publicUser(user), session: this.publicSession(session, true) };
   }
 
+  /** Канонизирует email одинаково для register, login и recovery lookup. */
   private normalizeEmail(value: string): string {
     return value.trim().normalize('NFKC').toLocaleLowerCase('en-US');
   }
+  /** Разделяет HMAC domains по purpose, чтобы digest нельзя было переиспользовать между flows. */
   private digest(value: string, purpose: string): string {
     return createHmac('sha256', this.config.getOrThrow<string>('AUTH_TOKEN_HASH_SECRET'))
       .update(`${purpose}\u0000${value}`)
       .digest('base64url');
   }
+  /** Явным allow-list mapping исключает password/security fields из API response. */
   private publicUser(user: UserRecord): PublicUser {
     return {
       id: user.id,
@@ -449,6 +504,7 @@ export class IdentityService {
       createdAt: user.createdAt,
     };
   }
+  /** Явным allow-list mapping исключает token digest и device fingerprints. */
   private publicSession(session: SessionRecord, current: boolean): PublicSession {
     return {
       sessionId: session.sessionId,
@@ -460,11 +516,13 @@ export class IdentityService {
       deviceLabel: session.device.label,
     };
   }
+  /** Загружает актуального пользователя либо возвращает общую authentication error. */
   private async requireUser(id: string): Promise<UserRecord> {
     const user = await this.users.findById(id);
     if (!user) throw this.unauthorized();
     return user;
   }
+  /** Требует одновременно admin role и admin scope, не доверяя только одному claim. */
   private requireAdmin(principal: HumanPrincipal): void {
     if (!principal.roles.includes('ADMIN') || !principal.scopes.includes('admin:*'))
       throw new ForbiddenException({
@@ -472,18 +530,21 @@ export class IdentityService {
         message: 'Administrative access is required',
       });
   }
+  /** Строит единую session error без раскрытия конкретной причины отказа. */
   private unauthorized(): UnauthorizedException {
     return new UnauthorizedException({
       code: 'AUTH_SESSION_INVALID',
       message: 'Authentication failed',
     });
   }
+  /** Строит единую challenge error для expired, consumed и unknown tokens. */
   private invalidChallenge(): BadRequestException {
     return new BadRequestException({
       code: 'AUTH_CHALLENGE_INVALID',
       message: 'Challenge is invalid or expired',
     });
   }
+  /** Записывает bounded audit event без email, password, token и network metadata. */
   private async securityEvent(userId: string, action: string, commandId: string): Promise<void> {
     await this.audit.append(
       { actorId: userId, role: 'USER' },

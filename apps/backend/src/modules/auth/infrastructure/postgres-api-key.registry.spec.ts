@@ -1,7 +1,7 @@
 import type { Pool } from 'pg';
 import { PostgresApiKeyRegistry } from './postgres-api-key.registry';
 
-/** Canary test: durable machine credential SQL receives digest/metadata, never raw API key. */
+/** Canary: durable machine credential SQL receives digest/metadata, never raw API key. */
 describe('PostgresApiKeyRegistry', () => {
   it('persists issue/rotate/revoke without plaintext secret', async () => {
     let row: Record<string, unknown> | undefined;

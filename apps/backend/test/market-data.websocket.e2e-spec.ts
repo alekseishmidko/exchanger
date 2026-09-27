@@ -2,7 +2,7 @@ import { Test } from '@nestjs/testing';
 import { FastifyAdapter, NestFastifyApplication } from '@nestjs/platform-fastify';
 import { AppModule } from '../src/app.module';
 import { MarketDataHub } from '../src/modules/market-data/domain/market-data';
-import { ApiKeyRegistry } from '../src/modules/gateway';
+import { ApiKeyRegistry } from '../src/modules/auth';
 import {
   heartbeatPayload,
   marketDataApiKeyRegistry,

@@ -73,11 +73,13 @@ export class PostgresAuditLog implements AuditLogPort {
       };
       await client.query(
         `INSERT INTO audit_records
-          (id, occurred_at, actor_id, actor_role, event_type, action_type,
+          (id, sequence, occurred_at, actor_id, actor_role, event_type, action_type,
            command_id, target_id, details, previous_hash, hash)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, $11)`,
+         OVERRIDING SYSTEM VALUE
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11, $12)`,
         [
           record.id,
+          record.sequence,
           record.occurredAt,
           actor.actorId,
           actor.role,

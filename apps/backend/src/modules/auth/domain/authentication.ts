@@ -16,8 +16,8 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
-import { HumanSessionGuard } from '../../identity/security/human-session.guard';
-import { CsrfGuard } from '../../identity/security/csrf.guard';
+import { HumanSessionGuard } from '../security/human-session.guard';
+import { CsrfGuard } from '../security/csrf.guard';
 
 /**
  * Principal, полученный из API key после аутентификации.
@@ -263,6 +263,11 @@ export class ApiKeyRegistry {
  */
 @Injectable()
 export class ApiKeyGuard implements CanActivate {
+  /**
+   * @param registry Проверка и live revalidation machine credential.
+   * @param humanSessions Fallback для browser session на общих trading endpoints.
+   * @param csrf Защита unsafe requests, если fallback использовал cookie transport.
+   */
   constructor(
     private readonly registry: ApiKeyRegistry,
     private readonly humanSessions: HumanSessionGuard,

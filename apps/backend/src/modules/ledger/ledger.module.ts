@@ -9,10 +9,11 @@ import { Ledger } from './domain/ledger';
 import { PostgresLedgerAdapter } from './infrastructure/postgres-ledger.adapter';
 import { LEDGER_PORT } from './ports/ledger.port';
 import type { LedgerPort } from './ports/ledger.port';
+import { AuthModule } from '../auth';
 
 /** Composition root ledger application boundary и его REST adapter. */
 @Module({
-  imports: [AuditModule, GatewayCommonModule],
+  imports: [AuditModule, AuthModule, GatewayCommonModule],
   controllers: [LedgerController],
   providers: [
     {

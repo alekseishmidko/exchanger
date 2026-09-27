@@ -660,4 +660,24 @@ describePostgres('PostgreSQL durable runtime', () => {
       'immutable rows cannot be updated',
     );
   });
+
+  /** Rollback не должен превращать identity gap в разрыв логической audit chain. */
+  it('keeps audit sequence contiguous after the database identity has advanced', async () => {
+    await pool.query("SELECT nextval(pg_get_serial_sequence('audit_records', 'sequence'))");
+    const audit = new PostgresAuditLog(transactions);
+
+    const first = await audit.append(
+      { actorId: 'admin-1', role: 'ADMIN' },
+      'ACTION_APPLIED',
+      'FREEZE_ACCOUNT',
+      'admin-command-after-rollback',
+      'account-1',
+    );
+
+    expect(first.sequence).toBe(1);
+    expect(await audit.verifyIntegrity()).toBe(true);
+    expect(
+      (await pool.query<{ sequence: string }>('SELECT sequence FROM audit_records')).rows[0],
+    ).toEqual({ sequence: '1' });
+  });
 });

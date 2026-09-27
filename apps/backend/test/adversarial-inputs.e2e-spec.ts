@@ -4,7 +4,7 @@ import request from 'supertest';
 import { io, Socket } from 'socket.io-client';
 import fc from 'fast-check';
 import { AppModule } from '../src/app.module';
-import { ApiKeyRegistry } from '../src/modules/gateway';
+import { ApiKeyRegistry } from '../src/modules/auth';
 
 type ErrorBody = { code?: string; statusCode?: number; message?: string };
 type WsEnvelope = Readonly<{

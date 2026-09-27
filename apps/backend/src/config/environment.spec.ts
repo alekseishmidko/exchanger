@@ -15,6 +15,15 @@ describe('environment validation', () => {
       '/repo/.env.example',
     ]);
   });
+
+  /** Скомпилированный backend также читает env-файлы из корня monorepo. */
+  it('resolves environment files from the compiled dist runtime', () => {
+    expect(environmentFilePaths('/repo/apps/backend/dist/src', 'development')).toEqual([
+      '/repo/.env.development',
+      '/repo/.env.development.example',
+      '/repo/.env.example',
+    ]);
+  });
   it('rejects an invalid production configuration', () => {
     expect(() =>
       validateEnvironment({
@@ -110,6 +119,26 @@ describe('environment validation', () => {
         ...authSecrets,
       }),
     ).toThrow('DEVELOPMENT_SEED_INSTRUMENTS is allowed only in development');
+  });
+
+  it('allows staging instrument seeding only behind the chaos interlock', () => {
+    const base = {
+      NODE_ENV: 'test',
+      PORT: '5000',
+      SERVICE_NAME: 'exchange-backend',
+      ISOLATED_STAGING_SEED_INSTRUMENTS: 'true',
+      ...authSecrets,
+    };
+    expect(() => validateEnvironment(base)).toThrow(
+      'ISOLATED_STAGING_SEED_INSTRUMENTS requires the isolated chaos interlock',
+    );
+    expect(() =>
+      validateEnvironment({
+        ...base,
+        CHAOS_ENVIRONMENT: 'staging',
+        CHAOS_ACK: 'isolated-test-only',
+      }),
+    ).not.toThrow();
   });
 
   it('rejects an unsafe Swagger path', () => {

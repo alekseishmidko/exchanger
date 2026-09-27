@@ -39,6 +39,14 @@ export class PostgresProjectionStore implements ProjectionStorePort {
     @Inject(POSTGRES_TRANSACTION) private readonly transactions: PostgresTransactionManager,
   ) {}
 
+  /** Читает следующий sequence под lock активной версии в общей transaction. */
+  nextSequence(): Promise<number> {
+    return this.transactions.run(async (client) => {
+      const version = await this.versions.activeVersion(client, true);
+      return (await this.versions.lockVersionSequence(client, version, 'ACTIVE')) + 1;
+    });
+  }
+
   /** Идемпотентно применяет следующее событие и offset в одной transaction. */
   apply(event: ProjectionEvent): Promise<void> {
     return this.transactions.run(async (client) => {

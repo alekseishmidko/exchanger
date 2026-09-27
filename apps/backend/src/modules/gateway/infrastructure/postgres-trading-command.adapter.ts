@@ -189,21 +189,19 @@ export class PostgresTradingCommandAdapter implements TradingCommandPort {
             : await this.processor.cancelOrder(command as GatewayCancelOrderCommand)
           : pendingResult;
 
-        if (!this.processor) {
-          await client.query(
-            `INSERT INTO outbox_events
+        await client.query(
+          `INSERT INTO outbox_events
             (event_id, aggregate_type, aggregate_id, event_type, payload, correlation_id, causation_id)
            VALUES ($1, 'order', $2, $3, $4::jsonb, $5, $6)`,
-            [
-              `event-${command.commandId}`,
-              orderId,
-              eventType,
-              JSON.stringify({ ...durablePayload, sequence }),
-              correlationId,
-              command.commandId,
-            ],
-          );
-        }
+          [
+            `event-${command.commandId}`,
+            orderId,
+            eventType,
+            JSON.stringify({ ...durablePayload, sequence }),
+            correlationId,
+            command.commandId,
+          ],
+        );
         await client.query(
           `UPDATE command_journal
             SET status = 'APPLIED', public_result = $2::jsonb, completed_at = clock_timestamp()

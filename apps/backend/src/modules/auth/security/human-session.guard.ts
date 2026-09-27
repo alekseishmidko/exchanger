@@ -1,3 +1,8 @@
+/**
+ * HTTP guard human sessions.
+ * Он извлекает credential из одного настроенного transport, делегирует live
+ * authentication сервису и прикрепляет к request только безопасный principal.
+ */
 import {
   CanActivate,
   ExecutionContext,
@@ -7,8 +12,8 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createHmac, timingSafeEqual } from 'node:crypto';
-import type { HumanPrincipal } from '../domain/identity.types';
-import { IdentityService } from '../application/identity.service';
+import type { HumanPrincipal } from '../../identity/domain/identity.types';
+import { HumanAuthService } from '../application/human-auth.service';
 import { LOG_EVENTS, StructuredLogger } from '../../observability';
 
 /** Request shape после session/test authentication. */
@@ -26,12 +31,18 @@ export type HumanAuthenticatedRequest = {
  */
 @Injectable()
 export class HumanSessionGuard implements CanActivate {
+  /**
+   * @param identity Live validation session и user securityVersion.
+   * @param config Выбор cookie/bearer transport и изолированного test bypass.
+   * @param logger Audit telemetry факта использования test bypass.
+   */
   constructor(
-    private readonly identity: IdentityService,
+    private readonly identity: HumanAuthService,
     private readonly config: ConfigService,
     @Optional() private readonly logger?: StructuredLogger,
   ) {}
 
+  /** Устанавливает principal до controller; invalid credential завершает request единым 401. */
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest<HumanAuthenticatedRequest>();
     const testToken = this.header(request, 'x-test-auth-token');
@@ -46,6 +57,7 @@ export class HumanSessionGuard implements CanActivate {
     return true;
   }
 
+  /** Извлекает ровно один credential transport и не поддерживает неявный fallback. */
   private extractSessionToken(request: HumanAuthenticatedRequest): string | undefined {
     if (this.config.get('AUTH_TOKEN_TRANSPORT', 'cookie') === 'bearer') {
       const authorization = this.header(request, 'authorization');
@@ -61,6 +73,7 @@ export class HumanSessionGuard implements CanActivate {
       ?.slice(name.length + 1);
   }
 
+  /** Разрешает fixed test identity только в test+component profile и timing-safe проверяет token. */
   private testPrincipal(token: string): HumanPrincipal {
     const enabled = this.config.get('AUTH_TEST_BYPASS_ENABLED', 'false') === 'true';
     if (
@@ -92,10 +105,12 @@ export class HumanSessionGuard implements CanActivate {
     };
   }
 
+  /** Нормализует Node/Fastify multi-value header до первого значения. */
   private header(request: HumanAuthenticatedRequest, name: string): string | undefined {
     const value = request.headers[name];
     return Array.isArray(value) ? value[0] : value;
   }
+  /** Возвращает общую ошибку для missing, expired, revoked и malformed credentials. */
   private unauthorized(): UnauthorizedException {
     return new UnauthorizedException({
       code: 'AUTH_SESSION_INVALID',

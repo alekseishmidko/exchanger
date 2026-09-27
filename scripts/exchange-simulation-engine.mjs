@@ -35,7 +35,7 @@ export function normalizeSimulationConfig(input = {}) {
 
 /**
  * Synthetic exchange worker. Все изменения состояния выполняются через public
- * HTTP API: admin создаёт рынки и funding, trader keys создают accounts/orders.
+ * HTTP API: люди проходят register/login, а admin создаёт рынки и funding.
  */
 export class ExchangeSimulationWorker {
   constructor({ backendUrl, adminApiKey = 'dev-admin-key', fetchImpl = fetch }) {
@@ -60,6 +60,9 @@ export class ExchangeSimulationWorker {
       startedAt: null,
       stoppedAt: null,
       config: null,
+      usersRegistered: 0,
+      usersLoggedIn: 0,
+      accountsReady: 0,
       usersReady: 0,
       usersTotal: 0,
       marketsReady: 0,
@@ -223,21 +226,17 @@ export class ExchangeSimulationWorker {
       const market = DEFAULT_MARKETS[index % DEFAULT_MARKETS.length];
       const suffix = String(index + 1).padStart(5, '0');
       const userId = `sim-user-${suffix}`;
-      const accountId = userId;
       try {
-        const apiKey = await this.issueApiKey(
-          `sim-key-${suffix}-${this.state.runId}`,
-          userId,
-          'trader',
-        );
+        const authentication = await this.registerAndLogin(suffix);
+        const accountId = authentication.userId;
         await this.request('/api/v1/accounts', {
           method: 'POST',
-          key: apiKey,
+          session: authentication.session,
           idempotencyKey: `sim-account-${suffix}-${this.state.runId}`,
           body: {
             commandId: `sim-account-${suffix}-${this.state.runId}`,
             accountId,
-            ownerId: userId,
+            ownerId: authentication.userId,
             balances: [
               { assetId: 'USD', code: 'USD', scale: 2 },
               { assetId: market.assetId, code: market.assetId, scale: 8 },
@@ -249,15 +248,42 @@ export class ExchangeSimulationWorker {
           this.credit(accountId, 'USD', '1000000', suffix),
           this.credit(accountId, market.assetId, '1000', suffix),
         ]);
-        const user = { userId, accountId, apiKey, market };
+        const user = {
+          userId: authentication.userId,
+          accountId,
+          session: authentication.session,
+          market,
+        };
         this.users.push(user);
         this.usersByMarket.get(market.instrumentId)?.push(user);
+        this.state.accountsReady += 1;
         this.state.usersReady += 1;
       } catch (error) {
         this.recordError(`setup:${userId}`, error);
       }
     });
     if (this.users.length < 2) throw new Error('Fewer than two simulation users are ready');
+  }
+
+  /** Выполняет реальный browser-like flow: регистрация, затем password login. */
+  async registerAndLogin(suffix) {
+    const email = `sim-user-${suffix}@example.test`;
+    const password = `Exchange-Sim-${suffix}-Password-2026!`;
+    await this.request('/api/v1/auth/register', {
+      method: 'POST',
+      body: { email, password, name: `Simulation User ${suffix}` },
+      accepted: [201, 409],
+    });
+    this.state.usersRegistered += 1;
+    const login = await this.request('/api/v1/auth/login', {
+      method: 'POST',
+      body: { email, password, deviceLabel: `exchange-simulator-${this.state.runId}` },
+      accepted: [200],
+    });
+    const userId = login.body?.user?.id;
+    if (typeof userId !== 'string') throw new Error('Login did not return a user identity');
+    this.state.usersLoggedIn += 1;
+    return { userId, session: extractSessionCookies(login.setCookies) };
   }
 
   async issueApiKey(commandId, userId, role) {
@@ -331,7 +357,7 @@ export class ExchangeSimulationWorker {
     try {
       const response = await this.request('/api/v1/orders', {
         method: 'POST',
-        key: user.apiKey,
+        session: user.session,
         idempotencyKey: orderId,
         body: {
           commandId: orderId,
@@ -355,13 +381,17 @@ export class ExchangeSimulationWorker {
     }
   }
 
-  async request(path, { method = 'GET', key, idempotencyKey, body, accepted = [200] } = {}) {
+  async request(
+    path,
+    { method = 'GET', key, session, idempotencyKey, body, accepted = [200] } = {},
+  ) {
     const response = await this.fetchImpl(`${this.backendUrl}${path}`, {
       method,
       signal: AbortSignal.timeout(10_000),
       headers: {
         accept: 'application/json',
         ...(key ? { 'x-api-key': key } : {}),
+        ...(session ? { cookie: session.cookie, 'x-csrf-token': session.csrfToken } : {}),
         ...(idempotencyKey ? { 'idempotency-key': idempotencyKey } : {}),
         ...(body ? { 'content-type': 'application/json' } : {}),
       },
@@ -373,7 +403,11 @@ export class ExchangeSimulationWorker {
         `${method} ${path}: HTTP ${response.status} ${responseBody?.code ?? ''}`.trim(),
       );
     }
-    return { status: response.status, body: responseBody };
+    const setCookies =
+      typeof response.headers.getSetCookie === 'function'
+        ? response.headers.getSetCookie()
+        : splitSetCookieHeader(response.headers.get('set-cookie'));
+    return { status: response.status, body: responseBody, setCookies };
   }
 
   recordError(scope, error) {
@@ -383,6 +417,22 @@ export class ExchangeSimulationWorker {
       ...this.state.recentErrors,
     ].slice(0, 10);
   }
+}
+
+/** Преобразует Set-Cookie login response в Cookie + double-submit CSRF header. */
+export function extractSessionCookies(setCookies) {
+  const pairs = setCookies.map((value) => value.split(';', 1)[0]).filter(Boolean);
+  const csrf = pairs.find((value) => value.startsWith('exchange_csrf='));
+  const csrfToken = csrf?.slice('exchange_csrf='.length);
+  if (!pairs.some((value) => value.startsWith('exchange_session=')) || !csrfToken) {
+    throw new Error('Login response did not contain session and CSRF cookies');
+  }
+  return { cookie: pairs.join('; '), csrfToken };
+}
+
+function splitSetCookieHeader(value) {
+  if (!value) return [];
+  return value.split(/,(?=\s*[^;,=\s]+=[^;,]+)/).map((item) => item.trim());
 }
 
 function marketRules(market, runId) {

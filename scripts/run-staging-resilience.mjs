@@ -1,5 +1,5 @@
 import { spawn, spawnSync } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { chmod, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
@@ -176,7 +176,13 @@ async function eventuallyPlace(name, idempotencyKey, timeoutMs = 20_000) {
     }
     await delay(250);
   }
-  throw new Error(`command-${name} не принят; последний HTTP ${response.status}`);
+  const code =
+    typeof response.body === 'object' && response.body !== null && 'code' in response.body
+      ? String(response.body.code)
+      : 'UNKNOWN';
+  throw new Error(
+    `command-${name} не принят; последний HTTP ${response.status} (${code})`,
+  );
 }
 
 /** Вызывает Toxiproxy API; fault mutation возможна только после interlock выше. */
@@ -767,6 +773,65 @@ async function rows(statement, service = databaseService) {
   return result.output.trim() ? result.output.trim().split('\n') : [];
 }
 
+/** Канонизирует JSON так же, как backend audit adapter. */
+function canonicalJson(value) {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
+  if (value !== null && typeof value === 'object') {
+    const entries = Object.entries(value)
+      .filter(([, item]) => item !== undefined)
+      .sort(([left], [right]) => left.localeCompare(right));
+    return `{${entries.map(([key, item]) => `${JSON.stringify(key)}:${canonicalJson(item)}`).join(',')}}`;
+  }
+  return JSON.stringify(value);
+}
+
+/** Возвращает безопасную причину первого нарушения audit hash chain. */
+async function diagnoseAuditIntegrity() {
+  const encoded = await rows(`SELECT encode(convert_to(json_build_object(
+    'sequence', sequence,
+    'occurredAt', to_char(occurred_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
+    'actor', json_build_object('actorId', actor_id, 'role', actor_role),
+    'eventType', event_type,
+    'actionType', action_type,
+    'commandId', command_id,
+    'targetId', target_id,
+    'details', details,
+    'previousHash', previous_hash,
+    'hash', hash
+  )::text, 'UTF8'), 'base64') FROM audit_records ORDER BY sequence`);
+  let previousHash = 'GENESIS';
+  for (let index = 0; index < encoded.length; index += 1) {
+    const record = JSON.parse(Buffer.from(encoded[index], 'base64').toString('utf8'));
+    const body = {
+      sequence: Number(record.sequence),
+      occurredAt: record.occurredAt,
+      actor: record.actor,
+      eventType: record.eventType,
+      actionType: record.actionType,
+      commandId: record.commandId,
+      targetId: record.targetId,
+      details: record.details,
+      previousHash: record.previousHash,
+    };
+    const expectedHash = createHash('sha256').update(canonicalJson(body)).digest('hex');
+    if (
+      body.sequence !== index + 1 ||
+      body.previousHash !== previousHash ||
+      record.hash !== expectedHash
+    ) {
+      return {
+        sequence: body.sequence,
+        actionType: body.actionType,
+        sequenceMatches: body.sequence === index + 1,
+        previousHashMatches: body.previousHash === previousHash,
+        hashMatches: record.hash === expectedHash,
+      };
+    }
+    previousHash = record.hash;
+  }
+  return null;
+}
+
 /** Сверяет durable commands/events/ledger/offsets/sequence/projections/audit. */
 async function reconcile() {
   const checks = {
@@ -817,7 +882,13 @@ async function reconcile() {
   const dashboard = await http('/api/v1/admin/reconciliation', {
     headers: { 'x-api-key': adminOneKey },
   });
+  report.measurements.reconciliationHttpStatus = dashboard.status;
+  report.measurements.reconciliationErrorCode =
+    typeof dashboard.body === 'object' && dashboard.body !== null && 'code' in dashboard.body
+      ? String(dashboard.body.code)
+      : null;
   checks.auditIntegrity = dashboard.status === 200 && dashboard.body?.auditIntegrity === true;
+  if (!checks.auditIntegrity) report.auditIntegrityDiagnostic = await diagnoseAuditIntegrity();
   report.reconciliation = checks;
   if (Object.entries(checks).some(([, value]) => value !== 0 && value !== true)) {
     throw new Error(`Post-scenario reconciliation не сошлась: ${JSON.stringify(checks)}`);

@@ -3,10 +3,11 @@ import { GatewayCommonModule } from '../../gateway/gateway-common.module';
 import { InstrumentCatalogService } from './instrument-catalog.service';
 import { InstrumentsController } from './instruments.controller';
 import { DevelopmentInstrumentSeeder } from './development-instrument.seeder';
+import { AuthModule } from '../../auth';
 
 /** Собирает единый application catalog и его read-only transport adapter. */
 @Module({
-  imports: [GatewayCommonModule],
+  imports: [AuthModule, GatewayCommonModule],
   controllers: [InstrumentsController],
   providers: [InstrumentCatalogService, DevelopmentInstrumentSeeder],
   exports: [InstrumentCatalogService],

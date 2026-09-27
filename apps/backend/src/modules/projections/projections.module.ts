@@ -7,10 +7,11 @@ import { ProjectionsController } from './controllers/projections.controller';
 import { PostgresProjectionStore } from './infrastructure/postgres-projection.store';
 import { PROJECTION_STORE_PORT } from './ports/projection.port';
 import type { ProjectionStorePort } from './ports/projection.port';
+import { AuthModule } from '../auth';
 
-/** Собирает read-model store и query API, используя только gateway auth boundary. */
+/** Собирает read-model store и query API, используя публичный auth boundary. */
 @Module({
-  imports: [GatewayCommonModule],
+  imports: [AuthModule, GatewayCommonModule],
   controllers: [ProjectionsController],
   providers: [
     ProjectionStore,

@@ -1,3 +1,8 @@
+/**
+ * Admission control password/recovery endpoints.
+ * Redis path выполняет atomic fixed-window increments; component path повторяет
+ * ту же семантику в bounded memory map для детерминированных тестов.
+ */
 import {
   HttpException,
   Injectable,
@@ -22,6 +27,11 @@ export class AuthRateLimit implements OnModuleInit, OnApplicationShutdown {
   private readonly namespace: string;
   private readonly commandTimeoutMs: number;
 
+  /**
+   * Выбирает distributed режим по runtime profile и заранее конфигурирует fail-closed client.
+   * @param config Limits, Redis endpoint, namespace и command timeout.
+   * @param logger Необязательная low-cardinality telemetry отказов admission.
+   */
   constructor(
     private readonly config: ConfigService,
     @Optional() private readonly logger?: StructuredLogger,
@@ -73,6 +83,7 @@ export class AuthRateLimit implements OnModuleInit, OnApplicationShutdown {
     }
   }
 
+  /** Атомарно увеличивает account/IP/global buckets одним Redis Lua script. */
   private async checkRedis(
     keys: readonly string[],
     limit: number,
@@ -131,6 +142,7 @@ export class AuthRateLimit implements OnModuleInit, OnApplicationShutdown {
     }
   }
 
+  /** Повторяет fixed-window policy локально и запрещает unbounded рост bucket map. */
   private checkMemory(
     keys: readonly string[],
     limit: number,

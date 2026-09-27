@@ -8,7 +8,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AuditModule } from '../audit';
-import { AuthenticationController } from './controllers/auth.controller';
 import { GatewayController } from './controllers/gateway.controller';
 import { POSTGRES_TRANSACTION, PostgresTransactionManager } from '../../infrastructure/postgres';
 import { PostgresTradingCommandAdapter } from './infrastructure/postgres-trading-command.adapter';
@@ -18,6 +17,7 @@ import { AdmissionControlModule } from '../admin/admission-control';
 import { SEQUENCER_STORE_PORT, SequencerModule, SequencerStorePort } from '../trading/sequencer';
 import { GatewayCommonModule } from './gateway-common.module';
 import { TradingRuntimeModule, TradingRuntimeProcessor } from '../trading/runtime';
+import { AuthModule } from '../auth';
 
 /**
  * Composition root Gateway-модуля.
@@ -32,12 +32,13 @@ import { TradingRuntimeModule, TradingRuntimeProcessor } from '../trading/runtim
 @Module({
   imports: [
     AuditModule,
+    AuthModule,
     GatewayCommonModule,
     SequencerModule,
     AdmissionControlModule,
     TradingRuntimeModule,
   ],
-  controllers: [AuthenticationController, GatewayController],
+  controllers: [GatewayController],
   providers: [
     {
       provide: TRADING_COMMAND_PORT,
@@ -59,6 +60,6 @@ import { TradingRuntimeModule, TradingRuntimeProcessor } from '../trading/runtim
           : runtime,
     },
   ],
-  exports: [GatewayCommonModule, TRADING_COMMAND_PORT],
+  exports: [AuthModule, GatewayCommonModule, TRADING_COMMAND_PORT],
 })
 export class GatewayModule {}

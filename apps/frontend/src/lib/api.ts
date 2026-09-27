@@ -102,11 +102,20 @@ export async function callApi(
   };
   if (body !== undefined) headers['content-type'] = 'application/json';
   if (idempotencyKey) headers['idempotency-key'] = idempotencyKey;
+  if (!config.apiKey && !['GET', 'HEAD', 'OPTIONS'].includes(method)) {
+    const csrfToken = document.cookie
+      .split(';')
+      .map((item) => item.trim())
+      .find((item) => item.startsWith('exchange_csrf='))
+      ?.slice('exchange_csrf='.length);
+    if (csrfToken) headers['x-csrf-token'] = csrfToken;
+  }
 
   try {
     const init: RequestInit = {
       method,
       headers,
+      credentials: 'include',
     };
     if (body !== undefined) init.body = JSON.stringify(body);
     const response = await fetch(`${normalizedBase}${normalizedPath}`, init);

@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { resolve } from 'node:path';
 import { environmentFilePaths, validateEnvironment } from './config/environment';
 import { HealthModule } from './modules/health';
 import { GatewayModule } from './modules/gateway';
@@ -17,20 +18,20 @@ import { SettlementModule } from './modules/trading/settlement';
 import { SequencerModule } from './modules/trading/sequencer';
 import { AdmissionControlModule } from './modules/admin/admission-control';
 import { TradingWorkersModule } from './modules/trading/workers';
-import { IdentityModule } from './modules/identity';
+import { AuthModule } from './modules/auth';
 
 /** Корневой composition root приложения и глобальной конфигурации. */
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-      envFilePath: [...environmentFilePaths(__dirname)],
+      envFilePath: [...environmentFilePaths(resolve(__dirname, '..'))],
       validate: validateEnvironment,
     }),
     PostgresModule,
     EventLogModule,
     AuditModule,
-    IdentityModule,
+    AuthModule,
     SequencerModule,
     AdmissionControlModule,
     ObservabilityModule,

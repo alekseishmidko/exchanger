@@ -33,11 +33,13 @@ import {
   ApiKeyPrincipal,
   assertAuthorizedAction,
   assertAdministrativeAccess,
+} from '../../auth';
+import {
   IDEMPOTENCY_STORE_PORT,
   IdempotencyStorePort,
-  RateLimitService,
-  ZodValidationPipe,
-} from '../../gateway';
+} from '../../gateway/ports/gateway.idempotency.port';
+import { RateLimitService } from '../../gateway/application/gateway.rate-limit';
+import { ZodValidationPipe } from '../../gateway/validation/gateway.validation';
 import { Decimal, createId } from '../../shared-kernel';
 import { Instrument, InstrumentRules } from '../../trading/instruments';
 import {
