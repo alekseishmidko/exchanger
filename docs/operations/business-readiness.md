@@ -10,6 +10,31 @@ recovery, нагрузка, adversarial inputs и подписанный release
 
 ## Быстрая локальная проверка
 
+### Точное воспроизведение GitHub verify
+
+Перед push запускайте portable-часть GitHub job `verify` одной командой:
+
+```bash
+pnpm verify:local
+# или без глобального pnpm
+npm run verify:local
+```
+
+GitHub вызывает эту же команду, а не отдельную копию списка проверок. Runner
+сам поднимает временный PostgreSQL, если `POSTGRES_URL` не задан, и сохраняет
+отчёт в `artifacts/backend-checks/verify-<run-id>/`. Локально необходимы
+запущенный Docker Desktop, доступ к npm registry и `redis-server` в `PATH`
+(`brew install redis` на macOS). В проверку входят оба dependency audit,
+workspace lint/format/typecheck/test/build, contracts/adversarial/chaos,
+PostgreSQL и Redis integration, production artifact inspection, Trivy
+filesystem/IaC и production-image scan.
+
+Gitleaks, Semgrep и keyless-подпись SBOM остаются отдельными GitHub security
+steps: подпись использует GitHub OIDC identity и принципиально не может быть
+воспроизведена как та же identity на рабочей станции. Их наличие и pinning
+контролирует `ci:check`; все переносимые quality gates выполняются через
+`verify:local` и потому совпадают локально и в CI.
+
 Одной командой:
 
 ```bash

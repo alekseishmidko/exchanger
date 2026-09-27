@@ -154,10 +154,14 @@ async function ensurePostgres() {
   }
 
   for (let attempt = 1; attempt <= 30; attempt += 1) {
-    const ready = spawnSync('docker', ['exec', containerName, 'pg_isready', '-U', user, '-d', database], {
-      cwd: rootDir,
-      stdio: 'ignore',
-    });
+    const ready = spawnSync(
+      'docker',
+      ['exec', containerName, 'pg_isready', '-U', user, '-d', database],
+      {
+        cwd: rootDir,
+        stdio: 'ignore',
+      },
+    );
     if (ready.status === 0) {
       return {
         containerName,
@@ -189,7 +193,12 @@ const sharedChecks = [
     env: { MAINTAINABILITY_ENFORCE: 'true' },
   }),
   step('backend:lint', 'corepack', ['pnpm', '--filter', '@exchange/backend', 'lint']),
-  step('backend:format:check', 'corepack', ['pnpm', '--filter', '@exchange/backend', 'format:check']),
+  step('backend:format:check', 'corepack', [
+    'pnpm',
+    '--filter',
+    '@exchange/backend',
+    'format:check',
+  ]),
   step('backend:typecheck', 'corepack', ['pnpm', '--filter', '@exchange/backend', 'typecheck']),
   step('contracts:check', 'corepack', ['pnpm', 'contracts:check']),
   step('adversarial:check', 'corepack', ['pnpm', 'adversarial:check']),
@@ -198,15 +207,20 @@ const sharedChecks = [
   step('chaos:check', 'corepack', ['pnpm', 'chaos:check']),
   step('chaos:component', 'corepack', ['pnpm', 'chaos:component']),
   step('readiness:check', 'corepack', ['pnpm', 'readiness:check']),
-  step('postgres durable int-spec', 'corepack', [
-    'pnpm',
-    '--filter',
-    '@exchange/backend',
-    'test',
-    '--',
-    'src/modules/ledger/infrastructure/postgres.int-spec.ts',
-    '--runInBand',
-  ], { requiresPostgres: true }),
+  step(
+    'postgres durable int-spec',
+    'corepack',
+    [
+      'pnpm',
+      '--filter',
+      '@exchange/backend',
+      'test',
+      '--',
+      'src/modules/ledger/infrastructure/postgres.int-spec.ts',
+      '--runInBand',
+    ],
+    { requiresPostgres: true },
+  ),
   step('backend:test', 'corepack', ['pnpm', '--filter', '@exchange/backend', 'test']),
   step('backend:build', 'corepack', ['pnpm', '--filter', '@exchange/backend', 'build']),
 ];
@@ -224,8 +238,52 @@ const fullOnlyChecks = [
   }),
 ];
 
-if (!['default', 'full'].includes(profile)) {
-  print(`Unknown backend check profile "${profile}". Use "default" or "full".`);
+/**
+ * Portable часть GitHub `verify`, которая обязана одинаково работать локально.
+ * CI вызывает этот же профиль вместо собственного расходящегося списка команд.
+ */
+const verifyChecks = [
+  step('security:check', 'corepack', ['pnpm', 'security:check']),
+  step('ci:check', 'corepack', ['pnpm', 'ci:check']),
+  step('security:audit:prod', 'corepack', ['pnpm', 'security:audit:prod']),
+  step('security:audit:all', 'corepack', ['pnpm', 'security:audit:all']),
+  step('maintainability:report', 'corepack', ['pnpm', 'maintainability:report'], {
+    env: { MAINTAINABILITY_ENFORCE: 'true' },
+  }),
+  step('workspace:lint', 'corepack', ['pnpm', 'lint']),
+  step('workspace:format:check', 'corepack', ['pnpm', 'format:check']),
+  step('workspace:typecheck', 'corepack', ['pnpm', 'typecheck']),
+  step('contracts:check', 'corepack', ['pnpm', 'contracts:check']),
+  step('adversarial:check', 'corepack', ['pnpm', 'adversarial:check']),
+  step('observability:check', 'corepack', ['pnpm', 'observability:check']),
+  step('load:check', 'corepack', ['pnpm', 'load:check']),
+  step('chaos:check', 'corepack', ['pnpm', 'chaos:check']),
+  step('chaos:component', 'corepack', ['pnpm', 'chaos:component']),
+  step('readiness:check', 'corepack', ['pnpm', 'readiness:check']),
+  step(
+    'postgres durable integration',
+    'corepack',
+    [
+      'pnpm',
+      '--filter',
+      '@exchange/backend',
+      'test',
+      '--',
+      'src/modules/ledger/infrastructure/postgres.int-spec.ts',
+      'src/modules/auth/infrastructure/postgres-api-key.registry.int-spec.ts',
+      '--runInBand',
+    ],
+    { requiresPostgres: true },
+  ),
+  step('redis:check', 'corepack', ['pnpm', 'redis:check']),
+  step('workspace:test', 'corepack', ['pnpm', 'test']),
+  step('workspace:build', 'corepack', ['pnpm', 'build']),
+  step('security:artifact', 'corepack', ['pnpm', 'security:artifact']),
+  step('container:check', 'corepack', ['pnpm', 'container:check']),
+];
+
+if (!['default', 'full', 'verify'].includes(profile)) {
+  print(`Unknown backend check profile "${profile}". Use "default", "full", or "verify".`);
   process.exit(2);
 }
 
@@ -233,10 +291,23 @@ mkdirSync(artifactDir, { recursive: true });
 print(`Backend check profile: ${profile}`);
 print(`Artifacts: ${artifactDir}`);
 
-const checks = profile === 'full' ? [...sharedChecks, ...fullOnlyChecks] : sharedChecks;
+const checks =
+  profile === 'verify'
+    ? verifyChecks
+    : profile === 'full'
+      ? [...sharedChecks, ...fullOnlyChecks]
+      : sharedChecks;
 const results = [];
 let postgres = null;
 let postgresStarted = null;
+
+/** Гарантирует удаление временной БД и при ручной остановке локального verify. */
+for (const signal of ['SIGINT', 'SIGTERM']) {
+  process.once(signal, () => {
+    cleanupPostgres(postgresStarted?.containerName);
+    process.exit(signal === 'SIGINT' ? 130 : 143);
+  });
+}
 
 try {
   if (checks.some((check) => check.requiresPostgres)) {
@@ -278,7 +349,10 @@ writeFileSync(
     '',
     '| Check | Status | Duration |',
     '| --- | --- | ---: |',
-    ...results.map((result) => `| ${result.name} | ${result.status} | ${(result.durationMs / 1000).toFixed(2)}s |`),
+    ...results.map(
+      (result) =>
+        `| ${result.name} | ${result.status} | ${(result.durationMs / 1000).toFixed(2)}s |`,
+    ),
     '',
   ].join('\n'),
 );

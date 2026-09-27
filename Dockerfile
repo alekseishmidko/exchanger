@@ -28,4 +28,4 @@ RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack 
       /usr/local/bin/yarn /usr/local/bin/yarnpkg /usr/local/bin/pnpm /usr/local/bin/pnpx
 COPY --chown=node:node --from=build /production/backend ./
 USER node
-CMD ["node", "dist/src/main.js"]
+CMD ["node", "dist/main.js"]

@@ -26,6 +26,40 @@ if (buildxProbe.error || buildxProbe.status !== 0) {
   process.exit(1);
 }
 
+/** Повторяет локально GitHub Trivy filesystem/IaC scan до сборки образа. */
+const filesystemScan = run('docker', [
+  'run',
+  '--rm',
+  '--env',
+  'TRIVY_DISABLE_VEX_NOTICE=true',
+  '--volume',
+  `${repositoryRoot}:/workspace:ro`,
+  '--volume',
+  'exchange-trivy-cache:/root/.cache/trivy',
+  trivyImage,
+  'fs',
+  '--severity',
+  'HIGH,CRITICAL',
+  '--exit-code',
+  '1',
+  '--skip-dirs',
+  '/workspace/.git',
+  '--skip-dirs',
+  '/workspace/artifacts',
+  '--skip-dirs',
+  '/workspace/node_modules',
+  '--skip-dirs',
+  '/workspace/apps/backend/dist',
+  '--skip-dirs',
+  '/workspace/apps/frontend/dist',
+  '--skip-version-check',
+  '/workspace',
+]);
+
+if (filesystemScan.status !== 0) {
+  process.exit(filesystemScan.status ?? 1);
+}
+
 const build = run('docker', [
   'buildx',
   'build',
@@ -52,7 +86,7 @@ if (build.status === 0) {
       'sh',
       tag,
       '-c',
-      'test -f dist/src/main.js && node -e "require(\'@exchange/contracts\')"',
+      'test -f dist/main.js && node -e "require(\'@exchange/contracts\')"',
     ]);
     const packageManagers = run(
       'docker',
