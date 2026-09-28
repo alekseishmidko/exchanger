@@ -8,6 +8,7 @@ import {
   QUOTE_STORE_PORT,
   REALTIME_CATALOG_PORT,
   type QuoteStorePort,
+  type RealtimeCatalogPort,
 } from '../src/modules/realtime-market';
 import { normalizeExternalInstrument } from '../src/modules/realtime-market/domain/external-instrument';
 import { createReferenceQuote } from '../src/modules/realtime-market/domain/reference-quote';
@@ -15,7 +16,7 @@ import { createReferenceQuote } from '../src/modules/realtime-market/domain/refe
 describe('Realtime market HTTP boundary', () => {
   let app: NestFastifyApplication;
 
-  beforeAll(async () => {
+  beforeEach(async () => {
     const catalog = new MemoryRealtimeCatalog();
     await catalog.publishSnapshot(
       'FOREX',
@@ -70,8 +71,8 @@ describe('Realtime market HTTP boundary', () => {
       .expect(({ body }) => expect(body).toMatchObject({ priceEnabled: true }));
   });
 
-  afterAll(async () => {
-    await app.close();
+  afterEach(async () => {
+    if (app) await app.close();
   });
 
   it('serves only the local catalog and enforces authentication', async () => {
@@ -89,6 +90,9 @@ describe('Realtime market HTTP boundary', () => {
   });
 
   it('serves fresh and unavailable quote snapshots only from the local cache', async () => {
+    await app
+      .get<RealtimeCatalogPort>(REALTIME_CATALOG_PORT)
+      .setPriceEnabled('td:forex:aggregate:EUR-USD', true);
     const store = app.get<QuoteStorePort>(QUOTE_STORE_PORT);
     const now = new Date();
     const quote = createReferenceQuote(

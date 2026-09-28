@@ -2,10 +2,10 @@ import { Pool } from 'pg';
 import { PostgresApiKeyRegistry } from './postgres-api-key.registry';
 
 const postgresUrl = process.env['POSTGRES_URL'];
-const describePostgres = postgresUrl ? describe : describe.skip;
+if (!postgresUrl) throw new Error('POSTGRES_URL is required for PostgreSQL integration tests');
 
 /** Проверяет machine credentials через две реплики на настоящем PostgreSQL. */
-describePostgres('PostgresApiKeyRegistry integration', () => {
+describe('PostgresApiKeyRegistry integration', () => {
   let pool: Pool;
 
   beforeAll(async () => {

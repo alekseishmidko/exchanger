@@ -32,7 +32,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version-file: .nvmrc
 
       - name: Validate deterministic chaos contracts
         run: pnpm chaos:check && pnpm chaos:component
@@ -78,7 +78,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version-file: .nvmrc
 
       - name: Validate staging topology and safety contracts
         run: pnpm chaos:check && docker compose -f docker-compose.staging.yml config --quiet

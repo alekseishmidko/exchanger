@@ -21,75 +21,101 @@ request только сборку, прошедшую одинаковые пр�
 
 ### Команды и Jest-конфигурация
 
-- [ ] Удалить лишний `--` между `pnpm test` и Jest arguments во всех scripts.
-- [ ] Проверить, что `--runInBand`, `--maxWorkers`, `--testTimeout`, `--randomize`
-  и `--seed` отображаются Jest как options, а не как test patterns.
-- [ ] Добавить команды `test:unit`, `test:component`,
-  `test:integration:postgres`, `test:integration:redis`, `test:e2e` и `test:all`.
-- [ ] Разделить suites через Jest projects/configs; не определять тип теста только
-  по наличию environment variable.
-- [ ] Сделать integration-команды fail-fast при отсутствии Redis/PostgreSQL,
-  вместо успешного завершения через `describe.skip`.
-- [ ] Выводить в отчёт Node/pnpm versions, Jest seed и число
-  passed/failed/skipped tests и suites.
+- [x] Удалить лишний `--` между `pnpm test` и Jest arguments во всех scripts.
+- [x] Проверить, что `--runInBand`, `--maxWorkers`, `--testTimeout`, `--randomize`
+      и `--seed` отображаются Jest как options, а не как test patterns.
+- [x] Добавить команды `test:unit`, `test:component`,
+      `test:integration:postgres`, `test:integration:redis`, `test:e2e` и `test:all`.
+- [x] Разделить suites через Jest projects/configs; не определять тип теста только
+      по наличию environment variable.
+- [x] Сделать integration-команды fail-fast при отсутствии Redis/PostgreSQL,
+      вместо успешного завершения через `describe.skip`.
+- [x] Выводить в отчёт Node/pnpm versions, Jest seed и число
+      passed/failed/skipped tests и suites.
 
 Критерии приёмки:
 
-- [ ] Ни один обязательный test job не заканчивается успешно при skipped suite.
-- [ ] Лог подтверждает применение каждого заявленного Jest option.
+- [x] Ни один обязательный test job не заканчивается успешно при skipped suite.
+- [x] Лог подтверждает применение каждого заявленного Jest option.
 
 ### Изоляция тестов
 
-- [ ] Устранить зависимость `human-auth.e2e-spec.ts` от порядка `it`.
-- [ ] Каждый auth test создаёт собственных пользователей, sessions и credentials
-  либо весь stateful business flow оформлен одним `it`.
-- [ ] Проверить `transport-api`, `api-flow`, gateway и realtime e2e на общее
-  изменяемое состояние.
-- [ ] Не хранить созданные ID/password/token между независимыми tests.
-- [ ] Заменить прямое изменение `process.env` helper'ом, который сохраняет и
-  восстанавливает исходное значение в `finally`/`afterEach`.
-- [ ] Создавать новый Nest application fixture на test или гарантированно
-  очищать repositories, timers, sockets и subscribers.
-- [ ] Заменить реальные ожидания `setTimeout` на fake clock там, где тестируется
-  время, а не сеть/процесс.
-- [ ] Использовать детерминированные IDs и timestamps вместо `Date.now()` и
-  `Math.random()`.
-- [ ] Включить randomized component/e2e запуск с печатью seed.
+- [x] Устранить зависимость `human-auth.e2e-spec.ts` от порядка `it`.
+- [x] Каждый auth test создаёт собственных пользователей, sessions и credentials
+      либо весь stateful business flow оформлен одним `it`.
+- [x] Проверить `transport-api`, `api-flow`, gateway и realtime e2e на общее
+      изменяемое состояние.
+- [x] Не хранить созданные ID/password/token между независимыми tests.
+- [x] Заменить прямое изменение `process.env` helper'ом, который сохраняет и
+      восстанавливает исходное значение в `finally`/`afterEach`.
+- [x] Создавать новый Nest application fixture на test или гарантированно
+      очищать repositories, timers, sockets и subscribers.
+- [x] Заменить реальные ожидания `setTimeout` на fake clock там, где тестируется
+      время, а не сеть/процесс.
+- [x] Использовать детерминированные IDs и timestamps вместо `Date.now()` и
+      `Math.random()`.
+- [x] Включить randomized component/e2e запуск с печатью seed.
 
 Команда регрессии:
 
 ```bash
-pnpm --filter @exchange/backend test \
+pnpm --filter @exchange/backend test:e2e \
   src/modules/auth/human-auth.e2e-spec.ts \
   --runInBand --randomize --seed=20260928 --showSeed
 ```
 
 Критерии приёмки:
 
-- [ ] Команда проходит минимум 10 раз с разными seeds.
-- [ ] Каждый test проходит при отдельном запуске через `-t`.
-- [ ] Нет открытых handles после диагностического `--detectOpenHandles` запуска.
+- [x] Команда проходит минимум 10 раз с разными seeds.
+- [x] Каждый test проходит при отдельном запуске через `-t`.
+- [x] Нет открытых handles после диагностического `--detectOpenHandles` запуска.
 
 ### Одинаковое окружение local и GitHub
 
-- [ ] Зафиксировать Node `22.x` в `engines` и `.nvmrc`/Volta.
-- [ ] Добавить preflight, завершающий `verify:local` при неправильной major Node.
-- [ ] Использовать одинаковую версию pnpm из `packageManager` локально и в CI.
-- [ ] Добавить clean-checkout gate во временном worktree/container без `dist`,
-  `coverage`, старых artifacts и локальных caches.
-- [ ] Выполнять install только с `--frozen-lockfile`.
-- [ ] Проверить build и tests без существующего `packages/contracts/dist`.
-- [ ] Сохранять отдельный stdout/stderr log для каждого шага `verify:local`.
-- [ ] Останавливать зависимые проверки после первой P0-ошибки.
-- [ ] Загружать отчёты и backend/container logs через GitHub artifacts при
-  `failure()` и `cancelled()`.
+- [x] Зафиксировать Node `22.23.3` в `engines` и `.nvmrc`; GitHub Actions
+      читает ту же `.nvmrc`.
+- [x] Добавить preflight, завершающий `verify:local` при несовпадении точной
+      версии Node.
+- [x] Использовать одинаковую версию pnpm из `packageManager` локально и в CI.
+- [x] Добавить clean-checkout gate во временном worktree/container без `dist`,
+      `coverage`, старых artifacts и локальных caches.
+- [x] Выполнять install только с `--frozen-lockfile`.
+- [x] Проверить build и tests без существующего `packages/contracts/dist`.
+- [x] Сохранять отдельный stdout/stderr log для каждого шага `verify:local`.
+- [x] Останавливать зависимые проверки после первой P0-ошибки.
+- [x] Загружать отчёты и backend/container logs через GitHub artifacts при
+      `failure()` и `cancelled()`.
 
 Критерии приёмки:
 
-- [ ] Один документированный command запускает локально тот же обязательный
-  pipeline, что и GitHub verify job.
-- [ ] Этот command проходит в чистом Node 22 container два раза подряд.
-- [ ] В локальном и GitHub отчёте совпадает перечень обязательных checks.
+- [x] Один документированный command запускает локально тот же обязательный
+      pipeline, что и GitHub verify job.
+- [x] Этот command проходит в чистом Node 22 container два раза подряд.
+- [x] В локальном и GitHub отчёте совпадает перечень обязательных checks.
+
+Команда полного локального gate (после `nvm use`):
+
+```bash
+pnpm install --frozen-lockfile
+pnpm verify:local
+```
+
+Автоматические регрессии P0:
+
+```bash
+pnpm test:options
+pnpm test:randomized
+pnpm clean-checkout:check
+pnpm redis:check
+POSTGRES_URL=postgresql://... pnpm --filter @exchange/backend test:integration:postgres
+```
+
+На контрольном прогоне от 2026-09-28 clean-checkout gate дважды получил
+`55/55` backend suites, `224/224` tests, `0` skipped и успешный workspace build
+в Node `22.23.3` / pnpm `10.15.0`. Redis gate получил `2/2` suites и `9/9`
+tests; PostgreSQL gate — `2/2` suites и `16/16` tests, оба без skipped tests.
+Полный локальный gate завершился результатом `26/26`; его раздельные логи и
+summary сохранены в `artifacts/backend-checks/verify-c2630436-d3b`.
 
 ## P1 — усилить качество и покрытие
 
@@ -99,7 +125,7 @@ pnpm --filter @exchange/backend test \
 - [ ] Ввести changed-lines coverage не ниже `90%`.
 - [ ] Для realtime domain установить branch coverage не ниже `90%`.
 - [ ] Для realtime application/adapters начать с `75%` branch coverage и
-  повышать threshold после закрытия сценариев ниже.
+      повышать threshold после закрытия сценариев ниже.
 - [ ] Coverage threshold должен падать, а не только публиковать HTML.
 - [ ] Исключать generated/bootstrap files только с документированным основанием.
 
@@ -117,12 +143,12 @@ pnpm --filter @exchange/backend test \
 ### Contracts и package boundary
 
 - [ ] Добавить positive/negative tests для всех schemas из
-  `packages/contracts/src/realtime-market.ts`.
+      `packages/contracts/src/realtime-market.ts`.
 - [ ] Проверить strict rejection неизвестных fields, границы decimal/timestamp,
-  ID lengths и subscription limit `1..100`.
+      ID lengths и subscription limit `1..100`.
 - [ ] Добавить compatibility fixtures для старых REST/WS contracts.
 - [ ] Добавить built-package consumer test: build/pack contracts и скомпилировать
-  минимальный consumer через публичный export `@exchange/contracts`.
+      минимальный consumer через публичный export `@exchange/contracts`.
 - [ ] Проверить, что source mapping в Jest не скрывает ошибку production build.
 - [ ] Оставить OpenAPI/AsyncAPI drift tests обязательным merge gate.
 
@@ -186,20 +212,20 @@ pnpm --filter @exchange/backend test \
 ### Полный realtime flow
 
 - [ ] Добавить обязательный E2E:
-  `fake Twelve WS -> Redis -> public WS -> realtime order -> PostgreSQL -> ledger -> private event`.
+      `fake Twelve WS -> Redis -> public WS -> realtime order -> PostgreSQL -> ledger -> private event`.
 - [ ] Проверить, что execution сохраняет ровно тот quote, который вернулся
-  клиенту, включая provider/received timestamps и source.
+      клиенту, включая provider/received timestamps и source.
 - [ ] Добавить request counter, доказывающий ноль Twelve Data calls из всех
-  публичных handlers.
+      публичных handlers.
 - [ ] Проверить много downstream subscribers при фиксированном числе upstream
-  subscriptions.
+      subscriptions.
 - [ ] Проверить reconciliation: каждый `FILLED` имеет quote snapshot и
-  сбалансированный settlement.
+      сбалансированный settlement.
 
 ## P2 — предотвращение повторных проблем
 
 - [ ] Добавить targeted mutation testing для freshness, pricing, idempotency,
-  fees и settlement invariants.
+      fees и settlement invariants.
 - [ ] Добавить property-based tests для decimal, timestamp, mapping и schemas.
 - [ ] Каждый исправленный production/CI defect сначала получает regression test.
 - [ ] Запретить Jest retries как постоянное решение flaky-теста.
@@ -207,7 +233,7 @@ pnpm --filter @exchange/backend test \
 - [ ] Nightly запускать critical suites `20–50` раз с разными seeds.
 - [ ] Nightly запускать reconnect/failover/chaos и stress/soak profiles.
 - [ ] Live Twelve Data smoke сделать только scheduled/manual, с отдельным
-  ограниченным key и обязательной redaction.
+      ограниченным key и обязательной redaction.
 
 ## Целевые quality gates
 
@@ -240,9 +266,9 @@ pnpm --filter @exchange/backend test \
 ### Staging и production
 
 - [ ] Перед deployment пройти staging migrations, business E2E и realtime
-  canary с fake/sandbox upstream.
+      canary с fake/sandbox upstream.
 - [ ] После deployment выполнить только безопасный read-only smoke и bounded
-  synthetic flow отдельным test account.
+      synthetic flow отдельным test account.
 - [ ] Не запускать destructive integration/chaos tests на production.
 - [ ] Проверить feature flags, kill switch и rollback procedure.
 
@@ -256,4 +282,4 @@ pnpm --filter @exchange/backend test \
 - [ ] Coverage thresholds являются обязательным merge gate.
 - [ ] Полный fake Twelve Data flow проходит локально и в CI.
 - [ ] Два последовательных локальных pre-push запуска и GitHub PR checks
-  завершаются зелёным без retry или ручной переделки.
+      завершаются зелёным без retry или ручной переделки.

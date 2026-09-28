@@ -14,4 +14,4 @@
 контроллеров, validation или application use cases.
 
 Human-auth contract test:
-`pnpm --filter @exchange/backend test -- src/modules/auth/human-auth.e2e-spec.ts --runInBand`.
+`pnpm --filter @exchange/backend test:e2e src/modules/auth/human-auth.e2e-spec.ts --runInBand`.

@@ -32,7 +32,7 @@ function operations(document: TransportOpenApiDocument): readonly string[] {
 describe('Transport API completeness', () => {
   let app: NestFastifyApplication;
 
-  beforeAll(async () => {
+  beforeEach(async () => {
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(ConfigService)
       .useValue(
@@ -53,9 +53,12 @@ describe('Transport API completeness', () => {
     configureSwagger(app, new ConfigService({ NODE_ENV: 'development', SWAGGER_ENABLED: 'true' }));
     await app.init();
     await (app.getHttpAdapter().getInstance() as unknown as { ready: () => Promise<void> }).ready();
+    // Этот suite выполняет десятки последовательных HTTP-запросов. Постоянный
+    // listener исключает supertest close/relisten между каждым inventory item.
+    await app.listen(0, '127.0.0.1');
   });
 
-  afterAll(async () => {
+  afterEach(async () => {
     if (app) await app.close();
   });
 

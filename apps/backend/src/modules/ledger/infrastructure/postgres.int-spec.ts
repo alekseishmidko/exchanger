@@ -21,7 +21,7 @@ import {
 } from '../../../../test/builders/durable-runtime-builders';
 
 const postgresUrl = process.env['POSTGRES_URL'];
-const describePostgres = postgresUrl ? describe : describe.skip;
+if (!postgresUrl) throw new Error('POSTGRES_URL is required for PostgreSQL integration tests');
 
 /**
  * Проверяет durable write path против настоящего PostgreSQL.
@@ -30,7 +30,7 @@ const describePostgres = postgresUrl ? describe : describe.skip;
  * изменяет общую test database. Каждый тест получает чистые таблицы, но schema
  * остаётся той же, что используется production compose.
  */
-describePostgres('PostgreSQL durable runtime', () => {
+describe('PostgreSQL durable runtime', () => {
   let pool: Pool;
   let transactions: PostgresTransactionManager;
   const ledgerMigration = (name: string): string => resolve(__dirname, 'migrations', name);

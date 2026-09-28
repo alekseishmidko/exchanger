@@ -6,8 +6,10 @@ import { RedisQuoteStore } from './redis-quote.store';
 import { RedisIngestLease } from './redis-ingest-lease';
 
 const redisAvailable = process.env['RUN_REDIS_INTEGRATION'] === 'true';
+if (!redisAvailable)
+  throw new Error('RUN_REDIS_INTEGRATION=true is required for Redis integration tests');
 
-(redisAvailable ? describe : describe.skip)('RedisQuoteStore integration', () => {
+describe('RedisQuoteStore integration', () => {
   const port = 20000 + (process.pid % 1000);
   let directory: string;
   let server: ChildProcessWithoutNullStreams;

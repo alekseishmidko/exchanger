@@ -85,7 +85,7 @@ function findFreePort() {
  * @param {NodeJS.ProcessEnv} baseEnv Базовое окружение suite.
  * @returns {{name: string, status: 'passed' | 'failed', exitCode: number | null, durationMs: number}}
  */
-function runStep(check, baseEnv) {
+function runStep(check, baseEnv, index) {
   const startedAt = Date.now();
   print('');
   print(`=== ${check.name} ===`);
@@ -93,8 +93,23 @@ function runStep(check, baseEnv) {
   const result = spawnSync(check.command, check.args, {
     cwd: rootDir,
     env: { ...process.env, ...baseEnv, ...check.env },
-    stdio: 'inherit',
+    encoding: 'utf8',
+    maxBuffer: 100 * 1024 * 1024,
   });
+
+  const slug = check.name
+    .replace(/[^a-z0-9]+/gi, '-')
+    .replace(/^-|-$/g, '')
+    .toLowerCase();
+  const prefix = `${String(index + 1).padStart(2, '0')}-${slug}`;
+  const stdoutLog = resolve(artifactDir, `${prefix}.stdout.log`);
+  const stderrLog = resolve(artifactDir, `${prefix}.stderr.log`);
+  const errorDiagnostic = result.error ? `${result.error.stack ?? result.error.message}\n` : '';
+  writeFileSync(stdoutLog, result.stdout ?? '');
+  writeFileSync(stderrLog, `${result.stderr ?? ''}${errorDiagnostic}`);
+  if (result.stdout) process.stdout.write(result.stdout);
+  if (result.stderr) process.stderr.write(result.stderr);
+  if (errorDiagnostic) process.stderr.write(errorDiagnostic);
 
   const durationMs = Date.now() - startedAt;
   const exitCode = result.status ?? result.signal ?? 1;
@@ -102,7 +117,7 @@ function runStep(check, baseEnv) {
   const mark = status === 'passed' ? '✓' : '✗';
   print(`${mark} ${check.name} (${(durationMs / 1000).toFixed(2)}s)`);
 
-  return { name: check.name, status, exitCode, durationMs };
+  return { name: check.name, status, exitCode, durationMs, stdoutLog, stderrLog };
 }
 
 /**
@@ -188,6 +203,7 @@ function cleanupPostgres(containerName) {
 }
 
 const sharedChecks = [
+  step('toolchain:check', 'corepack', ['pnpm', 'toolchain:check']),
   step('security:check', 'corepack', ['pnpm', 'security:check']),
   step('maintainability:report', 'corepack', ['pnpm', 'maintainability:report'], {
     env: { MAINTAINABILITY_ENFORCE: 'true' },
@@ -210,15 +226,7 @@ const sharedChecks = [
   step(
     'postgres durable int-spec',
     'corepack',
-    [
-      'pnpm',
-      '--filter',
-      '@exchange/backend',
-      'test',
-      '--',
-      'src/modules/ledger/infrastructure/postgres.int-spec.ts',
-      '--runInBand',
-    ],
+    ['pnpm', '--filter', '@exchange/backend', 'test:integration:postgres'],
     { requiresPostgres: true },
   ),
   step('backend:test', 'corepack', ['pnpm', '--filter', '@exchange/backend', 'test']),
@@ -243,6 +251,10 @@ const fullOnlyChecks = [
  * CI вызывает этот же профиль вместо собственного расходящегося списка команд.
  */
 const verifyChecks = [
+  step('toolchain:check', 'corepack', ['pnpm', 'toolchain:check']),
+  step('test:options', 'corepack', ['pnpm', 'test:options']),
+  step('test:prerequisites', 'corepack', ['pnpm', 'test:prerequisites']),
+  step('test:randomized', 'corepack', ['pnpm', 'test:randomized']),
   step('security:check', 'corepack', ['pnpm', 'security:check']),
   step('ci:check', 'corepack', ['pnpm', 'ci:check']),
   step('security:audit:prod', 'corepack', ['pnpm', 'security:audit:prod']),
@@ -263,16 +275,7 @@ const verifyChecks = [
   step(
     'postgres durable integration',
     'corepack',
-    [
-      'pnpm',
-      '--filter',
-      '@exchange/backend',
-      'test',
-      '--',
-      'src/modules/ledger/infrastructure/postgres.int-spec.ts',
-      'src/modules/auth/infrastructure/postgres-api-key.registry.int-spec.ts',
-      '--runInBand',
-    ],
+    ['pnpm', '--filter', '@exchange/backend', 'test:integration:postgres'],
     { requiresPostgres: true },
   ),
   step('redis:check', 'corepack', ['pnpm', 'redis:check']),
@@ -289,8 +292,10 @@ const verifyChecks = [
     'test',
     '--maxWorkers=2',
     '--testTimeout=15000',
+    '--showSeed',
   ]),
   step('workspace:build', 'corepack', ['pnpm', 'build']),
+  step('clean-checkout:check', 'corepack', ['pnpm', 'clean-checkout:check']),
   step('security:artifact', 'corepack', ['pnpm', 'security:artifact']),
   step('container:check', 'corepack', ['pnpm', 'container:check']),
 ];
@@ -323,14 +328,15 @@ for (const signal of ['SIGINT', 'SIGTERM']) {
 }
 
 try {
-  if (checks.some((check) => check.requiresPostgres)) {
-    postgresStarted = await ensurePostgres();
-    postgres = postgresStarted?.url ?? process.env.POSTGRES_URL;
-  }
-
-  const baseEnv = postgres ? { POSTGRES_URL: postgres } : {};
-  for (const check of checks) {
-    results.push(runStep(check, baseEnv));
+  for (const [index, check] of checks.entries()) {
+    if (check.requiresPostgres && !postgres) {
+      postgresStarted = await ensurePostgres();
+      postgres = postgresStarted?.url ?? process.env.POSTGRES_URL;
+    }
+    const baseEnv = postgres ? { POSTGRES_URL: postgres } : {};
+    const result = runStep(check, baseEnv, index);
+    results.push(result);
+    if (result.status === 'failed') break;
   }
 } catch (error) {
   const message = error instanceof Error ? error.message : String(error);
@@ -346,7 +352,17 @@ const report = {
   profile,
   artifactDir,
   generatedAt: new Date().toISOString(),
+  runtime: {
+    node: process.version,
+    pnpm:
+      spawnSync('corepack', ['pnpm', '--version'], {
+        cwd: rootDir,
+        encoding: 'utf8',
+      }).stdout?.trim() ?? 'unknown',
+  },
   passed: failed.length === 0,
+  plannedChecks: checks.map((check) => check.name),
+  remainingChecks: checks.slice(results.length).map((check) => check.name),
   checks: results,
 };
 
@@ -358,7 +374,10 @@ writeFileSync(
     '',
     `- Run: \`${runId}\``,
     `- Profile: \`${profile}\``,
+    `- Node: \`${report.runtime.node}\``,
+    `- pnpm: \`${report.runtime.pnpm}\``,
     `- Passed: ${results.length - failed.length}/${results.length}`,
+    `- Planned checks: ${checks.length}`,
     '',
     '| Check | Status | Duration |',
     '| --- | --- | ---: |',
