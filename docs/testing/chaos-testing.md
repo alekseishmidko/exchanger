@@ -140,7 +140,7 @@ Emergency abort:
 
 ```bash
 docker compose \
-  -f docker-compose.development.yml \
+  -f docker-compose.api-flows.yml \
   -f docker-compose.observability.yml \
   -f docker-compose.load.yml \
   down --volumes --remove-orphans

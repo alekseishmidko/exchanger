@@ -83,6 +83,15 @@ if (failures.length === 0) {
   if (!runner.includes("executionStage = 'sut-readiness'")) {
     failures.push('Load runner запускает k6 до host-side readiness barrier');
   }
+  if (!runner.includes("'docker-compose.api-flows.yml'")) {
+    failures.push('Load runner должен использовать immutable API-flow backend Compose');
+  }
+  if (runner.includes("'docker-compose.development.yml'")) {
+    failures.push('Load runner не должен зависеть от development runtime install/volumes');
+  }
+  if (!runner.includes("resolve(resultDirectory, 'backend.log')")) {
+    failures.push('Load runner не сохраняет backend diagnostics до очистки Compose');
+  }
   for (const name of ['smoke', 'average', 'stress', 'spike', 'soak', 'breakpoint']) {
     if (!suite.includes(`'${name}'`)) failures.push(`Load all suite не запускает профиль ${name}`);
   }

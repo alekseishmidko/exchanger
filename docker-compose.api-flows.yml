@@ -1,0 +1,24 @@
+services:
+  backend:
+    build:
+      context: .
+      target: api-flows
+    env_file:
+      - path: .env.development.example
+        required: true
+    environment:
+      APPLICATION_PUBLIC_URL: 'http://localhost:${BACKEND_HOST_PORT:-5001}'
+      GATEWAY_API_KEYS: '${GATEWAY_API_KEYS:-dev-key:trader:dev-user,dev-admin-key:admin:dev-admin-user}'
+      DEVELOPMENT_SEED_INSTRUMENTS: 'true'
+      GATEWAY_RATE_LIMIT: '100000'
+      AUTH_RATE_LIMIT: '100000'
+      AUTH_RATE_GLOBAL_LIMIT: '100000'
+    ports:
+      - '127.0.0.1:${BACKEND_HOST_PORT:-5001}:5000'
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -qO- http://127.0.0.1:5000/health/ready >/dev/null']
+      interval: 2s
+      timeout: 2s
+      retries: 30
+      start_period: 5s
+    init: true

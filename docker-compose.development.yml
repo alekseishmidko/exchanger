@@ -45,7 +45,10 @@ services:
     command:
       - sh
       - -c
-      - pnpm install --frozen-lockfile && exec pnpm --filter @exchange/backend start:dev
+      # Image build уже наполняет pnpm store. Повторная установка нужна только
+      # для пустых named node_modules volumes и не должна зависеть от registry:
+      # на чистом GitHub runner сетевой reinstall задерживал readiness API flows.
+      - pnpm install --offline --frozen-lockfile && exec pnpm --filter @exchange/backend start:dev
     volumes:
       - ./apps/backend:/workspace/apps/backend
       - ./packages/contracts:/workspace/packages/contracts

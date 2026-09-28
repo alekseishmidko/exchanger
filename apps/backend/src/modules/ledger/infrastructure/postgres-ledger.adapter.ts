@@ -99,6 +99,27 @@ export class PostgresLedgerAdapter implements LedgerPort {
     return this.mutate(id, 'DEBIT', account, asset, amount);
   }
 
+  transferAvailable(
+    id: OperationId,
+    debit: AccountId,
+    credit: AccountId,
+    asset: AssetId,
+    amount: Decimal,
+  ): Promise<OperationResult> {
+    return this.transactions.run(async (client) => {
+      const previous = await this.operations.lockExisting(client, id);
+      if (previous) return previous;
+      this.requirePositive(amount);
+      await this.balances.lockTransferBalances(client, debit, credit, asset);
+      await this.balances.applyMutation(client, 'DEBIT', debit, asset, amount);
+      await this.balances.creditAvailable(client, credit, asset, amount);
+      const result = this.result(id);
+      await this.postings.insertPair(client, id, debit, credit, asset, amount);
+      await this.operations.insert(client, id, 'TRANSFER_AVAILABLE', result);
+      return result;
+    });
+  }
+
   /** Идемпотентно перемещает amount из available в reserved без изменения total. */
   reserve(id: OperationId, account: AccountId, asset: AssetId, amount: Decimal) {
     return this.mutate(id, 'RESERVE', account, asset, amount);
@@ -148,7 +169,10 @@ export class PostgresLedgerAdapter implements LedgerPort {
   ): Promise<OperationResult> {
     return this.transactions.run(async (client) => {
       const original = await this.operations.findCompensatable(client, originalOperationId);
-      if (original.operationType === 'SETTLE_RESERVED_TRANSFER') {
+      if (
+        original.operationType === 'SETTLE_RESERVED_TRANSFER' ||
+        original.operationType === 'TRANSFER_AVAILABLE'
+      ) {
         throw new Error('Settlement requires explicit compensation matrix');
       }
       const inverse = {

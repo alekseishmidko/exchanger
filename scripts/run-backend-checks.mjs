@@ -276,7 +276,20 @@ const verifyChecks = [
     { requiresPostgres: true },
   ),
   step('redis:check', 'corepack', ['pnpm', 'redis:check']),
-  step('workspace:test', 'corepack', ['pnpm', 'test']),
+  // Ограниченный пул сохраняет process isolation между suites, но не создаёт
+  // resource spike, из-за которого auth admission мог отвечать 503. Более
+  // широкий timeout учитывает intentionally adversarial HTTP concurrency tests.
+  step('workspace:test', 'corepack', [
+    'pnpm',
+    '--filter',
+    '@exchange/contracts',
+    '--filter',
+    '@exchange/backend',
+    '--workspace-concurrency=1',
+    'test',
+    '--maxWorkers=2',
+    '--testTimeout=15000',
+  ]),
   step('workspace:build', 'corepack', ['pnpm', 'build']),
   step('security:artifact', 'corepack', ['pnpm', 'security:artifact']),
   step('container:check', 'corepack', ['pnpm', 'container:check']),

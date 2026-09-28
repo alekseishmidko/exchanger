@@ -18,7 +18,10 @@ const runId = (process.env['LOAD_RUN_ID'] ?? randomUUID().replaceAll('-', '').sl
 const resultDirectory = resolve(process.env['LOAD_RESULT_DIR'] ?? `artifacts/load/${runId}`);
 const composeFiles = [
   '-f',
-  'docker-compose.development.yml',
+  // Load tests используют тот же immutable backend artifact, что black-box API
+  // flows. Runtime install и named node_modules volumes делали cold GitHub
+  // runner зависимым от скорости registry/store и приводили к ECONNRESET.
+  'docker-compose.api-flows.yml',
   '-f',
   'docker-compose.observability.yml',
   '-f',
@@ -39,6 +42,39 @@ function run(command, args, environment = {}) {
   if (result.stdout) process.stdout.write(result.stdout);
   if (result.stderr) process.stderr.write(result.stderr);
   return result.status ?? 1;
+}
+
+/** Выполняет диагностическую команду без немедленной публикации большого лога. */
+function capture(command, args, environment = {}) {
+  return spawnSync(command, args, {
+    cwd: resolve('.'),
+    env: { ...process.env, ...environment },
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+}
+
+/** Сохраняет bounded/redacted backend log до удаления Compose environment. */
+async function captureBackendDiagnostics(environment) {
+  const result = capture(
+    'docker',
+    ['compose', ...composeFiles, 'logs', '--no-color', '--tail', '200', 'backend'],
+    environment,
+  );
+  const credentials = [
+    process.env['LOAD_API_KEY'] ?? 'dev-key',
+    process.env['LOAD_ADMIN_API_KEY'] ?? 'dev-admin-key',
+  ].filter(Boolean);
+  let value = `${result.stdout ?? ''}${result.stderr ?? ''}`;
+  for (const credential of credentials) value = value.replaceAll(credential, '[REDACTED]');
+  const maxLength = 64 * 1024;
+  if (value.length > maxLength) value = `[truncated]\n${value.slice(-maxLength)}`;
+  await writeFile(resolve(resultDirectory, 'backend.log'), value, { mode: 0o600 });
+  if (value) {
+    process.stderr.write('\n=== Load backend diagnostics ===\n');
+    process.stderr.write(value);
+    if (!value.endsWith('\n')) process.stderr.write('\n');
+  }
 }
 
 /**
@@ -394,6 +430,9 @@ try {
   process.stderr.write(`${failureSummary}\n`);
 } finally {
   removeRunContainer(k6ContainerName);
+  if (loadExit !== 0 || postFailures.length > 0) {
+    await captureBackendDiagnostics(environment);
+  }
   if (process.env['LOAD_KEEP_ENV'] !== 'true' && process.env['LOAD_MANAGE_SUT'] !== 'false') {
     run(
       'docker',

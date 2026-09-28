@@ -100,11 +100,15 @@ jobs:
           node-version: 22
 
       - name: Run black-box API flows
+        env:
+          # Cold GitHub runners build an immutable API-flow image. Keep the wait
+          # bounded, but allow enough time for the first image build/startup.
+          API_FLOW_STARTUP_TIMEOUT_MS: 180000
         run: pnpm api:flows
 
       - name: Publish pipeline summary
         if: always()
-        run: cat artifacts/api-flows/summary.md >> "$GITHUB_STEP_SUMMARY"
+        run: test ! -f artifacts/api-flows/summary.md || cat artifacts/api-flows/summary.md >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload API flow reports
         if: always()
@@ -113,6 +117,10 @@ jobs:
           name: development-api-flow-reports
           path: artifacts/api-flows/
           if-no-files-found: warn
+
+      - name: Show API flow backend logs
+        if: failure()
+        run: test ! -f artifacts/api-flows/backend.log || cat artifacts/api-flows/backend.log
 
   load-quick:
     name: k6 ${{ matrix.profile }} profile
@@ -150,8 +158,8 @@ jobs:
 
       - name: Show backend logs on failure
         if: failure()
-        run: docker compose -f docker-compose.development.yml -f docker-compose.observability.yml -f docker-compose.load.yml logs backend
+        run: find artifacts/load -name backend.log -exec cat {} \;
 
       - name: Stop load environment
         if: always()
-        run: docker compose -f docker-compose.development.yml -f docker-compose.observability.yml -f docker-compose.load.yml down --volumes
+        run: docker compose -f docker-compose.api-flows.yml -f docker-compose.observability.yml -f docker-compose.load.yml down --volumes --remove-orphans

@@ -160,6 +160,16 @@ export class Ledger implements LedgerPort {
     return result;
   }
 
+  transferAvailable(
+    operationId: OperationId,
+    debitAccountId: AccountId,
+    creditAccountId: AccountId,
+    assetId: AssetId,
+    amount: Decimal,
+  ): OperationResult {
+    return this.transfer(operationId, debitAccountId, creditAccountId, assetId, amount);
+  }
+
   /**
    * Переводит средства из reserved источника в available получателя.
    *

@@ -12,10 +12,12 @@
 
 - [Требования к системе](system-design-requirements.md)
 - [Архитектура](architecture.md)
+- [План интеграции Twelve Data](twelve-data-integration-plan.md)
 - [Архитектурные понятия: domain, port, adapter, store, repository](architecture-concepts.md)
 - [Технологический стек](technology-stack.md)
 - [Правила и стандарты](project-standards.md)
 - [Чеклист разработки](development-checklist.md)
+- [Checklist усиления тестов и паритета local/CI](testing/test-hardening-checklist.md)
 - [Каталог контрактных сообщений](events/README.md)
 - [Trading state machine и sequencer](trading-state-machine.md)
 - [Trading command и order lifecycle](trading-lifecycle.md)

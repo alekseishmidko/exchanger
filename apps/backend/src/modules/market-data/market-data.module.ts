@@ -42,6 +42,6 @@ import { AuthModule } from '../auth';
     MarketDataGateway,
   ],
   /** Trading runtime публикует события только через transport-agnostic hub. */
-  exports: [MarketDataHub],
+  exports: [MarketDataHub, MarketDataAbuseControl],
 })
 export class MarketDataModule {}

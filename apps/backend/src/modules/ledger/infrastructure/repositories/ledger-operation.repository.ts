@@ -4,7 +4,8 @@ import type { OperationResult } from '../../domain/ledger';
 
 export type CompensatableOperation = Readonly<{
   result: OperationResult;
-  operationType: 'CREDIT' | 'DEBIT' | 'RESERVE' | 'RELEASE' | 'SETTLE_RESERVED_TRANSFER';
+  operationType:
+    'CREDIT' | 'DEBIT' | 'RESERVE' | 'RELEASE' | 'SETTLE_RESERVED_TRANSFER' | 'TRANSFER_AVAILABLE';
   accountId: AccountId;
   assetId: AssetId;
   amount: Decimal;

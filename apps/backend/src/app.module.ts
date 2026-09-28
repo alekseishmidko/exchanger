@@ -18,6 +18,7 @@ import { SequencerModule } from './modules/trading/sequencer';
 import { AdmissionControlModule } from './modules/admin/admission-control';
 import { TradingWorkersModule } from './modules/trading/workers';
 import { AuthModule } from './modules/auth';
+import { RealtimeMarketModule } from './modules/realtime-market';
 
 /**
  * Корневой composition root backend-приложения.
@@ -61,6 +62,8 @@ import { AuthModule } from './modules/auth';
     ProjectionsModule,
     /** Доставляет snapshot и ordered market-data increments по WebSocket. */
     MarketDataModule,
+    /** Изолирует внешний каталог и ingest Twelve Data от внутреннего matching flow. */
+    RealtimeMarketModule,
     /** Управляет каталогом торговых инструментов и их lifecycle/status. */
     InstrumentsModule,
     /** Владеет счетами, балансами, reservations и double-entry postings. */

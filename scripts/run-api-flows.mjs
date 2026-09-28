@@ -11,7 +11,7 @@ const adminApiKey = process.env['API_FLOW_ADMIN_API_KEY'] ?? 'dev-admin-key';
 /** Ограничивает один HTTP-вызов, чтобы зависшая зависимость завершала pipeline. */
 const requestTimeoutMs = Number(process.env['API_FLOW_REQUEST_TIMEOUT_MS'] ?? 5000);
 /** Ограничивает ожидание старта Compose/Nest перед выполнением business flows. */
-const startupTimeoutMs = Number(process.env['API_FLOW_STARTUP_TIMEOUT_MS'] ?? 60000);
+const startupTimeoutMs = Number(process.env['API_FLOW_STARTUP_TIMEOUT_MS'] ?? 180000);
 /** Каталог машиночитаемых результатов, исключённый из Git. */
 const reportDirectory = resolve(process.env['API_FLOW_REPORT_DIR'] ?? 'artifacts/api-flows');
 /** Уникальный suffix устраняет конфликты ресурсов между повторными запусками. */
