@@ -19,13 +19,11 @@ function authenticationHeaders(response: request.Response): { cookie: string; cs
 
 describe('Human authentication HTTP contract', () => {
   let app: NestFastifyApplication;
-  let aliceId: string;
   let delivery: MemoryRecoveryDelivery;
+  const testIdentity =
+    '{"userId":"isolated-admin","roles":["ADMIN"],"scopes":["admin:*","trading:write"]}';
 
-  beforeAll(async () => {
-    process.env['AUTH_TEST_BYPASS_ENABLED'] = 'true';
-    process.env['AUTH_TEST_IDENTITY'] =
-      '{"userId":"isolated-admin","roles":["ADMIN"],"scopes":["admin:*","trading:write"]}';
+  beforeEach(async () => {
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(ConfigService)
       .useValue(
@@ -38,8 +36,17 @@ describe('Human authentication HTTP contract', () => {
           AUTH_API_KEY_STORE_ADAPTER: 'memory',
           AUTH_TEST_BYPASS_ENABLED: 'true',
           AUTH_TEST_BYPASS_TOKEN: 'isolated-test-bypass-token-never-production-2026',
-          AUTH_TEST_IDENTITY: process.env['AUTH_TEST_IDENTITY'],
+          AUTH_TEST_IDENTITY: testIdentity,
           AUTH_RATE_LIMIT: '100',
+          AUTH_TOKEN_TRANSPORT: 'cookie',
+          AUTH_COOKIE_NAME: 'exchange_session',
+          AUTH_CSRF_COOKIE_NAME: 'exchange_csrf',
+          AUTH_COOKIE_SECURE: 'false',
+          AUTH_COOKIE_SAME_SITE: 'Strict',
+          AUTH_SESSION_IDLE_TTL_SECONDS: '1800',
+          AUTH_SESSION_ABSOLUTE_TTL_SECONDS: '604800',
+          AUTH_MAX_SESSIONS_PER_USER: '10',
+          AUTH_TOKEN_HASH_SECRET: 'human-auth-e2e-token-hash-secret-2026',
         }),
       )
       .compile();
@@ -49,12 +56,22 @@ describe('Human authentication HTTP contract', () => {
     await (
       app.getHttpAdapter().getInstance() as unknown as { ready(): PromiseLike<unknown> }
     ).ready();
+    // Supertest иначе сам открывает и закрывает один Node server для каждого
+    // request. Fastify fixture должен слушать один порт до afterEach, чтобы
+    // последовательные idempotent/replay запросы не попадали в close/relisten.
+    await app.listen(0, '127.0.0.1');
   });
-  afterAll(async () => {
-    await app.close();
-    process.env['AUTH_TEST_BYPASS_ENABLED'] = 'false';
-    delete process.env['AUTH_TEST_IDENTITY'];
+  afterEach(async () => {
+    if (app) await app.close();
   });
+
+  async function registerAlice(): Promise<string> {
+    const response = await request(app.getHttpServer())
+      .post('/api/v1/auth/register')
+      .send({ email: 'alice@example.test', password: 'correct-horse-2026', name: 'Alice' })
+      .expect(201);
+    return (response.body as { user: { id: string } }).user.id;
+  }
 
   it('registers, normalizes email and never exposes credentials or internal roles', async () => {
     const response = await request(app.getHttpServer())
@@ -69,7 +86,6 @@ describe('Human authentication HTTP contract', () => {
       name: 'Alice',
       emailVerified: false,
     });
-    aliceId = registration.user.id;
     expect(JSON.stringify(response.body)).not.toMatch(/password|token|hash|roles|redis/i);
     expect(String(response.headers['set-cookie'])).toMatch(/HttpOnly.*SameSite=Strict/);
     const auth = authenticationHeaders(response);
@@ -83,6 +99,7 @@ describe('Human authentication HTTP contract', () => {
   });
 
   it('uses case-insensitive login, CSRF and per-session revoke', async () => {
+    await registerAlice();
     const login1 = await request(app.getHttpServer())
       .post('/api/v1/auth/login')
       .send({ email: 'ALICE@example.test', password: 'correct-horse-2026', deviceLabel: 'first' })
@@ -118,6 +135,7 @@ describe('Human authentication HTTP contract', () => {
   });
 
   it('rotates identity after password change and rejects unknown self-service fields', async () => {
+    await registerAlice();
     const login = await request(app.getHttpServer())
       .post('/api/v1/auth/login')
       .send({ email: 'alice@example.test', password: 'correct-horse-2026' })
@@ -148,6 +166,7 @@ describe('Human authentication HTTP contract', () => {
   });
 
   it('returns the same recovery response for known and unknown email', async () => {
+    await registerAlice();
     const knownStarted = Date.now();
     const known = await request(app.getHttpServer())
       .post('/api/v1/auth/password-reset/request')
@@ -166,6 +185,7 @@ describe('Human authentication HTTP contract', () => {
   });
 
   it('consumes verification/reset tokens once and invalidates stale sessions', async () => {
+    await registerAlice();
     await request(app.getHttpServer())
       .post('/api/v1/auth/email-verification/request')
       .send({ email: 'alice@example.test' })
@@ -176,14 +196,22 @@ describe('Human authentication HTTP contract', () => {
       .post('/api/v1/auth/email-verification/confirm')
       .send({ token: verification?.token })
       .expect(204);
-    await request(app.getHttpServer())
+    const consumedVerification = await request(app.getHttpServer())
       .post('/api/v1/auth/email-verification/confirm')
-      .send({ token: verification?.token })
-      .expect(400);
+      .send({ token: verification?.token });
+    expect({
+      status: consumedVerification.status,
+      code: (consumedVerification.body as { code?: string }).code,
+      message: (consumedVerification.body as { message?: string }).message,
+    }).toEqual({
+      status: 400,
+      code: 'AUTH_CHALLENGE_INVALID',
+      message: 'Challenge is invalid or expired',
+    });
 
     const staleLogin = await request(app.getHttpServer())
       .post('/api/v1/auth/login')
-      .send({ email: 'alice@example.test', password: 'new-correct-horse-2026' })
+      .send({ email: 'alice@example.test', password: 'correct-horse-2026' })
       .expect(200);
     const stale = authenticationHeaders(staleLogin);
     await request(app.getHttpServer())
@@ -216,16 +244,17 @@ describe('Human authentication HTTP contract', () => {
   });
 
   it('supports logout and logout-all with CSRF and fixation-safe distinct sessions', async () => {
+    await registerAlice();
     const one = authenticationHeaders(
       await request(app.getHttpServer())
         .post('/api/v1/auth/login')
-        .send({ email: 'alice@example.test', password: 'reset-correct-horse-2026' })
+        .send({ email: 'alice@example.test', password: 'correct-horse-2026' })
         .expect(200),
     );
     const two = authenticationHeaders(
       await request(app.getHttpServer())
         .post('/api/v1/auth/login')
-        .send({ email: 'alice@example.test', password: 'reset-correct-horse-2026' })
+        .send({ email: 'alice@example.test', password: 'correct-horse-2026' })
         .expect(200),
     );
     expect(one.cookie).not.toBe(two.cookie);
@@ -251,10 +280,11 @@ describe('Human authentication HTTP contract', () => {
 
   it('allows only the preconfigured isolated test identity and audits admin revoke', async () => {
     const token = 'isolated-test-bypass-token-never-production-2026';
+    const aliceId = await registerAlice();
     const ordinary = authenticationHeaders(
       await request(app.getHttpServer())
         .post('/api/v1/auth/login')
-        .send({ email: 'alice@example.test', password: 'reset-correct-horse-2026' })
+        .send({ email: 'alice@example.test', password: 'correct-horse-2026' })
         .expect(200),
     );
     await request(app.getHttpServer())

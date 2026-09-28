@@ -108,7 +108,10 @@ WebSocket namespace доступен по `http://localhost:5001/market-data`.
 Перед отправкой изменений запускается полный gate:
 
 ```bash
-pnpm security:check && pnpm format:check && pnpm lint && pnpm typecheck && pnpm contracts:check && pnpm test && pnpm build
+pnpm verify:local
 ```
+
+Группы проверок, нагрузочные профили и команды для точечной разработки собраны
+в корневой памятке [TESTING.md](TESTING.md).
 
 Правила разработки и Definition of Done описаны в [project standards](docs/project-standards.md), рабочий checklist — в [development checklist](docs/development-checklist.md).

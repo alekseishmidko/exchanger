@@ -10,9 +10,11 @@ import { RedisSessionStore } from './redis-session.store';
 import { AuthRateLimit } from '../../auth/security/auth-rate-limit';
 
 const redisAvailable = process.env['RUN_REDIS_INTEGRATION'] === 'true';
+if (!redisAvailable)
+  throw new Error('RUN_REDIS_INTEGRATION=true is required for Redis integration tests');
 
 /** Real Redis integration: TTL, replica clients, point/all revoke, restart и outage fail-closed. */
-(redisAvailable ? describe : describe.skip)('RedisSessionStore integration', () => {
+describe('RedisSessionStore integration', () => {
   const port = 19000 + (process.pid % 1000);
   let directory: string;
   let server: ChildProcessWithoutNullStreams;

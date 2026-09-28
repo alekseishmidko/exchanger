@@ -41,7 +41,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version-file: .nvmrc
           cache: pnpm
 
       - name: Install dependencies
@@ -65,6 +65,18 @@ jobs:
 
       - name: Local and CI parity verification
         run: pnpm verify:local
+
+      - name: Publish verification summary
+        if: always()
+        run: find artifacts/backend-checks -name summary.md -exec cat {} \; >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload verification reports and step logs
+        if: failure() || cancelled()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-verification-${{ github.sha }}
+          path: artifacts/backend-checks/
+          if-no-files-found: warn
 
       - name: Generate SBOM
         uses: anchore/sbom-action@v0.17.2
@@ -97,7 +109,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version-file: .nvmrc
 
       - name: Run black-box API flows
         env:
@@ -136,7 +148,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version-file: .nvmrc
 
       - name: Run isolated k6 profile
         env:

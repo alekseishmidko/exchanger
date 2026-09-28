@@ -66,7 +66,7 @@ describe('Realtime market WebSocket transport', () => {
   });
 
   it('sends ack, initial snapshot and subsequent local-cache updates', async () => {
-    const first = await putQuote('1.10', new Date());
+    const first = await putQuote('1.10', new Date('2030-01-01T00:00:00.000Z'));
     const ack = event(socket, 'realtime.ack');
     const snapshot = event(socket, 'realtime.quote');
     socket.emit('realtime.subscribe', { requestId: 'subscribe-1', instrumentIds: [instrumentId] });
@@ -79,7 +79,7 @@ describe('Realtime market WebSocket transport', () => {
     });
 
     const update = event(socket, 'realtime.quote');
-    const next = await putQuote('1.11', new Date(Date.now() + 1));
+    const next = await putQuote('1.11', new Date('2030-01-01T00:00:00.001Z'));
     await expect(update).resolves.toMatchObject({ data: { quoteId: next.quoteId, price: '1.11' } });
   });
 
@@ -99,10 +99,10 @@ describe('Realtime market WebSocket transport', () => {
       quoteId: 'quote-1',
       priceSource: 'TwelveData',
       priceType: 'LAST',
-      providerTimestamp: new Date().toISOString(),
-      receivedAt: new Date().toISOString(),
+      providerTimestamp: '2030-01-01T00:00:00.000Z',
+      receivedAt: '2030-01-01T00:00:00.001Z',
       status: 'FILLED',
-      createdAt: new Date().toISOString(),
+      createdAt: '2030-01-01T00:00:00.002Z',
     });
     await expect(received).resolves.toMatchObject({
       data: { orderId: 'order-1', status: 'FILLED' },

@@ -9,9 +9,16 @@ COPY apps/frontend/package.json apps/frontend/package.json
 COPY packages/contracts/package.json packages/contracts/package.json
 RUN pnpm install --frozen-lockfile
 
+COPY .env.test.example .env.test.example
 COPY apps/backend apps/backend
 COPY apps/frontend apps/frontend
 COPY packages/contracts packages/contracts
+COPY docs docs
+COPY deploy deploy
+COPY scripts/jest-required-reporter.cjs scripts/jest-required-reporter.cjs
+
+FROM base AS clean-checkout
+CMD ["node", "--version"]
 
 FROM base AS development
 CMD ["pnpm", "--filter", "@exchange/backend", "start:dev"]

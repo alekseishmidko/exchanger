@@ -35,6 +35,7 @@ for (const requiredCheck of [
   'redis:check',
   'workspace:test',
   'workspace:build',
+  'clean-checkout:check',
   'security:artifact',
   'container:check',
 ]) {
@@ -66,6 +67,16 @@ if (
   failures.push('Dockerfile api-flows target must prebuild contracts and backend');
 if (!workflow.includes('Show API flow backend logs'))
   failures.push('CI must expose sanitized API flow backend diagnostics on failure');
+if (!workflow.includes('Upload verification reports and step logs'))
+  failures.push('CI must upload verify:local step logs');
+if (!localVerify.includes("step('toolchain:check'"))
+  failures.push('verify:local must reject a Node/pnpm version mismatch before test execution');
+if (!localVerify.includes("step('test:options'"))
+  failures.push('verify:local must prove that Jest CLI options are applied');
+if (!localVerify.includes("step('test:prerequisites'"))
+  failures.push('verify:local must prove integration commands fail without prerequisites');
+if (!localVerify.includes("step('test:randomized'"))
+  failures.push('verify:local must include randomized component/e2e regression');
 
 if (failures.length > 0) {
   process.stderr.write(

@@ -64,6 +64,7 @@ describe('Adversarial inputs and protocol boundaries', () => {
   let app: NestFastifyApplication;
   let endpoint: string;
   const sockets: MarketDataClient[] = [];
+  let requestSequence = 0;
 
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
@@ -93,10 +94,11 @@ describe('Adversarial inputs and protocol boundaries', () => {
 
   /** Отправляет raw JSON, минуя `.send(object)`, чтобы проверить parser boundary. */
   function postRaw(body: string): request.Test {
+    requestSequence += 1;
     return request(app.getHttpServer())
       .post('/api/v1/orders')
       .set('x-api-key', 'trader-key')
-      .set('idempotency-key', `adv-${Math.random().toString(36).slice(2)}`)
+      .set('idempotency-key', `adv-${requestSequence}`)
       .set('content-type', 'application/json')
       .send(body);
   }
@@ -120,12 +122,12 @@ describe('Adversarial inputs and protocol boundaries', () => {
   });
 
   it('rejects Unicode-confusable, control character and duplicate-key identifiers safely', async () => {
-    for (const orderId of ['order\u0000', 'order\n1', 'оrder-1']) {
+    for (const [index, orderId] of ['order\u0000', 'order\n1', 'оrder-1'].entries()) {
       const response = await request(app.getHttpServer())
         .post('/api/v1/orders')
         .set('x-api-key', 'trader-key')
         .set('idempotency-key', `identifier-${Buffer.from(orderId).toString('hex').slice(0, 16)}`)
-        .send({ ...validPlaceOrder, commandId: `cmd-${Date.now()}`, orderId });
+        .send({ ...validPlaceOrder, commandId: `cmd-identifier-${index}`, orderId });
       expect(response.status).toBe(400);
       expect((response.body as ErrorBody).code).toBe('REQUEST_MALFORMED');
     }

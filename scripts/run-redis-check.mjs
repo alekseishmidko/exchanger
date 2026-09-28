@@ -35,16 +35,7 @@ if (redisProbe.status !== 0) {
 /** Запускает все real-Redis suites с явным opt-in и serial execution. */
 const result = spawnSync(
   'corepack',
-  [
-    'pnpm',
-    '--filter',
-    '@exchange/backend',
-    'exec',
-    'jest',
-    'src/modules/identity/infrastructure/redis-session.int-spec.ts',
-    'src/modules/realtime-market/infrastructure/redis-quote.int-spec.ts',
-    '--runInBand',
-  ],
+  ['pnpm', '--filter', '@exchange/backend', 'test:integration:redis'],
   {
     cwd: rootDirectory,
     env: { ...process.env, RUN_REDIS_INTEGRATION: 'true' },
