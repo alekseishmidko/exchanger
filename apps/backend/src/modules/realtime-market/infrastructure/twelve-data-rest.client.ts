@@ -43,6 +43,7 @@ export class TwelveDataRestClient implements ReferenceDataProviderPort {
     private readonly apiKey: string,
     private readonly timeoutMs: number,
     private readonly pageSize = 1000,
+    private readonly maxPages = 10,
   ) {}
 
   async loadCatalog(
@@ -51,30 +52,29 @@ export class TwelveDataRestClient implements ReferenceDataProviderPort {
   ): Promise<readonly RealtimeInstrument[]> {
     const path = this.path(assetClass);
     const result: RealtimeInstrument[] = [];
-    for (let page = 1; page <= 1_000; page += 1) {
+    for (let page = 1; page <= this.maxPages; page += 1) {
       const payload = await this.getPage(path, page);
       for (const value of payload.data) {
         for (const instrument of this.parse(assetClass, value))
           result.push(normalizeExternalInstrument(instrument, syncedAt));
       }
-      if (
+      const complete =
         payload.data.length < this.pageSize ||
-        result.length >= (payload.count ?? Number.MAX_SAFE_INTEGER)
-      )
-        break;
+        result.length >= (payload.count ?? Number.MAX_SAFE_INTEGER);
+      if (complete) return this.unique(result);
+      if (page === this.maxPages) throw new Error('TWELVE_DATA_CATALOG_PAGE_LIMIT_EXCEEDED');
     }
-    return [...new Map(result.map((item) => [item.id, item])).values()];
+    return this.unique(result);
   }
 
   async loadQuote(instrument: RealtimeInstrument): Promise<ProviderQuote> {
     const url = new URL('/quote', this.baseUrl);
-    url.searchParams.set('apikey', this.apiKey);
     url.searchParams.set('format', 'JSON');
     url.searchParams.set('symbol', instrument.providerSymbol);
     if (instrument.exchange) url.searchParams.set('exchange', instrument.exchange);
     const response = await fetch(url, {
       signal: AbortSignal.timeout(this.timeoutMs),
-      headers: { accept: 'application/json' },
+      headers: this.headers(),
     });
     if (!response.ok)
       throw new Error(
@@ -89,19 +89,27 @@ export class TwelveDataRestClient implements ReferenceDataProviderPort {
 
   private async getPage(path: string, page: number): Promise<z.infer<typeof pageSchema>> {
     const url = new URL(path, this.baseUrl);
-    url.searchParams.set('apikey', this.apiKey);
     url.searchParams.set('format', 'JSON');
     url.searchParams.set('page', String(page));
     url.searchParams.set('outputsize', String(this.pageSize));
     const response = await fetch(url, {
       signal: AbortSignal.timeout(this.timeoutMs),
-      headers: { accept: 'application/json' },
+      headers: this.headers(),
     });
     if (!response.ok)
       throw new Error(
         response.status === 429 ? 'TWELVE_DATA_RATE_LIMITED' : 'TWELVE_DATA_HTTP_ERROR',
       );
     return pageSchema.parse(await response.json());
+  }
+
+  /** REST-аутентификация не помещает secret в URL, access logs или error messages. */
+  private headers(): Readonly<Record<string, string>> {
+    return { accept: 'application/json', authorization: `apikey ${this.apiKey}` };
+  }
+
+  private unique(values: readonly RealtimeInstrument[]): readonly RealtimeInstrument[] {
+    return [...new Map(values.map((item) => [item.id, item])).values()];
   }
 
   private path(assetClass: RealtimeAssetClass): string {

@@ -29,6 +29,11 @@ services:
       # сохраняет строгие distributed password-admission limits.
       AUTH_RATE_LIMIT: '${AUTH_RATE_LIMIT:-100000}'
       AUTH_RATE_GLOBAL_LIMIT: '${AUTH_RATE_GLOBAL_LIMIT:-100000}'
+      # Host-process использует 127.0.0.1 из env example, контейнер — DNS service name.
+      TWELVE_DATA_REDIS_URL: '${TWELVE_DATA_REDIS_URL:-redis://redis:6379}'
+    depends_on:
+      redis:
+        condition: service_healthy
     ports:
       # В контейнере backend слушает PORT=5000, а host-порт можно переопределить:
       # BACKEND_HOST_PORT=5010 pnpm docker:development
@@ -55,6 +60,30 @@ services:
       - backend-node-modules:/workspace/apps/backend/node_modules
       - contracts-node-modules:/workspace/packages/contracts/node_modules
       - workspace-node-modules:/workspace/node_modules
+
+  redis:
+    image: redis:7.4-alpine
+    user: redis
+    command: ['redis-server', '--save', '', '--appendonly', 'no']
+    ports:
+      - '127.0.0.1:${REDIS_HOST_PORT:-6380}:6379'
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 2s
+      timeout: 2s
+      retries: 30
+      start_period: 3s
+    read_only: true
+    tmpfs:
+      - /data:rw,noexec,nosuid,size=64m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+    mem_limit: 128m
+    cpus: 0.5
+    restart: unless-stopped
 
   simulator:
     build:

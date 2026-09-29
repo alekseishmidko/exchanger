@@ -13,6 +13,7 @@
 - memory adapters для component profile и PostgreSQL catalog для durable profile;
 - defensive snapshot publication с защитой от пустого/резко уменьшившегося ответа;
 - single-owner Twelve Data WebSocket ingest с Redis lease/fencing, heartbeat и reconnect;
+- подтверждение полной upstream-подписки до состояния `CONNECTED`, bounded ACK timeout;
 - atomic Redis latest quote, local sequence, TTL и Pub/Sub publication;
 - feature flag и fail-fast environment validation.
 - REST quotes и отдельный Socket.IO namespace `/realtime-market-data`;
@@ -22,6 +23,38 @@
 
 `TWELVE_DATA_ENABLED=false` является безопасным default. В этом режиме модуль не
 открывает network connections и не требует provider credentials.
+
+Для локального подключения заполните секрет только в ignored-файле
+`.env.development` (для production — в `.env.production` или secret store), затем
+включите provider:
+
+```dotenv
+TWELVE_DATA_API_KEY=<ваш ключ Twelve Data>
+TWELVE_DATA_ENABLED=true
+TWELVE_DATA_REDIS_URL=<адрес выделенного Redis>
+```
+
+Development Compose поднимает изолированный Redis автоматически. При запуске
+backend непосредственно на host используется `redis://127.0.0.1:6380`, чтобы не
+конфликтовать с системным Redis на стандартном порту.
+
+Один `TWELVE_DATA_API_KEY` используется серверными REST- и WebSocket-адаптерами.
+REST передаёт его в `Authorization` header, поэтому secret не попадает в URL;
+WebSocket использует provider handshake query. Клиентским приложениям ключ не
+передаётся.
+
+Одноразовая проверка credentials и `/quote` без включения live-зависимости в CI:
+
+```bash
+pnpm twelve-data:smoke:test
+pnpm twelve-data:smoke
+pnpm twelve-data:ws-smoke:test
+pnpm twelve-data:ws-smoke
+```
+
+REST live-команда расходует один API credit. WebSocket live-команда временно
+занимает один subscription credit до закрытия соединения. Очищенные отчёты
+сохраняются в `artifacts/twelve-data-smoke/`.
 
 ## Инварианты
 

@@ -3,6 +3,7 @@ import { Suspense, lazy, useCallback, useMemo, useState } from 'react';
 import { DataTable } from './components/DataTable';
 import { SimulationPanel } from './components/SimulationPanel';
 import { RealtimeMarketPanel } from './components/RealtimeMarketPanel';
+import { TwelveDataDiagnosticsPanel } from './components/TwelveDataDiagnosticsPanel';
 import { UserAuthPanel } from './components/UserAuthPanel';
 import {
   ApiClientConfig,
@@ -566,6 +567,15 @@ export function App() {
           >
             Симуляция рынка
           </button>
+          <button
+            onClick={() =>
+              document
+                .getElementById('twelve-data-diagnostics')
+                ?.scrollIntoView({ behavior: 'smooth' })
+            }
+          >
+            Twelve Data API
+          </button>
           <button onClick={() => run('GET', '/health/live')}>Liveness</button>
           <button onClick={() => run('GET', '/health/ready')}>Readiness</button>
           <button onClick={() => run('GET', '/api/v1/machine-auth/me')}>Auth me</button>
@@ -579,7 +589,9 @@ export function App() {
 
       <SimulationPanel />
 
-      <RealtimeMarketPanel baseUrl={baseUrl} apiKey={apiKey} />
+      <RealtimeMarketPanel baseUrl={baseUrl} apiKey={apiKey} adminApiKey={adminApiKey} />
+
+      <TwelveDataDiagnosticsPanel baseUrl={baseUrl} adminApiKey={adminApiKey} />
 
       <section className="panel config-panel">
         <label>

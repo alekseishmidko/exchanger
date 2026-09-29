@@ -76,6 +76,20 @@ const missingContainerHardening = ![
   /cpus:/,
 ].every((pattern) => pattern.test(productionCompose));
 
+const twelveDataEnvironmentTemplates = [
+  '.env.development.example',
+  '.env.staging.example',
+  '.env.production.example',
+  '.env.test.example',
+];
+const invalidTwelveDataKeyTemplates = twelveDataEnvironmentTemplates.filter((file) => {
+  if (!existsSync(file)) return true;
+  const declaration = readFileSync(file, 'utf8')
+    .split(/\r?\n/)
+    .find((line) => line.startsWith('TWELVE_DATA_API_KEY='));
+  return declaration !== 'TWELVE_DATA_API_KEY=';
+});
+
 if (forbiddenFiles.length > 0) {
   process.stderr.write(`Forbidden tracked files:\n${forbiddenFiles.join('\n')}\n`);
 }
@@ -105,6 +119,10 @@ if (backendPublishesOrigin)
   process.stderr.write('Production backend origin must not publish a host port.\n');
 if (missingContainerHardening)
   process.stderr.write('Production container hardening policy is incomplete.\n');
+if (invalidTwelveDataKeyTemplates.length > 0)
+  process.stderr.write(
+    `Twelve Data env templates must declare an empty TWELVE_DATA_API_KEY placeholder:\n${invalidTwelveDataKeyTemplates.join('\n')}\n`,
+  );
 
 if (
   forbiddenFiles.length > 0 ||
@@ -117,7 +135,8 @@ if (
   unpinnedNodeImage ||
   unprunedRuntimeDependencies ||
   backendPublishesOrigin ||
-  missingContainerHardening
+  missingContainerHardening ||
+  invalidTwelveDataKeyTemplates.length > 0
 ) {
   process.exitCode = 1;
 } else {

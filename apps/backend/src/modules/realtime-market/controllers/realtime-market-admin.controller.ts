@@ -1,5 +1,7 @@
 import {
+  BadGatewayException,
   BadRequestException,
+  Body,
   Controller,
   Get,
   Headers,
@@ -13,6 +15,7 @@ import {
 } from '@nestjs/common';
 import {
   ApiAcceptedResponse,
+  ApiBody,
   ApiHeader,
   ApiOkResponse,
   ApiOperation,
@@ -28,6 +31,10 @@ import {
   type IdempotencyStorePort,
 } from '../../gateway/ports/gateway.idempotency.port';
 import { ReferenceDataSyncService } from '../application/reference-data-sync.service';
+import {
+  TwelveDataDiagnosticsService,
+  type TwelveDataDiagnosticResult,
+} from '../application/twelve-data-diagnostics.service';
 import { RealtimeInstrumentResponseDto } from '../dto/realtime-market.dto';
 import { REALTIME_CATALOG_PORT, type RealtimeCatalogPort } from '../ports/realtime-catalog.port';
 import {
@@ -43,6 +50,7 @@ import {
 export class RealtimeMarketAdminController {
   constructor(
     private readonly sync: ReferenceDataSyncService,
+    private readonly diagnostics: TwelveDataDiagnosticsService,
     private readonly rateLimit: RateLimitService,
     @Inject(IDEMPOTENCY_STORE_PORT) private readonly idempotency: IdempotencyStorePort,
     @Inject(REALTIME_CATALOG_PORT) private readonly catalog: RealtimeCatalogPort,
@@ -50,6 +58,71 @@ export class RealtimeMarketAdminController {
     private readonly executions: RealtimeExecutionRepositoryPort,
     @Inject(AUDIT_LOG_PORT) private readonly audit: AuditLogPort,
   ) {}
+
+  @Post('provider-inspect')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Выполнить bounded admin-проверку ответа Twelve Data' })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['transport'],
+      properties: {
+        transport: { type: 'string', enum: ['REST', 'WEBSOCKET'] },
+        endpoint: {
+          type: 'string',
+          enum: [
+            '/quote',
+            '/price',
+            '/time_series',
+            '/eod',
+            '/exchange_rate',
+            '/cryptocurrencies',
+            '/forex_pairs',
+            '/stocks',
+            '/commodities',
+            '/symbol_search',
+            '/technical_indicators',
+          ],
+        },
+        symbol: { type: 'string', minLength: 1, maxLength: 64 },
+        exchange: { type: 'string', minLength: 1, maxLength: 128 },
+        interval: {
+          type: 'string',
+          enum: ['1min', '5min', '15min', '30min', '45min', '1h', '2h', '4h', '8h', '1day'],
+        },
+        outputsize: { type: 'integer', minimum: 1, maximum: 100 },
+        page: { type: 'integer', minimum: 1, maximum: 1000 },
+      },
+    },
+  })
+  @ApiOkResponse({ description: 'Sanitized provider response without credentials.' })
+  async inspectProvider(
+    @Req() request: { principal: ApiKeyPrincipal },
+    @Body() body: unknown,
+  ): Promise<TwelveDataDiagnosticResult> {
+    assertAuthorizedAction(request.principal, 'admin.read');
+    this.rateLimit.check(request.principal.keyId);
+    try {
+      const result = await this.diagnostics.inspect(body);
+      await this.audit.append(
+        this.actor(request.principal),
+        'ACTION_REQUESTED',
+        'TWELVE_DATA_PROVIDER_INSPECT',
+        `${result.transport}:${result.endpoint}`,
+        'TwelveData',
+      );
+      return result;
+    } catch (error) {
+      const code = error instanceof Error ? error.message : 'TWELVE_DATA_DIAGNOSTIC_FAILED';
+      if (code.startsWith('TWELVE_DATA_DIAGNOSTIC_'))
+        throw new BadRequestException({
+          code,
+          message: 'Twelve Data diagnostic request is invalid',
+        });
+      throw new BadGatewayException({ code, message: 'Twelve Data diagnostic request failed' });
+    }
+  }
 
   @Post('catalog-sync')
   @HttpCode(202)

@@ -9,7 +9,7 @@
     "preview": "vite preview --host 0.0.0.0 --port 4173 --strictPort",
     "typecheck": "tsc --noEmit",
     "lint": "tsc --noEmit",
-    "test": "echo \"frontend smoke: no unit tests yet\""
+    "test": "node --test test/*.test.ts"
   },
   "dependencies": {
     "@tanstack/react-table": "^8.21.3",

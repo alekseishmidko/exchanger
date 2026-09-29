@@ -225,7 +225,12 @@ paths:
       operationId: listRealtimeQuotes
       security: [{ ApiKeyAuth: [] }]
       parameters:
-        - { name: instrumentIds, in: query, required: true, schema: { type: string, maxLength: 12900 } }
+        - {
+            name: instrumentIds,
+            in: query,
+            required: true,
+            schema: { type: string, maxLength: 12900 },
+          }
       responses:
         '200': { description: 'Fresh, stale or unavailable local quote snapshots' }
         '400': { description: Invalid or oversized instrument set }
@@ -234,7 +239,12 @@ paths:
       operationId: executeRealtimeOrder
       security: [{ ApiKeyAuth: [] }]
       parameters:
-        - { name: Idempotency-Key, in: header, required: true, schema: { type: string, maxLength: 128 } }
+        - {
+            name: Idempotency-Key,
+            in: header,
+            required: true,
+            schema: { type: string, maxLength: 128 },
+          }
       responses:
         '200': { description: Reference-price execution filled }
         '400': { description: Invalid or non-tradable operation }
@@ -247,7 +257,12 @@ paths:
         '200': { description: Principal-owned realtime execution history }
   /api/v1/realtime/orders/{orderId}:
     parameters:
-      - { name: orderId, in: path, required: true, schema: { type: string, minLength: 1, maxLength: 128 } }
+      - {
+          name: orderId,
+          in: path,
+          required: true,
+          schema: { type: string, minLength: 1, maxLength: 128 },
+        }
     get:
       operationId: getRealtimeOrder
       security: [{ ApiKeyAuth: [] }]
@@ -268,6 +283,47 @@ paths:
       responses:
         '202': { description: Catalog sync accepted }
         '400': { description: Invalid idempotency key }
+  /api/v1/admin/realtime/provider-inspect:
+    post:
+      operationId: inspectTwelveDataProvider
+      security: [{ ApiKeyAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [transport]
+              properties:
+                transport: { type: string, enum: [REST, WEBSOCKET] }
+                endpoint:
+                  type: string
+                  enum:
+                    - /quote
+                    - /price
+                    - /time_series
+                    - /eod
+                    - /exchange_rate
+                    - /cryptocurrencies
+                    - /forex_pairs
+                    - /stocks
+                    - /commodities
+                    - /symbol_search
+                    - /technical_indicators
+                symbol: { type: string, minLength: 1, maxLength: 64 }
+                exchange: { type: string, minLength: 1, maxLength: 128 }
+                interval:
+                  type: string
+                  enum: [1min, 5min, 15min, 30min, 45min, 1h, 2h, 4h, 8h, 1day]
+                outputsize: { type: integer, minimum: 1, maximum: 100 }
+                page: { type: integer, minimum: 1, maximum: 1000 }
+      responses:
+        '200': { description: Bounded sanitized REST response or WebSocket events from Twelve Data }
+        '400': { description: Endpoint or parameters are outside the diagnostic allowlist }
+        '401': { description: Invalid or missing API key }
+        '403': { description: Admin role required }
+        '502': { description: Twelve Data connection or response failed }
   /api/v1/admin/realtime/instruments/{instrumentId}/price-enable:
     parameters:
       - $ref: '#/components/parameters/InstrumentId'
@@ -275,7 +331,12 @@ paths:
       operationId: enableRealtimeInstrumentPrice
       security: [{ ApiKeyAuth: [] }]
       parameters:
-        - { name: Idempotency-Key, in: header, required: true, schema: { type: string, maxLength: 128 } }
+        - {
+            name: Idempotency-Key,
+            in: header,
+            required: true,
+            schema: { type: string, maxLength: 128 },
+          }
       responses:
         '201': { description: Realtime price ingest enabled }
         '400': { description: Invalid idempotency key }
@@ -287,7 +348,12 @@ paths:
       operationId: disableRealtimeInstrumentPrice
       security: [{ ApiKeyAuth: [] }]
       parameters:
-        - { name: Idempotency-Key, in: header, required: true, schema: { type: string, maxLength: 128 } }
+        - {
+            name: Idempotency-Key,
+            in: header,
+            required: true,
+            schema: { type: string, maxLength: 128 },
+          }
       responses:
         '201': { description: Realtime price ingest disabled }
         '400': { description: Invalid idempotency key }
@@ -299,7 +365,12 @@ paths:
       operationId: enableRealtimeInstrumentTrading
       security: [{ ApiKeyAuth: [] }]
       parameters:
-        - { name: Idempotency-Key, in: header, required: true, schema: { type: string, maxLength: 128 } }
+        - {
+            name: Idempotency-Key,
+            in: header,
+            required: true,
+            schema: { type: string, maxLength: 128 },
+          }
       responses:
         '201': { description: Reference-price execution enabled for instrument }
         '404': { description: 'Instrument not found, inactive or price-disabled' }
@@ -310,7 +381,12 @@ paths:
       operationId: disableRealtimeInstrumentTrading
       security: [{ ApiKeyAuth: [] }]
       parameters:
-        - { name: Idempotency-Key, in: header, required: true, schema: { type: string, maxLength: 128 } }
+        - {
+            name: Idempotency-Key,
+            in: header,
+            required: true,
+            schema: { type: string, maxLength: 128 },
+          }
       responses:
         '201': { description: Reference-price execution disabled for instrument }
   /api/v1/admin/realtime/execution/pause:
@@ -318,7 +394,12 @@ paths:
       operationId: pauseRealtimeExecution
       security: [{ ApiKeyAuth: [] }]
       parameters:
-        - { name: Idempotency-Key, in: header, required: true, schema: { type: string, maxLength: 128 } }
+        - {
+            name: Idempotency-Key,
+            in: header,
+            required: true,
+            schema: { type: string, maxLength: 128 },
+          }
       responses:
         '201': { description: Execution kill switch enabled }
   /api/v1/admin/realtime/execution/resume:
@@ -326,7 +407,12 @@ paths:
       operationId: resumeRealtimeExecution
       security: [{ ApiKeyAuth: [] }]
       parameters:
-        - { name: Idempotency-Key, in: header, required: true, schema: { type: string, maxLength: 128 } }
+        - {
+            name: Idempotency-Key,
+            in: header,
+            required: true,
+            schema: { type: string, maxLength: 128 },
+          }
       responses:
         '201': { description: Execution kill switch disabled }
   /api/v1/admin/realtime/execution/reconciliation:

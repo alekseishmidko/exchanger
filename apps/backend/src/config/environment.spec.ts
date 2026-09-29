@@ -123,6 +123,13 @@ describe('environment validation', () => {
       validateEnvironment({
         ...base,
         TWELVE_DATA_ENABLED: 'true',
+        TWELVE_DATA_API_KEY: '        ',
+      }),
+    ).toThrow('TWELVE_DATA_API_KEY is required');
+    expect(() =>
+      validateEnvironment({
+        ...base,
+        TWELVE_DATA_ENABLED: 'true',
         TWELVE_DATA_API_KEY: 'provider-secret',
         TWELVE_DATA_REST_URL: 'http://api.twelvedata.com',
         TWELVE_DATA_WS_URL: 'wss://ws.twelvedata.com/v1/quotes/price',

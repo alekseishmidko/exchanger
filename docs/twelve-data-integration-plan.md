@@ -429,9 +429,12 @@ TWELVE_DATA_ASSET_CLASSES=crypto,forex
 TWELVE_DATA_QUOTE_MAX_AGE_MS=5000
 TWELVE_DATA_QUOTE_TTL_MS=15000
 TWELVE_DATA_HEARTBEAT_MS=10000
+TWELVE_DATA_SUBSCRIBE_ACK_TIMEOUT_MS=10000
 TWELVE_DATA_RECONNECT_MIN_MS=1000
 TWELVE_DATA_RECONNECT_MAX_MS=30000
 TWELVE_DATA_MAX_SYMBOLS=<plan limit>
+TWELVE_DATA_CATALOG_PAGE_SIZE=1000
+TWELVE_DATA_CATALOG_MAX_PAGES=10
 TWELVE_DATA_CATALOG_SYNC_CRON=<schedule>
 REALTIME_LIQUIDITY_ACCOUNT_ID=<system account>
 REALTIME_EXECUTION_ENABLED=false
@@ -523,6 +526,12 @@ snapshot устраняют неоднозначность: пользовате
 Live Twelve Data не участвует в обязательном CI. HTTP и WebSocket воспроизводит
 локальный fake server. Отдельный scheduled/manual smoke может использовать
 настоящий key, никогда его не печатая.
+
+Ручной read-only canary запускается командами `pnpm twelve-data:smoke` и
+`pnpm twelve-data:ws-smoke`; offline contracts для них — соответственно
+`pnpm twelve-data:smoke:test` и `pnpm twelve-data:ws-smoke:test`. REST canary
+делает ровно один `/quote` request, WS canary закрывается после ACK и первого
+валидного tick. Оба сохраняют secret-free отчёты в `artifacts/twelve-data-smoke/`.
 
 ### Unit
 

@@ -34,7 +34,19 @@ pnpm api:flows
 pnpm load:smoke
 ```
 
-Все три команды должны завершиться успешно. Отчёты сохраняются в `artifacts/`.
+Первые три команды должны завершиться успешно. Отчёты сохраняются в `artifacts/`.
+
+Проверки реального Twelve Data выполняются отдельно от обязательного CI. REST
+smoke расходует один API credit, WebSocket smoke временно занимает один
+subscription credit. Ключ читается только из ignored `.env.development`, не
+попадает в URL REST-запроса, console output или artifact:
+
+```bash
+pnpm twelve-data:smoke:test  # offline contract tests при изменении adapter/smoke
+pnpm twelve-data:smoke       # один live /quote request после настройки ключа
+pnpm twelve-data:ws-smoke:test # offline WebSocket canary contract
+pnpm twelve-data:ws-smoke      # один symbol до первого подтверждённого tick
+```
 
 ## 2. Перед pull request
 
