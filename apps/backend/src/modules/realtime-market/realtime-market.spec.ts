@@ -119,8 +119,10 @@ describe('realtime market domain and adapters', () => {
   it('loads a bounded REST quote for a catalog-mapped symbol and venue', async () => {
     const original = global.fetch;
     let calledInput: string | URL | Request | undefined;
-    global.fetch = jest.fn((input: string | URL | Request) => {
+    let calledInit: RequestInit | undefined;
+    global.fetch = jest.fn((input: string | URL | Request, init?: RequestInit) => {
       calledInput = input;
+      calledInit = init;
       return Promise.resolve(
         new Response(JSON.stringify({ close: '60000.125', timestamp: 1_800_000_000 }), {
           status: 200,
@@ -155,6 +157,8 @@ describe('realtime market domain and adapters', () => {
       expect(called.pathname).toBe('/quote');
       expect(called.searchParams.get('symbol')).toBe('BTC/USD');
       expect(called.searchParams.get('exchange')).toBe('Coinbase');
+      expect(called.searchParams.has('apikey')).toBe(false);
+      expect(new Headers(calledInit?.headers).get('authorization')).toBe('apikey secret-key');
     } finally {
       global.fetch = original;
     }
@@ -163,8 +167,10 @@ describe('realtime market domain and adapters', () => {
   it('uses only allow-listed REST paths and expands crypto venues', async () => {
     const original = global.fetch;
     let calledInput: string | URL | Request | undefined;
-    const mock = jest.fn((input: string | URL | Request) => {
+    let calledInit: RequestInit | undefined;
+    const mock = jest.fn((input: string | URL | Request, init?: RequestInit) => {
       calledInput = input;
+      calledInit = init;
       return Promise.resolve(
         new Response(
           JSON.stringify({
@@ -190,7 +196,37 @@ describe('realtime market domain and adapters', () => {
             : (calledInput ?? ''),
       );
       expect(called.origin + called.pathname).toBe('https://api.twelvedata.com/cryptocurrencies');
-      expect(called.searchParams.get('apikey')).toBe('secret-key');
+      expect(called.searchParams.has('apikey')).toBe(false);
+      expect(new Headers(calledInit?.headers).get('authorization')).toBe('apikey secret-key');
+    } finally {
+      global.fetch = original;
+    }
+  });
+
+  it('fails closed before catalog pagination can exceed its configured credit budget', async () => {
+    const original = global.fetch;
+    const mock = jest.fn(() =>
+      Promise.resolve(
+        Response.json({
+          count: 3,
+          status: 'ok',
+          data: [{ symbol: 'EUR/USD' }],
+        }),
+      ),
+    );
+    global.fetch = mock;
+    try {
+      const client = new TwelveDataRestClient(
+        'https://api.twelvedata.com',
+        'secret-key',
+        1000,
+        1,
+        2,
+      );
+      await expect(client.loadCatalog('FOREX', syncedAt)).rejects.toThrow(
+        'TWELVE_DATA_CATALOG_PAGE_LIMIT_EXCEEDED',
+      );
+      expect(mock).toHaveBeenCalledTimes(2);
     } finally {
       global.fetch = original;
     }

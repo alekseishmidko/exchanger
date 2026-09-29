@@ -12,6 +12,7 @@ import {
 } from '../src/modules/realtime-market';
 import { normalizeExternalInstrument } from '../src/modules/realtime-market/domain/external-instrument';
 import { createReferenceQuote } from '../src/modules/realtime-market/domain/reference-quote';
+import { TwelveDataDiagnosticsService } from '../src/modules/realtime-market/application/twelve-data-diagnostics.service';
 
 describe('Realtime market HTTP boundary', () => {
   let app: NestFastifyApplication;
@@ -46,6 +47,19 @@ describe('Realtime market HTTP boundary', () => {
       )
       .overrideProvider(REALTIME_CATALOG_PORT)
       .useValue(catalog)
+      .overrideProvider(TwelveDataDiagnosticsService)
+      .useValue({
+        inspect: jest.fn().mockResolvedValue({
+          provider: 'TwelveData',
+          transport: 'REST',
+          endpoint: '/quote',
+          request: { symbol: 'BTC/USD', format: 'JSON' },
+          durationMs: 12,
+          httpStatus: 200,
+          credits: { used: '1', left: '7' },
+          body: { symbol: 'BTC/USD', close: '83000' },
+        }),
+      })
       .compile();
     app = moduleRef.createNestApplication<NestFastifyApplication>(new FastifyAdapter());
     await app.listen(0, '127.0.0.1');
@@ -139,5 +153,29 @@ describe('Realtime market HTTP boundary', () => {
           reconnects: 0,
         }),
       );
+  });
+
+  it('protects the bounded provider inspector and returns no credentials', async () => {
+    const path = '/api/v1/admin/realtime/provider-inspect';
+    const body = { transport: 'REST', endpoint: '/quote', symbol: 'BTC/USD' };
+    await request(app.getHttpServer()).post(path).send(body).expect(401);
+    await request(app.getHttpServer())
+      .post(path)
+      .set('x-api-key', 'realtime-key')
+      .send(body)
+      .expect(403);
+    await request(app.getHttpServer())
+      .post(path)
+      .set('x-api-key', 'realtime-admin')
+      .send(body)
+      .expect(200)
+      .expect(({ body: responseBody }) => {
+        expect(responseBody).toMatchObject({
+          provider: 'TwelveData',
+          endpoint: '/quote',
+          httpStatus: 200,
+        });
+        expect(JSON.stringify(responseBody)).not.toContain('apiKey');
+      });
   });
 });

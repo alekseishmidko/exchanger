@@ -74,6 +74,7 @@ export class PriceStreamSupervisor implements OnApplicationBootstrap, OnApplicat
       this.config.getOrThrow('TWELVE_DATA_WS_URL'),
       this.config.getOrThrow('TWELVE_DATA_API_KEY'),
       Number(this.config.get('TWELVE_DATA_HEARTBEAT_MS', '10000')),
+      Number(this.config.get('TWELVE_DATA_SUBSCRIBE_ACK_TIMEOUT_MS', '10000')),
       (event) => this.accept(event),
       () => this.scheduleReconnect(),
       () => this.metrics.observeRealtimeTick('invalid'),

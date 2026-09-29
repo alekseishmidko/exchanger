@@ -23,11 +23,14 @@ export function validateRealtimeEnvironment(config: RealtimeEnvironmentConfig): 
     'TWELVE_DATA_QUOTE_MAX_AGE_MS',
     'TWELVE_DATA_QUOTE_TTL_MS',
     'TWELVE_DATA_HEARTBEAT_MS',
+    'TWELVE_DATA_SUBSCRIBE_ACK_TIMEOUT_MS',
     'TWELVE_DATA_RECONNECT_MIN_MS',
     'TWELVE_DATA_RECONNECT_MAX_MS',
     'TWELVE_DATA_LEADER_TTL_MS',
     'TWELVE_DATA_MAX_SYMBOLS',
     'TWELVE_DATA_REST_BOOTSTRAP_LIMIT',
+    'TWELVE_DATA_CATALOG_PAGE_SIZE',
+    'TWELVE_DATA_CATALOG_MAX_PAGES',
     'TWELVE_DATA_CATALOG_SYNC_INTERVAL_MS',
     'REALTIME_MAX_SUBSCRIPTIONS_PER_SOCKET',
     'REALTIME_MAX_PENDING_MESSAGES',
@@ -74,7 +77,7 @@ export function validateRealtimeEnvironment(config: RealtimeEnvironmentConfig): 
 function validateEnabledProvider(config: RealtimeEnvironmentConfig): void {
   if (
     typeof config['TWELVE_DATA_API_KEY'] !== 'string' ||
-    String(config['TWELVE_DATA_API_KEY']).length < 8
+    config['TWELVE_DATA_API_KEY'].trim().length < 8
   )
     throw new Error('TWELVE_DATA_API_KEY is required when Twelve Data is enabled');
   for (const [key, protocol] of [

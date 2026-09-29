@@ -16,6 +16,7 @@ import { RealtimeMarketHub } from './application/realtime-market-hub';
 import { ReferenceDataSyncService } from './application/reference-data-sync.service';
 import { PriceStreamSupervisor } from './application/price-stream-supervisor';
 import { RealtimeMarketStatusService } from './application/realtime-market-status.service';
+import { TwelveDataDiagnosticsService } from './application/twelve-data-diagnostics.service';
 import { RealtimeMarketController } from './controllers/realtime-market.controller';
 import { RealtimeMarketAdminController } from './controllers/realtime-market-admin.controller';
 import { RealtimeExecutionController } from './controllers/realtime-execution.controller';
@@ -47,6 +48,7 @@ import {
   ],
   providers: [
     RealtimeMarketStatusService,
+    TwelveDataDiagnosticsService,
     RealtimeMarketHub,
     RealtimeMarketGateway,
     {
@@ -69,6 +71,8 @@ import {
           config.get('TWELVE_DATA_REST_URL', 'https://api.twelvedata.com'),
           config.get('TWELVE_DATA_API_KEY', ''),
           Number(config.get('TWELVE_DATA_REQUEST_TIMEOUT_MS', '5000')),
+          Number(config.get('TWELVE_DATA_CATALOG_PAGE_SIZE', '1000')),
+          Number(config.get('TWELVE_DATA_CATALOG_MAX_PAGES', '10')),
         ),
     },
     {
